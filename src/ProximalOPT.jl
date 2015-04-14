@@ -15,7 +15,8 @@ export
   quad_f,
   # proximal operators
   prox_l1,
-  prox_l2
+  prox_l2,
+  prox_l1l2
 
 
 # Types

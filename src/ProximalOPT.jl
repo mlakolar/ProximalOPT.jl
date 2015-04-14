@@ -2,6 +2,7 @@ module ProximalOPT
 
 # using Devectorize
 import Optim.update!
+using ArrayViews
 
 export
   # types
@@ -70,11 +71,16 @@ function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::P
   lambda::Float64 = 1.
 
   tmp_x = copy(x)
+  tmp_x_v = view(tmp_x, :)
   grad_x = copy(x)
+  grad_x_v = view(grad_x, :)
   z = copy(x)
+  z_v = view(z, :)
+
+  x_v = view(x, :)
 
   fx::Float64 = fmin.fg!(tmp_x, x)
-  gx::Float64 = prox_op.g(x)
+  gx::Float64 = prox_op.g(x_v)
   curVal::Float64 = fx + gx
   lastVal = curVal
   fz::Float64 = 0.
@@ -90,7 +96,7 @@ function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::P
       for i=1:length(x)
         tmp_x[i] = x[i] - lambda * grad_x[i]
       end
-      prox_op.prox_g!(z, tmp_x, lambda)
+      prox_op.prox_g!(z_v, tmp_x_v, lambda)
       fz = fmin.fg!(tmp_x, z)
       for i=1:length(x)
         tmp_x[i] = z[i] - x[i]
@@ -106,7 +112,7 @@ function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::P
     end
     copy!(x, z)
     fx = fz
-    gx = prox_op.g(x)
+    gx = prox_op.g(x_v)
     curVal = fx + gx
     @gdtrace
     if abs(curVal - lastVal) < ABSTOL
@@ -117,8 +123,6 @@ function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::P
 
   tr
 end
-
-
 
 
 # implements the algorithm in section 4.2 of
@@ -146,9 +150,13 @@ function acc_prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_o
   y = copy(x)
 
   tmp = copy(x)
+  tmp_v = view(tmp, :)
   grad_y = copy(x)
   z = copy(x)
+  z_v = view(z, :)
   prev_x = copy(x)
+
+  x_v = view(x, :)
 
   fy::Float64 = 0.
   fz::Float64 = 0.
@@ -172,7 +180,7 @@ function acc_prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_o
       for k=1:length(x)
         tmp[k] = y[k] - lambda * grad_y[k]
       end
-      prox_op.prox_g!(z, tmp, lambda)
+      prox_op.prox_g!(z_v, tmp_v, lambda)
       fz = fmin.fg!(tmp, z)
       for k=1:length(x)
         tmp[k] = z[k] - x[k]
@@ -189,7 +197,7 @@ function acc_prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_o
     copy!(prev_x, x)
     copy!(x, z)
 
-    gx = prox_op.g(x)
+    gx = prox_op.g(x_v)
     curVal = fz + gx
     @gdtrace
     if abs(curVal - lastVal) < ABSTOL

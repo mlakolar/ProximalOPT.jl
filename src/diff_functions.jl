@@ -6,7 +6,7 @@
 ##########################################################
 
 # creates a function x'Ax/2 + b'x + c
-function quad_f(A::Matrix{Float64})
+function quad_f(A::ArrayView)
   function f(x::Vector{Float64})
     dot(x, A*x) / 2.
   end
@@ -24,15 +24,13 @@ function quad_f(A::Matrix{Float64})
     fg!
     )
 end
-function quad_f(A::Matrix{Float64}, b::Vector{Float64}, c::Float64=0.)
+function quad_f(A::ArrayView, b::ArrayView, c::Float64=0.)
 
   function f(x::Vector{Float64})
     dot(x, A*x) / 2. + dot(x, b) + c
   end
   function g!(hat_x::Vector{Float64}, x::Vector{Float64})
     A_mul_B!(hat_x, A, x)
-#     @devec hat_x += b
-#     hat_x += b
     for i=1:length(x)
       hat_x[i] += b[i]
     end
@@ -40,11 +38,11 @@ function quad_f(A::Matrix{Float64}, b::Vector{Float64}, c::Float64=0.)
   end
   function fg!(hat_x::Vector{Float64}, x::Vector{Float64})
     A_mul_B!(hat_x, A, x)
-    r = dot(hat_x, x) / 2.
+    r = dot(hat_x, x) / 2. + c
     for i=1:length(x)
       hat_x[i] += b[i]
     end
-    r + dot(x, b) + c
+    r + dot(x, b)
   end
 
   DifferentiableFunction(

@@ -77,3 +77,22 @@ function _prox_l1l2!(hat_x::ArrayView, x::ArrayView, groups::Vector{UnitRange{In
   end
   nothing
 end
+
+###### L2 norm -- squared
+
+function prox_l2sq(lambda::Float64)
+  g(x::ArrayView) = lambda * dot(x, x)
+  @eval prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l2sq!(hat_x, x, gamma * $lambda)
+  ProximalOperator(
+    g, prox_g!
+    )
+end
+
+# computes argmin lambda * |hat_x|_2^2 + |x-hat_x|^2 / 2
+function _prox_l2sq!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
+  tmp = 1. / (1. + 2. * lambda)
+  for i=1:length(x)
+    hat_x[i] = tmp * x[i]
+  end
+  nothing
+end

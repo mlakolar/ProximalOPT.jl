@@ -119,6 +119,34 @@ facts("proximal_l1") do
 end
 
 
+facts("proximal_l1sq") do
+  n = 100
+  p = 10
+
+  X = randn(n, p)
+  Y = X * ones(p) + 0.1*randn(n)
+
+  XX = X'X / n
+  Xyn = - X'Y / n
+
+  # solve ols
+  hat_beta = zeros(p)
+  f = ProximalOPT.quad_f(view(XX, :, :), view(Xyn, :))
+  prox_op = ProximalOPT.prox_l2sq(0.)
+  ProximalOPT.prox_grad!(hat_beta, f, prox_op; ABSTOL=1e-10)
+  @fact hat_beta => roughly(-XX \ Xyn; atol=1e-5)
+
+  # solve ridge regression
+  lambda = 1.
+  hat_beta = zeros(p)
+  f = ProximalOPT.quad_f(view(XX, :, :), view(Xyn, :))
+  prox_op = ProximalOPT.prox_l2sq(lambda)
+  ProximalOPT.prox_grad!(hat_beta, f, prox_op; ABSTOL=1e-10)
+
+  @fact hat_beta => roughly(-(XX + 2*lambda*eye(p)) \ Xyn; atol=1e-5)
+end
+
+
 
 FactCheck.exitstatus()
 

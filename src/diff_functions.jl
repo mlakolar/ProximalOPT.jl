@@ -24,6 +24,7 @@ function quad_f(A::ArrayView)
     fg!
     )
 end
+
 function quad_f(A::ArrayView, b::ArrayView, c::Float64=0.)
 
   function f(x::Vector{Float64})

@@ -16,7 +16,8 @@ export
   # proximal operators
   prox_l1,
   prox_l2,
-  prox_l1l2
+  prox_l1l2,
+  prox_l2sq
 
 
 # Types

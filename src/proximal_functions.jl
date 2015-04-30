@@ -96,3 +96,55 @@ function _prox_l2sq!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
   end
   nothing
 end
+
+
+####### nuclear norm
+
+function prox_nuclear(lambda::Float64)
+  g(x::ArrayView) = lambda * sum(svdvals(x))
+  @eval prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_nuclear!(hat_x, x, gamma * $lambda)
+  ProximalOperator(
+    g, prox_g!
+    )
+end
+
+function _prox_nuclear!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
+  U, S, V = svd(x)
+  for i=1:length(S)
+    S[i] = max(0., S[i] - lambda) - max(0., -S[i] - lambda)
+  end
+  tmp_x = U * (Diagonal(S) * V')
+  nr, nc = size(x)
+  for r=1:nr
+    for c=1:nc
+      hat_x[r,c] = tmp_x[r, c]
+    end
+  end
+  nothing
+end
+
+
+function prox_l1nuclear(groups::Vector{UnitRange{Int64}}, lambda::Vector{Float64})
+  function g(x::ArrayView)
+    r = 0.
+    for i=1:length(lambda)
+      tmp_v = view(x, :, groups[i])
+      r += lambda[i] * sum(svdvals(tmp_v))
+    end
+    r
+  end
+  prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l1nuclear!(hat_x, x, groups, lambda, gamma)
+  ProximalOperator(
+    g, prox_g!
+    )
+end
+
+function _prox_l1nuclear!(hat_x::ArrayView, x::ArrayView, groups::Vector{UnitRange{Int64}}, lambda::Vector{Float64}, gamma::Float64)
+  for i=1:length(lambda)
+    hat_x_i = view(hat_x, :, groups[i])
+    x_i = view(x, :, groups[i])
+    _prox_nuclear!(hat_x_i, x_i, lambda[i]*gamma)
+  end
+  nothing
+end
+

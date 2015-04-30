@@ -17,7 +17,8 @@ export
   prox_l1,
   prox_l2,
   prox_l1l2,
-  prox_l2sq
+  prox_l2sq,
+  prox_nuclear
 
 
 # Types
@@ -51,11 +52,11 @@ end
 
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
-function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::ProximalOperator;
-                    beta::Float64         = 0.8,
+function prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction, prox_op::ProximalOperator;
+                    beta::T               = 0.8,
                     MAX_ITER::Int64       = 300,
-                    ABSTOL::Float64       = 1e-4,
-                    MIN_LAMBDA::Float64   = 1e-10,
+                    ABSTOL::T             = 1e-4,
+                    MIN_LAMBDA::T         = 1e-10,
                     store_trace::Bool     = false,
                     show_trace::Bool      = false,
                     extended_trace::Bool  = false
@@ -73,15 +74,15 @@ function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::P
   lambda::Float64 = 1.
 
   tmp_x = copy(x)
-  tmp_x_v = view(tmp_x, :)
+  tmp_x_v = view(tmp_x)
   grad_x = copy(x)
-  grad_x_v = view(grad_x, :)
+  grad_x_v = view(grad_x)
   z = copy(x)
-  z_v = view(z, :)
+  z_v = view(z)
 
-  x_v = view(x, :)
+  x_v = view(x)
 
-  fx::Float64 = fmin.fg!(tmp_x, x)
+  fx::Float64 = fmin.fg!(tmp_x_v, x_v)
   gx::Float64 = prox_op.g(x_v)
   curVal::Float64 = fx + gx
   lastVal = curVal
@@ -93,13 +94,13 @@ function prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::P
   @gdtrace
 
   for iter = 1:MAX_ITER
-    fmin.g!(grad_x, x)
+    fmin.g!(grad_x_v, x_v)
     while true
       for i=1:length(x)
         tmp_x[i] = x[i] - lambda * grad_x[i]
       end
       prox_op.prox_g!(z_v, tmp_x_v, lambda)
-      fz = fmin.fg!(tmp_x, z)
+      fz = fmin.fg!(tmp_x_v, z_v)
       for i=1:length(x)
         tmp_x[i] = z[i] - x[i]
       end
@@ -129,11 +130,11 @@ end
 
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
-function acc_prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_op::ProximalOperator;
-                        beta::Float64     = 0.8,
+function acc_prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction, prox_op::ProximalOperator;
+                        beta::T           = 0.8,
                         MAX_ITER::Int64   = 300,
-                        ABSTOL::Float64   = 1e-4,
-                        MIN_LAMBDA::Float64   = 1e-10,
+                        ABSTOL::T         = 1e-4,
+                        MIN_LAMBDA::T     = 1e-10,
                         store_trace::Bool = false,
                         show_trace::Bool = false,
                         extended_trace::Bool = false,
@@ -152,13 +153,15 @@ function acc_prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_o
   y = copy(x)
 
   tmp = copy(x)
-  tmp_v = view(tmp, :)
+  tmp_v = view(tmp)
   grad_y = copy(x)
+  grad_y_v = view(grad_y)
   z = copy(x)
-  z_v = view(z, :)
+  z_v = view(z)
   prev_x = copy(x)
 
-  x_v = view(x, :)
+  x_v = view(x)
+  y_v = view(y)
 
   fy::Float64 = 0.
   fz::Float64 = 0.
@@ -176,14 +179,14 @@ function acc_prox_grad!(x::Vector{Float64}, fmin::DifferentiableFunction, prox_o
     for k=1:length(x)
       y[k] = x[k] +  omega * (x[k] - prev_x[k])
     end
-    fy = fmin.fg!(tmp, y)
-    fmin.g!(grad_y, y)
+    fy = fmin.fg!(tmp_v, y_v)
+    fmin.fg!(grad_y_v, y_v)
     while true
       for k=1:length(x)
         tmp[k] = y[k] - lambda * grad_y[k]
       end
       prox_op.prox_g!(z_v, tmp_v, lambda)
-      fz = fmin.fg!(tmp, z)
+      fz = fmin.fg!(tmp_v, z_v)
       for k=1:length(x)
         tmp[k] = z[k] - x[k]
       end

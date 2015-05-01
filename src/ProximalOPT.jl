@@ -1,28 +1,29 @@
 module ProximalOPT
 
-# using Devectorize
+using Compat
+using Devectorize
+
+import Optim.OptimizationState
+import Optim.OptimizationTrace
 import Optim.update!
-using ArrayViews
 
 export
   # types
   DifferentiableFunction,
-  ProximalOperator,
+  ProximableFunction,
+
   # proximal minimization algorithms
   prox_grad!,
   acc_prox_grad!,
+
   # smooth functions
-  quad_f,
-  # proximal operators
-  prox_l1,
-  prox_l2,
-  prox_l1l2,
-  prox_l2sq,
-  prox_nuclear
+  QuadraticFunction,
+  gradient!, value_and_gradient!,
 
-
-# Types
-include("types.jl")
+  # proximal functions
+  ProxL1, ProxL2, ProxL2Sq, ProxNuclear, ProxSumProx,
+  ProxL1L2, ProxL1Nuclear,
+  value, prox!
 
 # Helper functions to construct DifferentiableFunctions
 include("diff_functions.jl")
@@ -52,7 +53,7 @@ end
 
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
-function prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction, prox_op::ProximalOperator;
+function prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction, prox_op::ProximableFunction;
                     beta::T               = 0.8,
                     MAX_ITER::Int64       = 300,
                     ABSTOL::T             = 1e-4,
@@ -74,16 +75,11 @@ function prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction,
   lambda::Float64 = 1.
 
   tmp_x = copy(x)
-  tmp_x_v = view(tmp_x)
   grad_x = copy(x)
-  grad_x_v = view(grad_x)
   z = copy(x)
-  z_v = view(z)
 
-  x_v = view(x)
-
-  fx::Float64 = fmin.fg!(tmp_x_v, x_v)
-  gx::Float64 = prox_op.g(x_v)
+  fx::Float64 = value_and_gradient!(fmin, tmp_x, x)
+  gx::Float64 = value(prox_op, x)
   curVal::Float64 = fx + gx
   lastVal = curVal
   fz::Float64 = 0.
@@ -94,28 +90,23 @@ function prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction,
   @gdtrace
 
   for iter = 1:MAX_ITER
-    fmin.g!(grad_x_v, x_v)
+    gradient!(fmin, grad_x, x)
     while true
-      for i=1:length(x)
-        tmp_x[i] = x[i] - lambda * grad_x[i]
-      end
-      prox_op.prox_g!(z_v, tmp_x_v, lambda)
-      fz = fmin.fg!(tmp_x_v, z_v)
-      for i=1:length(x)
-        tmp_x[i] = z[i] - x[i]
-      end
-      sm_square = norm(tmp_x)^2.
-      if fz <= fx + dot(grad_x, tmp_x) + sm_square / 2. / lambda
+      @devec tmp_x = x - lambda .* grad_x
+      prox!(prox_op, tmp_x, x, lambda)
+      fz = value_and_gradient!(fmin, tmp_x, z)
+      @devec tmp_x = z - x
+      if fz <= fx + dot(grad_x, tmp_x) + sumabs2(tmp_x) / 2. / lambda
         break
       end
-      lambda = beta*lambda;
+      lambda = beta*lambda
       if lambda < MIN_LAMBDA
         break
       end
     end
-    copy!(x, z)
+    x, z = z, x
     fx = fz
-    gx = prox_op.g(x_v)
+    value(prox_op, x)
     curVal = fx + gx
     @gdtrace
     if abs(curVal - lastVal) < ABSTOL
@@ -130,7 +121,7 @@ end
 
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
-function acc_prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction, prox_op::ProximalOperator;
+function acc_prox_grad!{T<:FloatingPoint}(x::Array{T}, fmin::DifferentiableFunction, prox_op::ProximableFunction;
                         beta::T           = 0.8,
                         MAX_ITER::Int64   = 300,
                         ABSTOL::T         = 1e-4,

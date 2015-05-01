@@ -5,146 +5,135 @@
 #
 ##########################################################
 
+abstract ProximableFunction
 
+prox!(g::ProximableFunction, hat_x::StridedArray, x::StridedArray) = prox!(g, hat_x, x, 1.0)
 
-######  L1 norm
+######  L1 norm  g(x) = λ * ||x||_1
 
-function prox_l1(lambda::Float64)
-  g(x::ArrayView) = lambda * norm(x, 1)
-  @eval prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l1!(hat_x, x, gamma * $lambda)
-
-  ProximalOperator(
-    g, prox_g!
-    )
+immutable ProxL1{T<:FloatingPoint} <: ProximableFunction
+  λ::T
 end
 
+ProxL1{T<:FloatingPoint}(λ::T) = ProxL1{T}(λ)
 
-# computes argmin lambda * |hat_x|_1 + |x-hat_x|^2 / 2
-function _prox_l1!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
-  for i=1:length(x)
-    hat_x[i] = max(0., x[i] - lambda) - max(0., -x[i] - lambda)
+value{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}) = g.λ * sumabs(x)
+
+function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+  @assert size(out_x) == size(x)
+  c = g.λ * γ
+  for i in eachindex(x)
+    @inbounds hat_x[i] = max(0., x[i] - c) - max(0., -x[i] - c)
   end
-  nothing
+  hat_x
 end
 
+###### L2 norm   g(x) = λ * ||x||_2
 
-###### L2 norm
-
-function prox_l2(lambda::Float64)
-  g(x::ArrayView) = lambda * norm(x)
-  @eval prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l2!(hat_x, x, gamma * $lambda)
-  ProximalOperator(
-    g, prox_g!
-    )
+immutable ProxL2{T<:FloatingPoint} <: ProximableFunction
+  λ::T
 end
 
-# computes argmin lambda * |hat_x|_2 + |x-hat_x|^2 / 2
-function _prox_l2!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
-  tmp = max(1. - lambda / norm(x), 0.)
+ProxL2{T<:FloatingPoint}(λ::T) = ProxL2{T}(λ)
+
+value{T<:FloatingPoint}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * norm(x)
+
+function prox!{T<:FloatingPoint}(g::ProxL2{T}, out_x::StridedVector{T}, x::StridedVector{T}, γ::T)
+  @assert size(out_x) == size(x)
+  c = g.λ * γ
+  tmp = max(1. - c / norm(x), 0.)
   if tmp > 0.
-    for i=1:length(x)
-      hat_x[i] = tmp * x[i]
+    @inbounds for i in eachindex(x)
+      out_x[i] = tmp * x[i]
     end
   else
-    fill!(hat_x, 0.)
+    fill!(out_x, 0.)
   end
-  nothing
+  out_x
 end
 
-function prox_l1l2(groups::Vector{UnitRange{Int64}}, lambda::Vector{Float64})
-  function g(x::ArrayView)
-    r = 0.
-    for i=1:length(lambda)
-      tr = 0.
-      for j=groups[i]
-        tr += x[j]^2
-      end
-      r += lambda[i] * sqrt(tr)
-    end
-    r
+###### L2 norm squared g(x) = λ * ||x||_2^2
+
+immutable ProxL2Sq{T<:FloatingPoint} <: ProximableFunction
+  λ::T
+end
+
+ProxL2Sq{T<:FloatingPoint}(λ::T) = ProxL2Sq{T}(λ)
+
+function value{T<:FloatingPoint}(g::ProxL2Sq{T}, x::StridedArray{T})
+  g.λ * sumabs2(x)
+end
+
+function prox!{T<:FloatingPoint}(g::ProxL2Sq{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+  @assert size(out_x) == size(x)
+  c = g.λ * γ
+  c = 1. / (1. + 2. * c)
+  @inbounds for i in eachindex(x)
+    out_x[i] = c * x[i]
   end
-  prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l1l2!(hat_x, x, groups, lambda, gamma)
-  ProximalOperator(
-    g, prox_g!
-    )
+  out_x
 end
 
-function _prox_l1l2!(hat_x::ArrayView, x::ArrayView, groups::Vector{UnitRange{Int64}}, lambda::Vector{Float64}, gamma::Float64)
-  for i=1:length(lambda)
-    hat_x_i = view(hat_x, groups[i])
-    x_i = view(x, groups[i])
-    _prox_l2!(hat_x_i, x_i, lambda[i]*gamma)
-  end
-  nothing
+####### nuclear norm  g(x) = λ * ||x||_*
+
+immutable ProxNuclear{T<:FloatingPoint} <: ProximableFunction
+  λ::T
 end
 
-###### L2 norm -- squared
+ProxNuclear{T<:FloatingPoint}(λ::T) = ProxNuclear{T}(λ)
 
-function prox_l2sq(lambda::Float64)
-  g(x::ArrayView) = lambda * dot(x, x)
-  @eval prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l2sq!(hat_x, x, gamma * $lambda)
-  ProximalOperator(
-    g, prox_g!
-    )
-end
+value{T<:FloatingPoint}(g::ProxNuclear{T}, x::StridedMatrix{T}) = g.λ * sum(svdvals(x))
 
-# computes argmin lambda * |hat_x|_2^2 + |x-hat_x|^2 / 2
-function _prox_l2sq!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
-  tmp = 1. / (1. + 2. * lambda)
-  for i=1:length(x)
-    hat_x[i] = tmp * x[i]
-  end
-  nothing
-end
-
-
-####### nuclear norm
-
-function prox_nuclear(lambda::Float64)
-  g(x::ArrayView) = lambda * sum(svdvals(x))
-  @eval prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_nuclear!(hat_x, x, gamma * $lambda)
-  ProximalOperator(
-    g, prox_g!
-    )
-end
-
-function _prox_nuclear!(hat_x::ArrayView, x::ArrayView, lambda::Float64)
+function prox!{T<:FloatingPoint}(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, γ::T)
+  @assert size(out_x) == size(x)
   U, S, V = svd(x)
+  c = g.λ * γ
   for i=1:length(S)
-    S[i] = max(0., S[i] - lambda) - max(0., -S[i] - lambda)
+    S[i] = max(zero(T), S[i] - c) - max(zero(T), -S[i] - c)
   end
-  tmp_x = U * (Diagonal(S) * V')
   nr, nc = size(x)
-  for r=1:nr
+  fill!(out_x, zero(T))
+  for k in eachindex(S)
     for c=1:nc
-      hat_x[r,c] = tmp_x[r, c]
+      for r=1:nr
+        out_x[c, r] = S[k] * U[r, k] * V[c, k]
+      end
     end
   end
-  nothing
+  out_x
 end
 
+###### sum_k g(x_k)
 
-function prox_l1nuclear(groups::Vector{UnitRange{Int64}}, lambda::Vector{Float64})
-  function g(x::ArrayView)
-    r = 0.
-    for i=1:length(lambda)
-      tmp_v = view(x, :, groups[i])
-      r += lambda[i] * sum(svdvals(tmp_v))
-    end
-    r
+immutable ProxSumProx{P<:ProximableFunction, I} <: ProximableFunction
+  intern_prox::P
+  groups::Vector{I}
+end
+
+ProxL1L2{T<:FloatingPoint, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxL2{T}, I}(ProxL2{T}(λ), groups)
+ProxL1Nuclear{T<:FloatingPoint, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxNuclear{T}, I}(ProxNuclear{T}(λ), groups)
+
+
+function value{T<:FloatingPoint}(g::ProxSumProx, x::StridedArray{T})
+  intern_prox = g.intern_prox
+  groups = g.groups
+  v = zero(T)
+  for i in eachindex(groups)
+    v += value(intern_prox, sub(x, groups[i]))
   end
-  prox_g!(hat_x::ArrayView, x::ArrayView, gamma::Float64) = _prox_l1nuclear!(hat_x, x, groups, lambda, gamma)
-  ProximalOperator(
-    g, prox_g!
-    )
+  v
 end
 
-function _prox_l1nuclear!(hat_x::ArrayView, x::ArrayView, groups::Vector{UnitRange{Int64}}, lambda::Vector{Float64}, gamma::Float64)
-  for i=1:length(lambda)
-    hat_x_i = view(hat_x, :, groups[i])
-    x_i = view(x, :, groups[i])
-    _prox_nuclear!(hat_x_i, x_i, lambda[i]*gamma)
+function prox!{T<:FloatingPoint}(g::ProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+  @assert size(out_x) == size(x)
+  intern_prox = g.intern_prox
+  groups = g.groups
+  for i in eachindex(groups)
+    prox!(intern_prox, sub(out_x, groups[i]), sub(x, groups[i]), γ)
   end
-  nothing
+  out_x
 end
+
+####
+
 

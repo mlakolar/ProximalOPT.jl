@@ -8,6 +8,22 @@
 abstract ProximableFunction
 
 prox!(g::ProximableFunction, hat_x::StridedArray, x::StridedArray) = prox!(g, hat_x, x, 1.0)
+prox{T<:FloatingPoint}(g::ProximableFunction, x::StridedArray, γ::T) = prox!(g, similar(x), x, γ)
+prox(g::ProximableFunction, x::StridedArray) = prox!(g, similar(x), x, 1.0)
+
+
+######  zero
+
+immutable ProxZero <: ProximableFunction
+end
+
+value{T<:FloatingPoint}(g::ProxZero, x::StridedArray{T}) = zero(T)
+
+function prox!{T<:FloatingPoint}(::ProxZero, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+  @assert size(out_x) == size(x)
+  copy!(out_x, x)
+  out_x
+end
 
 ######  L1 norm  g(x) = λ * ||x||_1
 
@@ -23,9 +39,9 @@ function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   @assert size(out_x) == size(x)
   c = g.λ * γ
   for i in eachindex(x)
-    @inbounds hat_x[i] = max(0., x[i] - c) - max(0., -x[i] - c)
+    @inbounds out_x[i] = max(0., x[i] - c) - max(0., -x[i] - c)
   end
-  hat_x
+  out_x
 end
 
 ###### L2 norm   g(x) = λ * ||x||_2
@@ -88,15 +104,15 @@ function prox!{T<:FloatingPoint}(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::
   @assert size(out_x) == size(x)
   U, S, V = svd(x)
   c = g.λ * γ
-  for i=1:length(S)
-    S[i] = max(zero(T), S[i] - c) - max(zero(T), -S[i] - c)
+  @inbounds for i in eachindex(S)
+    S[i] = max(zero(T), S[i] - c)
   end
   nr, nc = size(x)
   fill!(out_x, zero(T))
   for k in eachindex(S)
     for c=1:nc
       for r=1:nr
-        out_x[c, r] = S[k] * U[r, k] * V[c, k]
+        @inbounds out_x[r, c] += S[k] * U[r, k] * V[c, k]
       end
     end
   end

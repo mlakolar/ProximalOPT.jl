@@ -23,6 +23,7 @@ function solve!{T<:FloatingPoint}(
   store_trace = options.store_trace
   show_trace = options.show_trace
   extended_trace = options.extended_trace
+  printEvery = options.printEvery
 
   if extended_trace
     store_trace = true
@@ -95,6 +96,7 @@ function solve!{T<:FloatingPoint}(
   store_trace = options.store_trace
   show_trace = options.show_trace
   extended_trace = options.extended_trace
+  printEvery = options.printEvery
 
   if extended_trace
     store_trace = true

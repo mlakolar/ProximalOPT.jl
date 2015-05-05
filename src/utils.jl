@@ -40,16 +40,17 @@ end
 
 
 function update!(tr::OptimizationTrace,
-                 iteration::Integer,
+                 iteration::Int64,
                  f_x::Real,
                  dt::Dict,
                  store_trace::Bool,
-                 show_trace::Bool)
+                 show_trace::Bool,
+                 printEvery::Int64)
     os = OptimizationState(iteration, f_x, dt)
     if store_trace
         push!(tr, os)
     end
-    if show_trace
+    if show_trace && mod(iteration, printEvery) == 0
         show(os)
     end
     return
@@ -68,7 +69,8 @@ macro gdtrace()
               curVal,
               dt,
               store_trace,
-              show_trace)
+              show_trace,
+              printEvery)
     end
   end
 end
@@ -76,31 +78,35 @@ end
 ###################################
 
 type ProximalOptions
-    maxiter::Int
-    ftol::Float64
-    xtol::Float64
-    store_trace::Bool
-    show_trace::Bool
-    extended_trace::Bool
+  maxiter::Int64
+  ftol::Float64
+  xtol::Float64
+  store_trace::Bool
+  show_trace::Bool
+  extended_trace::Bool
+  printEvery::Int64
 end
 
-function ProximalOptions(;maxiter::Integer=200,
+function ProximalOptions(;maxiter::Integer     = 200,
                          ftol::Real            = 1.0e-6,
                          xtol::Real            = 1.0e-8,
                          store_trace::Bool     = false,
                          show_trace::Bool      = false,
-                         extended_trace::Bool  = false)
+                         extended_trace::Bool  = false,
+                         printEvery::Integer   = 1)
 
-     maxiter > 1 || error("maxiter must be an integer greater than 1.")
-     ftol > 0 || error("ftol must be a positive real value.")
-     xtol > 0 || error("xtol must be a positive real value.")
+  maxiter > 1 || error("maxiter must be an integer greater than 1.")
+  ftol > 0 || error("ftol must be a positive real value.")
+  xtol > 0 || error("xtol must be a positive real value.")
 
-     ProximalOptions(convert(Int, maxiter),
-                     convert(Float64, ftol),
-                     convert(Float64, xtol),
-                     store_trace,
-                     show_trace,
-                     extended_trace)
+  ProximalOptions(convert(Int64, maxiter),
+                  convert(Float64, ftol),
+                  convert(Float64, xtol),
+                  store_trace,
+                  show_trace,
+                  extended_trace,
+                  convert(Int64, printEvery)
+                  )
 end
 
 function check_optim_done{T<:FloatingPoint}(iter::Integer,

@@ -8,6 +8,8 @@ end
 immutable AccProxGradDescent <: ProximalSolver
 end
 
+immutable ActiveAccProxGradDescent <: ProximalSolver
+end
 
 
 # implements the algorithm in section 4.2 of
@@ -80,9 +82,6 @@ function solve!{T<:FloatingPoint}(
   tr
 end
 
-
-
-
 # implements the algorithm in section 4.3 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
 function solve!{T<:FloatingPoint}(
@@ -105,7 +104,7 @@ function solve!{T<:FloatingPoint}(
     @printf "Iter     Function value   Gradient norm \n"
   end
 
-  iter = 0
+  lambdaChange = 0
   lambda = one(T)
 
   tmp = similar(x)
@@ -118,6 +117,7 @@ function solve!{T<:FloatingPoint}(
   gx::T = value(g, x)
   curVal::T = fx + gx
 
+  iter = 0
   tr = OptimizationTrace()
   tracing = store_trace || show_trace || extended_trace
   @gdtrace
@@ -138,9 +138,15 @@ function solve!{T<:FloatingPoint}(
         break
       end
       lambda = beta*lambda
+      lambdaChange = 0
       if lambda < eps(T)
         break
       end
+    end
+    lambdaChange += 1
+    if lambdaChange == 3
+      lambda = lambda / beta
+      lambdaChange = 0
     end
     ωk = convert(T, iter / (iter + 3.))
     @inbounds for i in eachindex(x)
@@ -160,5 +166,115 @@ function solve!{T<:FloatingPoint}(
   tr
 end
 
+
+# active set implementation of accelerated proximal gradient descent
+function solve!{T<:FloatingPoint}(
+    ::ActiveAccProxGradDescent,
+    x::StridedArray{T},
+    f::DifferentiableFunction, g::ProximableFunction;
+    beta::Real = 0.8,
+    options::ProximalOptions=ProximalOptions(),
+    maxoutiter::Int64 = 10
+    )
+
+  store_trace = options.store_trace
+  show_trace = options.show_trace
+  extended_trace = options.extended_trace
+  printEvery = options.printEvery
+
+  if extended_trace
+    store_trace = true
+  end
+  if show_trace
+    @printf "Iter     Function value   Gradient norm \n"
+  end
+
+  # initialize memory
+  tmp = similar(x)
+  grad_y = similar(x)
+  y = copy(x)
+  z = similar(x)
+
+  # initial computation
+  activeset = active_set(g, x)
+  fx::T = value_and_gradient!(f, grad_y, x, activeset)
+  fy::T = fx
+  gx::T = value(g, x, activeset)
+  curVal::T = fx + gx
+
+  oldactiveset = copy(activeset)
+  iter = 0
+  tr = OptimizationTrace()
+  tracing = store_trace || show_trace || extended_trace
+  @gdtrace
+  for outiter=1:maxoutiter
+
+    # minimize over active set
+    iter = 0
+    lambda = one(T)
+    lambdaChange = 0
+    while true
+      iter += 1
+
+      lastVal::T = curVal
+      while true
+        @inbounds for i in eachindex(activeset)
+          tmp[activeset[i]] = y[activeset[i]] - lambda * grad_y[activeset[i]]
+        end
+        prox!(g, z, tmp, lambda, activeset)
+        fz::T = value_and_gradient!(f, tmp, z, activeset)
+
+        # h = z - y
+        # dgh = dot( gradient(y), h )
+        # nhsq = norm(h)^2
+        dgh = zero(T)
+        nhsq = zero(T)
+        @inbounds for i in eachindex(activeset)
+          tmp[activeset[i]] = z[activeset[i]] - y[activeset[i]]
+          dgh += grad_y[activeset[i]] * tmp[activeset[i]]
+          nhsq += tmp[activeset[i]].^2
+        end
+        if fz <= fy + dgh + nhsq / 2. / lambda
+          break
+        end
+        lambda = beta*lambda
+        lambdaChange = 0
+        if lambda < eps(T)
+          break
+        end
+      end
+      lambdaChange += 1
+      if lambdaChange == 3
+        lambda = lambda / beta
+        lambdaChange = 0
+      end
+      ωk = convert(T, iter / (iter + 3.))
+      @inbounds for i in eachindex(activeset)
+        y[activeset[i]] = (1+ωk)*z[activeset[i]] - ωk*x[activeset[i]]
+      end
+      copy!(z, x)
+      fy = value_and_gradient!(f, grad_y, y, activeset)
+      fx = value(f, x, activeset)
+      gx = value(g, x, activeset)
+      curVal = fx + gx
+      @gdtrace
+      if check_optim_done(iter, curVal, lastVal, x, z, options)
+        break
+      end
+      lastVal = curVal
+    end
+
+    # figure out what to add to activeset
+    add_violator!(activeset, g, f, x)
+
+    if activeset == oldactiveset
+      break
+    end
+    oldactiveset = copy(activeset)
+
+
+  end
+  tr
+end
 
 

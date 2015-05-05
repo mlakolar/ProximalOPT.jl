@@ -8,7 +8,8 @@ export
   ProximableFunction,
 
   # proximal minimization algorithms
-  ProxGradDescent, AccProxGradDescent, ProximalSolver,
+  ProxGradDescent, AccProxGradDescent, ActiveAccProxGradDescent,
+  ProximalSolver,
   solve!,
 
   # smooth functions
@@ -22,7 +23,8 @@ export
   value, prox!,
 
   #utilities
-  ProximalOptions
+  ProximalOptions,
+  active_set
 
 
 include("utils.jl")

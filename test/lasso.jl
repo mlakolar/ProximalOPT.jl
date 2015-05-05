@@ -26,6 +26,24 @@ facts("proximal_gradient_descent") do
   f = QuadraticFunction(AA, -Ab)
   g = ProxL1(gamma)
 
+#   ################################################# warmup
+#   opt = ProximalOptions(;ftol=1e-8,xtol=1e-8,maxiter=300)
+#   ## prox grad
+#   h_beta = zeros(p)
+#   solve!(ProxGradDescent(), h_beta, f, g; options=opt)
+
+#   ## prox grad -- accelerated
+#   h_beta1 = zeros(p)
+#   solve!(AccProxGradDescent(), h_beta1, f, g; options=opt)
+
+#   ## coordinate descent
+#   h_beta2 = spzeros(p,1)
+#   lambda = gamma * ones(p)
+#   HD.lasso!(h_beta2, AA, Ab, lambda)
+#   h_beta2 = vec(full(h_beta2))
+#   #################################################################
+
+
   opt = ProximalOptions(;ftol=1e-8,xtol=1e-8,maxiter=300)
   ## prox grad
   h_beta = zeros(p)

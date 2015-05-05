@@ -44,6 +44,34 @@ function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   out_x
 end
 
+function active_set{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}; zero_thr::T=1e-4)
+  activeset = Array(Int64, 0)
+  @inbounds for j in eachindex(x)
+    if abs(x[j]) >= zero_thr
+      push!( activeset, j )
+    end
+  end
+  activeset
+end
+
+function value{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}, activeset::Vector{Int64})
+  r = zero(T)
+  @inbounds for ind in eachindex(activeset)
+    r += abs(x[activeset[ind]])
+  end
+  g.λ * r
+end
+
+function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::Vector{Int64})
+  @assert size(out_x) == size(x)
+  c = g.λ * γ
+  @inbounds for ind in eachindex(activeset)
+    out_x[activeset[ind]] = max(0., x[activeset[ind]] - c) - max(0., -x[activeset[ind]] - c)
+  end
+  out_x
+end
+
+
 ###### L2 norm   g(x) = λ * ||x||_2
 
 immutable ProxL2{T<:FloatingPoint} <: ProximableFunction

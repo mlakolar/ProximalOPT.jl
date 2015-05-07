@@ -26,6 +26,13 @@ end
 
 ######  L1 norm  g(x) = λ * ||x||_1
 
+immutable AProxL1{T<:FloatingPoint, N} <: ProximableFunction
+  λ::Array{T, N}
+end
+typealias VProxL1{T<:FloatingPoint} AProxL1{T, 1}
+typealias MProxL1{T<:FloatingPoint} AProxL1{T, 2}
+
+
 immutable ProxL1{T<:FloatingPoint} <: ProximableFunction
   λ::T
 end
@@ -64,7 +71,10 @@ function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   out_x
 end
 
-function active_set{T<:FloatingPoint}(::ProxL1{T}, x::StridedArray{T}; zero_thr::T=1e-4)
+function active_set{T<:FloatingPoint, N}(
+    ::Union(ProxL1{T}, AProxL1{T, N}), x::StridedArray{T};
+    zero_thr::T=1e-4
+    )
   numElem = length(x)
   activeset = [1:numElem;]
   numActive = 0

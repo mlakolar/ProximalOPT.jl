@@ -88,7 +88,7 @@ function solve!{T<:FloatingPoint}(
     ::AccProxGradDescent,
     x::StridedArray{T},
     f::DifferentiableFunction, g::ProximableFunction;
-    beta::Real = 0.8,
+    beta::Real = 0.5,
     options::ProximalOptions=ProximalOptions()
     )
 
@@ -104,7 +104,6 @@ function solve!{T<:FloatingPoint}(
     @printf "Iter     Function value   Gradient norm \n"
   end
 
-  lambdaChange = 0
   lambda = one(T)
 
   tmp = similar(x)
@@ -138,15 +137,9 @@ function solve!{T<:FloatingPoint}(
         break
       end
       lambda = beta*lambda
-      lambdaChange = 0
       if lambda < eps(T)
         break
       end
-    end
-    lambdaChange += 1
-    if lambdaChange == 3
-      lambda = lambda / beta
-      lambdaChange = 0
     end
     ωk = convert(T, iter / (iter + 3.))
     @inbounds for i in eachindex(x)
@@ -172,9 +165,10 @@ function solve!{T<:FloatingPoint}(
     ::ActiveAccProxGradDescent,
     x::StridedArray{T},
     f::DifferentiableFunction, g::ProximableFunction;
-    beta::Real = 0.8,
+    beta::T = 0.5,
+    beta_min::T = 1e-10,
     options::ProximalOptions=ProximalOptions(),
-    maxoutiter::Int64 = 10
+    maxoutiter::Int64 = 200
     )
 
   store_trace = options.store_trace
@@ -193,16 +187,18 @@ function solve!{T<:FloatingPoint}(
   tmp = similar(x)
   grad_y = similar(x)
   y = copy(x)
-  z = similar(x)
+  z = copy(x)
 
   # initial computation
   activeset = active_set(g, x)
+  if activeset.numActive == 0
+    add_violator!(activeset, x, g, f, tmp)
+  end
   fx::T = value_and_gradient!(f, grad_y, x, activeset)
   fy::T = fx
   gx::T = value(g, x, activeset)
   curVal::T = fx + gx
 
-  oldactiveset = copy(activeset)
   iter = 0
   tr = OptimizationTrace()
   tracing = store_trace || show_trace || extended_trace
@@ -212,47 +208,25 @@ function solve!{T<:FloatingPoint}(
     # minimize over active set
     iter = 0
     lambda = one(T)
-    lambdaChange = 0
     while true
       iter += 1
-
+      iter
       lastVal::T = curVal
       while true
-        @inbounds for i in eachindex(activeset)
-          tmp[activeset[i]] = y[activeset[i]] - lambda * grad_y[activeset[i]]
-        end
+        interpolation_point!(g, tmp, y, grad_y, lambda, activeset)
         prox!(g, z, tmp, lambda, activeset)
         fz::T = value_and_gradient!(f, tmp, z, activeset)
-
-        # h = z - y
-        # dgh = dot( gradient(y), h )
-        # nhsq = norm(h)^2
-        dgh = zero(T)
-        nhsq = zero(T)
-        @inbounds for i in eachindex(activeset)
-          tmp[activeset[i]] = z[activeset[i]] - y[activeset[i]]
-          dgh += grad_y[activeset[i]] * tmp[activeset[i]]
-          nhsq += tmp[activeset[i]].^2
-        end
-        if fz <= fy + dgh + nhsq / 2. / lambda
+        if fz <= taylor_value(g, fy, z, y, grad_y, lambda, activeset)
           break
         end
         lambda = beta*lambda
-        lambdaChange = 0
-        if lambda < eps(T)
+        if lambda < beta_min
           break
         end
       end
-      lambdaChange += 1
-      if lambdaChange == 3
-        lambda = lambda / beta
-        lambdaChange = 0
-      end
       ωk = convert(T, iter / (iter + 3.))
-      @inbounds for i in eachindex(activeset)
-        y[activeset[i]] = (1+ωk)*z[activeset[i]] - ωk*x[activeset[i]]
-      end
-      copy!(z, x)
+      update_y(g, y, z, x, ωk, activeset)
+      z, x = x, z
       fy = value_and_gradient!(f, grad_y, y, activeset)
       fx = value(f, x, activeset)
       gx = value(g, x, activeset)
@@ -263,16 +237,11 @@ function solve!{T<:FloatingPoint}(
       end
       lastVal = curVal
     end
-
     # figure out what to add to activeset
-    add_violator!(activeset, g, f, x)
-
-    if activeset == oldactiveset
+    if ~add_violator!(activeset, x, g, f, tmp)
       break
     end
-    oldactiveset = copy(activeset)
-
-
+    fy = value_and_gradient!(f, grad_y, y, activeset)
   end
   tr
 end

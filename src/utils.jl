@@ -1,3 +1,11 @@
+type ActiveSet{N, I}
+  allGroups::Vector{Int64}
+  numActive::Int64
+  groupToIndex::Vector{I}
+end
+
+
+
 ###################################
 # tracing based on optim package
 # removed grad norm field
@@ -109,6 +117,8 @@ function ProximalOptions(;maxiter::Integer     = 200,
                   )
 end
 
+#########################################
+
 function check_optim_done{T<:FloatingPoint}(iter::Integer,
                                             curval::T, lastval::T,
                                             x::StridedArray{T}, z::StridedArray{T},
@@ -129,3 +139,5 @@ end
 _l2diff{T<:FloatingPoint}(x::StridedArray{T}, y::StridedArray{T}) =
     sqrt(_sqrl2diff(x, y))
 
+
+shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))

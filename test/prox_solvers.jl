@@ -1,3 +1,16 @@
+facts("active proximal_gradient_descent") do
+
+  y = [1., 2., 3.]
+  x = zeros(3)
+
+  f = L2Loss(y)
+  g = ProxL1(1.5)
+  solve!(ActiveAccProxGradDescent(), x, f, g)
+
+  @fact x => roughly([0, 0.5, 1.5])
+end
+
+
 facts("proximal_gradient_descent") do
 
   context("L2Loss + nuclear norm") do

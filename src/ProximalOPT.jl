@@ -23,9 +23,7 @@ export
   value, prox!,
 
   #utilities
-  ProximalOptions,
-  active_set
-
+  ProximalOptions
 
 include("utils.jl")
 

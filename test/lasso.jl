@@ -26,45 +26,26 @@ facts("proximal_gradient_descent") do
   f = QuadraticFunction(AA, -Ab)
   g = ProxL1(gamma)
 
-#   ################################################# warmup
-#   opt = ProximalOptions(;ftol=1e-8,xtol=1e-8,maxiter=300)
-#   ## prox grad
-#   h_beta = zeros(p)
-#   solve!(ProxGradDescent(), h_beta, f, g; options=opt)
-
-#   ## prox grad -- accelerated
-#   h_beta1 = zeros(p)
-#   solve!(AccProxGradDescent(), h_beta1, f, g; options=opt)
-
-#   ## coordinate descent
-#   h_beta2 = spzeros(p,1)
-#   lambda = gamma * ones(p)
-#   HD.lasso!(h_beta2, AA, Ab, lambda)
-#   h_beta2 = vec(full(h_beta2))
-#   #################################################################
-
-
-  opt = ProximalOptions(;ftol=1e-8,xtol=1e-8,maxiter=300)
+  opt = ProximalOptions(;ftol=1e-6,xtol=1e-6,maxiter=300)
   ## prox grad
   h_beta = zeros(p)
-  tic()
-  solve!(ProxGradDescent(), h_beta, f, g; options=opt)
-  toc()
+  @time solve!(ProxGradDescent(), h_beta, f, g; options=opt)
 
   ## prox grad -- accelerated
   h_beta1 = zeros(p)
-  tic()
-  solve!(AccProxGradDescent(), h_beta1, f, g; options=opt)
-  toc()
+  @time solve!(AccProxGradDescent(), h_beta1, f, g; options=opt)
+
+  ## prox grad -- active accelerated
+  h_beta3 = zeros(p)
+  @time solve!(ActiveAccProxGradDescent(), h_beta3, f, g; options=opt)
 
   ## coordinate descent
   h_beta2 = spzeros(p,1)
-  tic()
   lambda = gamma * ones(p)
-  HD.lasso!(h_beta2, AA, Ab, lambda)
+  @time HD.lasso!(h_beta2, AA, Ab, lambda)
   h_beta2 = vec(full(h_beta2))
-  toc()
 
-  @fact h_beta2 => roughly(h_beta; atol=1e-3)
-  @fact h_beta2 => roughly(h_beta1; atol=1e-3)
+  @fact h_beta2 => roughly(h_beta; atol=1e-2)
+  @fact h_beta2 => roughly(h_beta1; atol=1e-2)
+  @fact h_beta2 => roughly(h_beta3; atol=1e-2)
 end

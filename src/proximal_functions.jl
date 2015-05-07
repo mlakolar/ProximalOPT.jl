@@ -45,9 +45,9 @@ end
 
 function value{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}, activeset::ActiveSet)
   r = zero(T)
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
   @inbounds for i=1:activeset.numActive
-    t = allCoordinate[i]
+    t = indexes[i]
     r += abs(x[t])
   end
   g.λ * r
@@ -56,9 +56,9 @@ end
 function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::ActiveSet)
   @assert size(out_x) == size(x)
   c = g.λ * γ
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
   @inbounds for i=1:activeset.numActive
-    t = allCoordinate[i]
+    t = indexes[i]
     out_x[t] = shrink(x[t], c)
   end
   out_x
@@ -92,16 +92,16 @@ function add_violator!{T<:FloatingPoint}(
 
   numElem = length(x)
   numActive = activeset.numActive
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
   # check for things to be removed from the active set
   i = 0
   while i < numActive
     i = i + 1
-    t = allCoordinate[i]
+    t = indexes[i]
     if abs(x[t]) < zero_thr
       x[t] = zero(T)
       changed = true
-      allCoordinate[numActive], allCoordinate[i] = allCoordinate[i], allCoordinate[numActive]
+      indexes[numActive], indexes[i] = indexes[i], indexes[numActive]
       numActive -= 1
       i = i - 1
     end
@@ -111,7 +111,7 @@ function add_violator!{T<:FloatingPoint}(
   I = 0
   V = zero(T)
   for i=numActive+1:numElem
-    t = allCoordinate[i]
+    t = indexes[i]
     nV = abs(tmp[t])
     if V < nV
       I = i
@@ -121,47 +121,10 @@ function add_violator!{T<:FloatingPoint}(
   if I > 0 && V + grad_tol > λ
     changed = true
     numActive += 1
-    allCoordinate[numActive], allCoordinate[I] = allCoordinate[I], allCoordinate[numActive]
+    indexes[numActive], indexes[I] = indexes[I], indexes[numActive]
   end
   activeset.numActive = numActive
   changed
-end
-
-function interpolation_point!{T<:FloatingPoint}(
-    g::ProxL1{T}, tmp::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::ActiveSet
-    )
-  allCoordinate = activeset.allCoordinate
-  @inbounds for i=1:activeset.numActive
-    t = allCoordinate[i]
-    tmp[t] = y[t] - λ * grad_y[t]
-  end
-  nothing
-end
-
-function taylor_value{T<:FloatingPoint}(
-    g::ProxL1{T}, fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::ActiveSet
-    )
-  allCoordinate = activeset.allCoordinate
-  fval = fy
-  dgh = zero(T)
-  nhsq = zero(T)
-  @inbounds for i=1:activeset.numActive
-    t = allCoordinate[i]
-    h = z[t] - y[t]
-    dgh += grad_y[t] * h
-    nhsq += h^2.
-  end
-  fval + dgh + nhsq / 2. / λ
-end
-
-function update_y{T<:FloatingPoint}(
-    g::ProxL1{T}, y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T, activeset::ActiveSet
-    )
-  allCoordinate = activeset.allCoordinate
-  @inbounds for i=1:activeset.numActive
-    t = allCoordinate[i]
-    y[t] = (1.+ω)*z[t] - ω*x[t]
-  end
 end
 
 ###### L2 norm   g(x) = λ * ||x||_2
@@ -284,31 +247,31 @@ function active_set{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::S
       activeset[numActive], activeset[j] = activeset[j], activeset[numActive]
     end
   end
-  ActiveSet(activeset, numActive)
+  GroupActiveSet(activeset, numActive, groups)
 end
 
 
-function value{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}, activeset::ActiveSet)
+function value{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}, activeset::GroupActiveSet)
   v = zero(T)
   intern_prox = g.intern_prox
   groups = g.groups
-  activeGroups = activeset.allCoordinate
+  activeGroups = activeset.groups
   @inbounds for i=1:activeset.numActive
-    indGroup = activeGroups[i]
-    v += value(intern_prox, sub(x, groups[indGroup]))
+    ind = activeGroups[i]
+    v += value(intern_prox, sub(x, groups[ind]))
   end
   v
 end
 
 
-function prox!{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::ActiveSet)
+function prox!{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::GroupActiveSet)
   @assert size(out_x) == size(x)
   intern_prox = g.intern_prox
   groups = g.groups
-  activeGroups = activeset.allCoordinate
+  activeGroups = activeset.groups
   @inbounds for i=1:activeset.numActive
-    indGroup = activeGroups[i]
-    prox!(intern_prox, sub(out_x, groups[indGroup]), sub(x, groups[indGroup]), γ)
+    ind = activeGroups[i]
+    prox!(intern_prox, sub(out_x, groups[ind]), sub(x, groups[ind]), γ)
   end
   out_x
 end
@@ -316,9 +279,9 @@ end
 
 
 
-function add_violator!{T<:FloatingPoint, I}(
-    activeset::ActiveSet, x::StridedArray{T},
-    g::ProxSumProx{ProxNuclear{T}, I}, f::DifferentiableFunction, tmp::StridedArray{T}; zero_thr::T=1e-4, grad_tol=1e-6
+function add_violator!{T<:FloatingPoint, II}(
+    activeset::GroupActiveSet, x::StridedArray{T},
+    g::ProxSumProx{ProxNuclear{T}, II}, f::DifferentiableFunction, tmp::StridedArray{T}; zero_thr::T=1e-4, grad_tol=1e-6
     )
   λ = g.intern_prox.λ
   groups = g.groups
@@ -326,13 +289,13 @@ function add_violator!{T<:FloatingPoint, I}(
   changed = false
 
   numActive = activeset.numActive
-  activeGroups = activeset.allCoordinate
+  activeGroups = activeset.groups
   # check for things to be removed from the active set
   i = 0
   while i < numActive
     i = i + 1
-    t = activeGroups[i]
-    xt = sub(x, groups[t])
+    ind = activeGroups[i]
+    xt = sub(x, groups[ind])
     if vecnorm(xt) < zero_thr
       fill!(xt, zero(T))
       changed = true
@@ -346,8 +309,8 @@ function add_violator!{T<:FloatingPoint, I}(
   I = 0
   V = zero(T)
   for i=numActive+1:numElem
-    t = activeGroups[i]
-    gxt = sub(tmp, groups[t])
+    ind = activeGroups[i]
+    gxt = sub(tmp, groups[ind])
     nV = sqrt(eigmax(gxt'*gxt))
     if V < nV
       I = i
@@ -362,62 +325,6 @@ function add_violator!{T<:FloatingPoint, I}(
   activeset.numActive = numActive
   changed
 end
-
-
-function interpolation_point!{T<:FloatingPoint, I}(
-    g::ProxSumProx{ProxNuclear{T}, I}, tmp::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::ActiveSet
-    )
-  groups = g.groups
-  activeGroups = activeset.allCoordinate
-  @inbounds for ai=1:activeset.numActive
-    t = activeGroups[ai]
-    tmpt = sub(tmp, groups[t])
-    yt = sub(y, groups[t])
-    grad_yt = sub(grad_y, groups[t])
-    @inbounds for i in eachindex(tmpt)
-      tmpt[i] = yt[i] - λ * grad_yt[i]
-    end
-  end
-  nothing
-end
-
-function taylor_value{T<:FloatingPoint, I}(
-    g::ProxSumProx{ProxNuclear{T}, I}, fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::ActiveSet
-    )
-  groups = g.groups
-  activeGroups = activeset.allCoordinate
-  dgh = zero(T)
-  nhsq = zero(T)
-  @inbounds for ai=1:activeset.numActive
-    t = activeGroups[ai]
-    zt = sub(z, groups[t])
-    yt = sub(y, groups[t])
-    grad_yt = sub(grad_y, groups[t])
-    @inbounds for i in eachindex(zt)
-      h = zt[i] - yt[i]
-      dgh += grad_yt[i] * h
-      nhsq += h^2.
-    end
-  end
-  fy + dgh + nhsq / 2. / λ
-end
-
-function update_y{T<:FloatingPoint, I}(
-    g::ProxSumProx{ProxNuclear{T}, I}, y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T, activeset::ActiveSet
-    )
-  groups = g.groups
-  activeGroups = activeset.allCoordinate
-  @inbounds for ai=1:activeset.numActive
-    t = activeGroups[ai]
-    xt = sub(x, groups[t])
-    yt = sub(y, groups[t])
-    zt = sub(z, groups[t])
-    @inbounds for i in eachindex(zt)
-      yt[i] = (1.+ω)*zt[i] - ω*xt[i]
-    end
-  end
-end
-
 
 ####
 

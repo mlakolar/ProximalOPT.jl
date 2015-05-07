@@ -42,13 +42,13 @@ function value{T<:FloatingPoint, N}(f::L2Loss{T, N}, x::StridedArray{T}, actives
     y = f.y
     @assert size(y) == size(x)
   end
-  allCoordinate = activeset.allCoordinate
-  @inbounds for rr=1:activeset.numActive
-    t = allCoordinate[rr]
+  indexes = activeset.indexes
+  @inbounds for i=1:activeset.numActive
+    ind = indexes[i]
     if N == 1
-      s += (x[t]-y[t])^2.
+      s += (x[ind]-y[ind])^2.
     else
-      s += x[t]^2.
+      s += x[ind]^2.
     end
   end
   s / 2.
@@ -68,9 +68,9 @@ function gradient!{T<:FloatingPoint, N}(f::L2Loss{T, N}, hat_x::StridedVector{T}
     y = f.y
     @assert size(y) == size(x)
   end
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
   @inbounds for rr=1:activeset.numActive
-    t = allCoordinate[rr]
+    t = indexes[rr]
     hat_x[t] = N == 1 ? x[t] - y[t] : x[t]
   end
   hat_x
@@ -95,9 +95,9 @@ function value_and_gradient!{T<:FloatingPoint, N}(f::L2Loss{T, N}, hat_x::Stride
     y = f.y
     @assert size(y) == size(x)
   end
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
   @inbounds for rr=1:activeset.numActive
-    t = allCoordinate[rr]
+    t = indexes[rr]
     s += N == 1 ? (x[t]-y[t])^2. : x[t]^2.
     hat_x[t] = N == 1 ? x[t] - y[t] : x[t]
   end
@@ -124,16 +124,17 @@ value{T<:FloatingPoint}(f::QuadraticFunction{T, 3}, x::StridedVector{T}) = dot(x
 
 function value{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, x::StridedVector{T}, activeset::ActiveSet)
   A = f.A
-  b = f.b
-
-  allCoordinate = activeset.allCoordinate
+  if N > 1
+    b = f.b
+  end
+  indexes = activeset.indexes
 
   s = zero(T)
   # dot(x, f.A*x) / 2.
   @inbounds for cc=1:activeset.numActive
-    ci = allCoordinate[cc]
+    ci = indexes[cc]
     @inbounds for rr=1:activeset.numActive
-      ri = allCoordinate[rr]
+      ri = indexes[rr]
       s += A[ri, ci] * x[ri] * x[ci]
     end
   end
@@ -142,7 +143,7 @@ function value{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, x::StridedVector
   if N > 1
     # dot(x, f.b)
     @inbounds for rr=1:activeset.numActive
-      t = allCoordinate[rr]
+      t = indexes[rr]
       s += x[t] * b[t]
     end
   end
@@ -167,13 +168,13 @@ function gradient!{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, hat_x::Strid
   A = f.A
   b = f.b
 
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
 
   @inbounds for rr=1:activeset.numActive
-    ri = allCoordinate[rr]
+    ri = indexes[rr]
     hat_x[ri] = zero(T)
     @inbounds for cc=1:activeset.numActive
-      ci = allCoordinate[cc]
+      ci = indexes[cc]
       hat_x[ri] += A[ri, ci] * x[ci]
     end
     if N > 1
@@ -209,15 +210,15 @@ function value_and_gradient!{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, ha
     b = f.b
   end
 
-  allCoordinate = activeset.allCoordinate
+  indexes = activeset.indexes
 
   s = zero(T)
   # dot(x, f.A*x) / 2.
   @inbounds for rr=1:activeset.numActive
-    ri = allCoordinate[rr]
+    ri = indexes[rr]
     hat_x[ri] = zero(T)
     @inbounds for cc=1:activeset.numActive
-      ci = allCoordinate[cc]
+      ci = indexes[cc]
       hat_x[ri] += A[ri, ci] * x[ci]
     end
     s += hat_x[ri] * x[ri] / 2.

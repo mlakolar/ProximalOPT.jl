@@ -53,15 +53,10 @@ function solve!{T<:FloatingPoint}(
 
     lastVal = curVal
     while true
-      @inbounds for i in eachindex(x)
-        tmp_x[i] = x[i] - lambda * grad_x[i]
-      end
+      _y_minus_ax!(tmp_x, x, lambda, grad_x)
       prox!(g, z, tmp_x, lambda)
-      fz = value_and_gradient!(f, tmp_x, z)::T
-      @inbounds for i in eachindex(x)
-        tmp_x[i] = z[i] - x[i]
-      end
-      if fz <= fx + dot(vec(grad_x), vec(tmp_x)) + sumabs2(tmp_x) / 2. / lambda
+      fz = value(f, z)
+      if fz <= _taylor_value(fx, z, x, grad_x, lambda)
         break
       end
       lambda = beta*lambda
@@ -116,24 +111,19 @@ function solve!{T<:FloatingPoint}(
   gx::T = value(g, x)
   curVal::T = fx + gx
 
-  iter = 0
+  iter = zero(T)
   tr = OptimizationTrace()
   tracing = store_trace || show_trace || extended_trace
   @gdtrace
   while true
-    iter += 1
+    iter += 1.
 
     lastVal::T = curVal
     while true
-      @inbounds for i in eachindex(x)
-        tmp[i] = y[i] - lambda * grad_y[i]
-      end
+      _y_minus_ax!(tmp, y, lambda, grad_y)
       prox!(g, z, tmp, lambda)
-      fz::T = value_and_gradient!(f, tmp, z)
-      @inbounds for i in eachindex(x)
-        tmp[i] = z[i] - y[i]
-      end
-      if fz <= fy + dot(vec(grad_y), vec(tmp)) + sumabs2(tmp) / 2. / lambda
+      fz::T = value(f, z)
+      if fz <= _taylor_value(fy, z, y, grad_y, lambda)
         break
       end
       lambda = beta*lambda
@@ -141,10 +131,8 @@ function solve!{T<:FloatingPoint}(
         break
       end
     end
-    ωk = convert(T, iter / (iter + 3.))
-    @inbounds for i in eachindex(x)
-      y[i] = (1+ωk)*z[i] - ωk*x[i]
-    end
+    ωk = iter / (iter + 3.)
+    _update_y!(y, z, x, ωk)
     x, z = z, x
     fy = value_and_gradient!(f, grad_y, y)
     fx = value(f, x)
@@ -206,17 +194,16 @@ function solve!{T<:FloatingPoint}(
   for outiter=1:maxoutiter
 
     # minimize over active set
-    iter = 0
+    iter = zero(T)
     lambda = one(T)
     while true
-      iter += 1
-      iter
+      iter += 1.
       lastVal::T = curVal
       while true
-        interpolation_point!(g, tmp, y, grad_y, lambda, activeset)
+        _y_minus_ax!(tmp, y, lambda, grad_y, activeset)
         prox!(g, z, tmp, lambda, activeset)
         fz::T = value_and_gradient!(f, tmp, z, activeset)
-        if fz <= taylor_value(g, fy, z, y, grad_y, lambda, activeset)
+        if fz <= _taylor_value(fy, z, y, grad_y, lambda, activeset)
           break
         end
         lambda = beta*lambda
@@ -224,8 +211,8 @@ function solve!{T<:FloatingPoint}(
           break
         end
       end
-      ωk = convert(T, iter / (iter + 3.))
-      update_y(g, y, z, x, ωk, activeset)
+      ωk = iter / (iter + 3.)
+      _update_y!(y, z, x, ωk, activeset)
       z, x = x, z
       fy = value_and_gradient!(f, grad_y, y, activeset)
       fx = value(f, x, activeset)
@@ -246,4 +233,130 @@ function solve!{T<:FloatingPoint}(
   tr
 end
 
+###
 
+
+function _y_minus_ax!{T<:FloatingPoint}(out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T})
+  @assert size(out) == size(y) == size(x)
+  @inbounds for ind in eachindex(out)
+    out[ind] = y[ind] - a * x[ind]
+  end
+  out
+end
+
+function _y_minus_ax!{T<:FloatingPoint}(out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T}, activeset::ActiveSet)
+  indexes = activeset.indexes
+  @inbounds for i=1:activeset.numActive
+    ind = indexes[i]
+    out[ind] = y[ind] - a * x[ind]
+  end
+  out
+end
+
+
+function _y_minus_ax!{T<:FloatingPoint}(
+    out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T}, activeset::GroupActiveSet
+    )
+  groups = activeset.groupToIndex
+  activeGroups = activeset.groups
+  @inbounds for i=1:activeset.numActive
+    ind = activeGroups[i]
+    _y_minus_ax!(
+      sub(out, groups[ind]),
+      sub(y, groups[ind]),
+      a,
+      sub(x, groups[ind]),
+      )
+  end
+  out
+end
+
+# approximates f(z) as f(y) + grad_f(y) * (z-y) + ||z-y||^2 / (2 / lambda)
+function _taylor_value{T<:FloatingPoint}(
+    fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T
+    )
+  @assert size(y) == size(z) == size(grad_y)
+  dgh = zero(T)
+  nhsq = zero(T)
+  @inbounds for ind in eachindex(y)
+    h = z[ind] - y[ind]
+    dgh += grad_y[ind] * h
+    nhsq += h^2.
+  end
+  fy + dgh + nhsq / 2. / λ
+end
+
+function _taylor_value{T<:FloatingPoint}(
+    fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::ActiveSet
+    )
+  indexes = activeset.indexes
+  dgh = zero(T)
+  nhsq = zero(T)
+  @inbounds for i=1:activeset.numActive
+    ind = indexes[i]
+    h = z[ind] - y[ind]
+    dgh += grad_y[ind] * h
+    nhsq += h^2.
+  end
+  fy + dgh + nhsq / 2. / λ
+end
+
+function _taylor_value{T<:FloatingPoint}(
+    fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::GroupActiveSet
+    )
+  groups = activeset.groupToIndex
+  activeGroups = activeset.groups
+  dgh = zero(T)
+  nhsq = zero(T)
+  @inbounds for i=1:activeset.numActive
+    ind = activeGroups[i]
+    zt = sub(z, groups[ind])
+    yt = sub(y, groups[ind])
+    grad_yt = sub(grad_y, groups[ind])
+    @inbounds for j in eachindex(zt)
+      h = zt[j] - yt[j]
+      dgh += grad_yt[j] * h
+      nhsq += h^2.
+    end
+  end
+  fy + dgh + nhsq / 2. / λ
+end
+
+
+
+function _update_y!{T<:FloatingPoint}(
+    y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T
+    )
+  @assert size(y) == size(z) == size(x)
+  @inbounds for ind in eachindex(y)
+    y[ind] = (1.+ω)*z[ind] - ω*x[ind]
+  end
+  y
+end
+
+function _update_y!{T<:FloatingPoint}(
+    y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T, activeset::ActiveSet
+    )
+  indexes = activeset.indexes
+  @inbounds for i=1:activeset.numActive
+    ind = indexes[i]
+    y[ind] = (1.+ω)*z[ind] - ω*x[ind]
+  end
+  y
+end
+
+function _update_y!{T<:FloatingPoint}(
+    y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T, activeset::GroupActiveSet
+    )
+  groups = activeset.groupToIndex
+  activeGroups = activeset.groups
+  @inbounds for i=1:activeset.numActive
+    ind = activeGroups[i]
+    _update_y!(
+      sub(y, groups[ind]),
+      sub(z, groups[ind]),
+      sub(x, groups[ind]),
+      ω
+      )
+  end
+end

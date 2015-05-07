@@ -1,9 +1,13 @@
-type ActiveSet{N, I}
-  allGroups::Vector{Int64}
+type ActiveSet
+  indexes::Vector{Int64}
+  numActive::Int64
+end
+
+type GroupActiveSet{I}
+  groups::Vector{Int64}
   numActive::Int64
   groupToIndex::Vector{I}
 end
-
 
 
 ###################################
@@ -119,7 +123,7 @@ end
 
 #########################################
 
-function check_optim_done{T<:FloatingPoint}(iter::Integer,
+function check_optim_done{T<:FloatingPoint}(iter,
                                             curval::T, lastval::T,
                                             x::StridedArray{T}, z::StridedArray{T},
                                             options::ProximalOptions)

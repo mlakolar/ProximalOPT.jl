@@ -1,4 +1,5 @@
 import HD
+import CDLasso
 
 facts("proximal_gradient_descent") do
 
@@ -45,7 +46,14 @@ facts("proximal_gradient_descent") do
   @time HD.lasso!(h_beta2, AA, Ab, lambda)
   h_beta2 = vec(full(h_beta2))
 
+  ## CDLasso
+  hb4 = zeros(p)
+  @time CDLasso.lasso!(hb4, AA, -Ab, lambda)
+
+
   @fact h_beta2 => roughly(h_beta; atol=1e-2)
   @fact h_beta2 => roughly(h_beta1; atol=1e-2)
   @fact h_beta2 => roughly(h_beta3; atol=1e-2)
+  @fact h_beta2 => roughly(hb4; atol=1e-2)
+
 end

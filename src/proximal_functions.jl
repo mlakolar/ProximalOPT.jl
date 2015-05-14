@@ -71,8 +71,8 @@ function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   out_x
 end
 
-function active_set{T<:FloatingPoint, N}(
-    ::Union(ProxL1{T}, AProxL1{T, N}), x::StridedArray{T};
+function active_set{T<:FloatingPoint}(
+    ::ProxL1{T}, x::StridedArray{T};
     zero_thr::T=1e-4
     )
   numElem = length(x)
@@ -117,7 +117,7 @@ function add_violator!{T<:FloatingPoint}(
     end
   end
 
-  gradient!(f, tmp, x)
+  value_and_gradient!(f, tmp, x)
   I = 0
   V = zero(T)
   for i=numActive+1:numElem

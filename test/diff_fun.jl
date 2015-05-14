@@ -8,17 +8,6 @@ facts("L2Loss") do
   @fact value(f1, x) => roughly(sumabs2(x)/2.)
   @fact value(f2, x) => roughly(sumabs2(x-y)/2.)
 
-  @fact gradient(f1, x) => roughly(x)
-  @fact gradient(f2, x) => roughly(x-y)
-
-  hat_x = similar(x)
-  @fact gradient!(f1, hat_x, x) => roughly(x)
-  @fact hat_x => roughly(x)
-  hat_x = similar(x)
-  @fact gradient!(f2, hat_x, x) => roughly(x-y)
-  @fact hat_x => roughly(x-y)
-
-
   hat_x = similar(x)
   @fact value_and_gradient!(f1, hat_x, x) => roughly(sumabs2(x)/2.)
   @fact hat_x => roughly(x)
@@ -44,21 +33,6 @@ facts("Quadratic Function") do
   @fact value(q1, x) => roughly(dot(x, A*x)/2.)
   @fact value(q2, x) => roughly(dot(x, A*x)/2. + dot(x, b))
   @fact value(q3, x) => roughly(dot(x, A*x)/2. + dot(x, b) + c)
-
-  @fact gradient(q1, x) => roughly(A*x)
-  @fact gradient(q2, x) => roughly(A*x + b)
-  @fact gradient(q3, x) => roughly(A*x + b)
-
-  hat_x = similar(x)
-  gradient!(q1, hat_x, x)
-  @fact hat_x => roughly(A*x)
-
-  gradient!(q2, hat_x, x)
-  @fact hat_x => roughly(A*x + b)
-
-  gradient!(q3, hat_x, x)
-  @fact hat_x => roughly(A*x + b)
-
 
   hat_x = similar(x)
   @fact value_and_gradient!(q1, hat_x, x) => roughly(dot(x, A*x)/2.)

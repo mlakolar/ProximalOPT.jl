@@ -18,8 +18,10 @@ export
 
   # proximal functions
   ProxZero,
-  ProxL1, ProxL2, ProxL2Sq, ProxNuclear, ProxSumProx,
-  ProxL1L2, ProxL1Nuclear,
+  ProxL1, AProxL1,
+  ProxL2, ProxL2Sq, ProxNuclear,
+  ProxSumProx, ProxL1L2, ProxL1Nuclear,
+  AProxSumProx,
   value, prox!,
 
   #utilities

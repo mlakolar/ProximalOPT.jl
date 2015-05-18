@@ -18,7 +18,7 @@ function solve!{T<:FloatingPoint}(
     ::ProxGradDescent,
     x::StridedArray{T},
     f::DifferentiableFunction, g::ProximableFunction;
-    beta::Real = 0.8,
+    beta::Real = 0.5,
     options::ProximalOptions=ProximalOptions()
     )
 
@@ -41,7 +41,7 @@ function solve!{T<:FloatingPoint}(
   grad_x = similar(x)
   z = similar(x)
 
-  fx = value_and_gradient!(f, grad_x, x)::T
+  fx = value_and_gradient!(f, grad_x, x)
   gx = value(g, x)::T
   curVal = fx + gx
 

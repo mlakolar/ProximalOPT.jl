@@ -56,4 +56,45 @@ facts("proximal_gradient_descent") do
   @fact h_beta2 => roughly(h_beta3; atol=1e-2)
   @fact h_beta2 => roughly(hb4; atol=1e-2)
 
+  #################################### test with intercept
+
+  n = 500
+  p = 2500
+
+  t_beta = sprandn(p,1,0.05)
+  t_beta = vec(full(t_beta))
+  A = randn(n,p)
+  A = hcat(ones(n,1), A)
+  A = A ./ mapslices(norm, A, 1)
+  v = sqrt(0.001)*randn(n)
+  b = A[:, 2:end]*t_beta + v
+
+  println("solving instance with $n examples, $p variables")
+  println("nnz(x0) = $(countnz(t_beta)); signal-to-noise ratio: $(norm(A[:,2:end]*t_beta)^2/norm(v)^2)")
+
+  AA = A'A
+  Ab = A'b
+
+  gamma_max = norm(A'*b, Inf)
+  gamma = 0.1*gamma_max;
+
+  f = QuadraticFunction(AA, -Ab)
+  λ = vcat(0, gamma*ones(p))
+  g = AProxL1(λ)
+
+  opt = ProximalOptions(;ftol=1e-8,xtol=1e-8,maxiter=300)
+  ## prox grad
+  h1 = zeros(p+1)
+  @time solve!(ProxGradDescent(), h1, f, g; options=opt)
+
+  ## prox grad -- accelerated
+  h2 = zeros(p+1)
+  @time solve!(AccProxGradDescent(), h2, f, g; options=opt)
+
+  ## CDLasso
+  h3 = zeros(p+1)
+  @time CDLasso.lasso!(h3, AA, -Ab, λ)
+
+  @fact h3 => roughly(h1; atol=1e-2)
+  @fact h3 => roughly(h2; atol=1e-2)
 end

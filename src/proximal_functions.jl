@@ -247,7 +247,6 @@ end
 
 ProxL2{T<:FloatingPoint}(λ::T) = ProxL2{T}(λ)
 value{T<:FloatingPoint}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * norm(x)
-
 function prox!{T<:FloatingPoint}(g::ProxL2{T}, out_x::StridedVector{T}, x::StridedVector{T}, γ::T)
   @assert size(out_x) == size(x)
   c = g.λ * γ
@@ -464,6 +463,15 @@ function add_violator!{T<:FloatingPoint, II}(
   changed
 end
 
-####
+#### -
 
 
+immutable ProxLogDet{T} <: ProximableFunction
+end
+ProxLogDet{T<:FloatingPoint}(λ::T) = ProxLogDet{T}(λ)
+
+function value{T<:FloatingPoint}(g::ProxLogDet{T}, x::Symmetric{T})
+end
+
+function prox!{T<:FloatingPoint}(g::ProxLogDet{T}, out_x::Symmetric{T}, x::Symmetric{T}, γ::T)
+end

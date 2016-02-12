@@ -12,14 +12,14 @@ abstract DifferentiableFunction
 
 # N = 1 --> y
 # N = 0 --> y = 0
-immutable L2Loss{T<:FloatingPoint, N, M<:AbstractArray} <: DifferentiableFunction
+immutable L2Loss{T<:AbstractFloat, N, M<:AbstractArray} <: DifferentiableFunction
   y::M
 end
 
-L2Loss{T<:FloatingPoint}(y::AbstractArray{T}) = L2Loss{T, 1, typeof(y)}(y)
+L2Loss{T<:AbstractFloat}(y::AbstractArray{T}) = L2Loss{T, 1, typeof(y)}(y)
 L2Loss() = L2Loss{Float64, 0, Vector{Float64}}(Float64[])
 
-function value{T<:FloatingPoint, N}(f::L2Loss{T, N}, x::AbstractArray{T})
+function value{T<:AbstractFloat, N}(f::L2Loss{T, N}, x::AbstractArray{T})
   s = zero(T)
   if N == 1
     y = f.y
@@ -34,7 +34,7 @@ function value{T<:FloatingPoint, N}(f::L2Loss{T, N}, x::AbstractArray{T})
 end
 
 
-function value{T<:FloatingPoint, N}(f::L2Loss{T, N}, x::AbstractArray{T}, activeset::ActiveSet)
+function value{T<:AbstractFloat, N}(f::L2Loss{T, N}, x::AbstractArray{T}, activeset::ActiveSet)
   s = zero(T)
   if N == 1
     y = f.y
@@ -52,7 +52,7 @@ function value{T<:FloatingPoint, N}(f::L2Loss{T, N}, x::AbstractArray{T}, active
   s / 2.
 end
 
-function value_and_gradient!{T<:FloatingPoint, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T})
+function value_and_gradient!{T<:AbstractFloat, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T})
   if N == 1
     y = f.y
     @assert size(y) == size(x)
@@ -65,7 +65,7 @@ function value_and_gradient!{T<:FloatingPoint, N}(f::L2Loss{T, N}, hat_x::Abstra
   sumabs2(hat_x) / 2.
 end
 
-function value_and_gradient!{T<:FloatingPoint, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T}, activeset::ActiveSet)
+function value_and_gradient!{T<:AbstractFloat, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T}, activeset::ActiveSet)
   s = zero(T)
   if N == 1
     y = f.y
@@ -84,31 +84,31 @@ end
 
 ################ creates a function x'Ax/2 + b'x + c
 
-immutable QuadraticFunction{T<:FloatingPoint, N, M<:AbstractMatrix, V} <: DifferentiableFunction
+immutable QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: DifferentiableFunction
   A::M
   b::V
   c::T
   tmp::Vector{T}    ## call to value does not allocate
 end
 
-QuadraticFunction{T<:FloatingPoint}(A::AbstractMatrix{T}) = QuadraticFunction{T, 1, typeof(A), Vector{T}}(A, T[], zero(T), Array(T, size(A, 1)))
-QuadraticFunction{T<:FloatingPoint}(A::AbstractMatrix{T}, b::AbstractVector{T}) = QuadraticFunction{T, 2, typeof(A), typeof(b)}(A, b, zero(T), Array(T, size(A, 1)))
-QuadraticFunction{T<:FloatingPoint}(A::AbstractMatrix{T}, b::AbstractVector{T}, c::T) = QuadraticFunction{T, 3, typeof(A), typeof(b)}(A, b, c, Array(T, size(A, 1)))
+QuadraticFunction{T<:AbstractFloat}(A::AbstractMatrix{T}) = QuadraticFunction{T, 1, typeof(A), Vector{T}}(A, T[], zero(T), Array(T, size(A, 1)))
+QuadraticFunction{T<:AbstractFloat}(A::AbstractMatrix{T}, b::AbstractVector{T}) = QuadraticFunction{T, 2, typeof(A), typeof(b)}(A, b, zero(T), Array(T, size(A, 1)))
+QuadraticFunction{T<:AbstractFloat}(A::AbstractMatrix{T}, b::AbstractVector{T}, c::T) = QuadraticFunction{T, 3, typeof(A), typeof(b)}(A, b, c, Array(T, size(A, 1)))
 
-function value{T<:FloatingPoint}(f::QuadraticFunction{T, 1}, x::StridedVector{T})
+function value{T<:AbstractFloat}(f::QuadraticFunction{T, 1}, x::StridedVector{T})
   A_mul_B!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2.
 end
-function value{T<:FloatingPoint}(f::QuadraticFunction{T, 2}, x::StridedVector{T})
+function value{T<:AbstractFloat}(f::QuadraticFunction{T, 2}, x::StridedVector{T})
   A_mul_B!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2. + dot(x, f.b)
 end
-function value{T<:FloatingPoint}(f::QuadraticFunction{T, 3}, x::StridedVector{T})
+function value{T<:AbstractFloat}(f::QuadraticFunction{T, 3}, x::StridedVector{T})
   A_mul_B!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2. + dot(x, f.b) + f.c
 end
 
-function value{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, x::StridedVector{T}, activeset::ActiveSet)
+function value{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, x::StridedVector{T}, activeset::ActiveSet)
   A = f.A
   if N > 1
     b = f.b
@@ -139,7 +139,7 @@ function value{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, x::StridedVector
   s
 end
 
-function value_and_gradient!{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
+function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
   b = f.b
   A_mul_B!(hat_x, f.A, x)
   r = dot(hat_x, x) / 2.
@@ -153,7 +153,7 @@ function value_and_gradient!{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, ha
 end
 
 
-function value_and_gradient!{T<:FloatingPoint, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}, activeset::ActiveSet)
+function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}, activeset::ActiveSet)
   A = f.A
   if N > 1
     b = f.b

@@ -14,7 +14,7 @@ end
 
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
-function solve!{T<:FloatingPoint}(
+function solve!{T<:AbstractFloat}(
     ::ProxGradDescent,
     x::StridedArray{T},
     f::DifferentiableFunction, g::ProximableFunction;
@@ -79,7 +79,7 @@ end
 
 # implements the algorithm in section 4.3 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
-function solve!{T<:FloatingPoint}(
+function solve!{T<:AbstractFloat}(
     ::AccProxGradDescent,
     x::StridedArray{T},
     f::DifferentiableFunction, g::ProximableFunction;
@@ -149,7 +149,7 @@ end
 
 
 # active set implementation of accelerated proximal gradient descent
-function solve!{T<:FloatingPoint}(
+function solve!{T<:AbstractFloat}(
     ::ActiveAccProxGradDescent,
     x::StridedArray{T},
     f::DifferentiableFunction, g::ProximableFunction;
@@ -236,7 +236,7 @@ end
 ###
 
 
-function _y_minus_ax!{T<:FloatingPoint}(out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T})
+function _y_minus_ax!{T<:AbstractFloat}(out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T})
   @assert size(out) == size(y) == size(x)
   @inbounds for ind in eachindex(out)
     out[ind] = y[ind] - a * x[ind]
@@ -244,7 +244,7 @@ function _y_minus_ax!{T<:FloatingPoint}(out::StridedArray{T}, y::StridedArray{T}
   out
 end
 
-function _y_minus_ax!{T<:FloatingPoint}(out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T}, activeset::ActiveSet)
+function _y_minus_ax!{T<:AbstractFloat}(out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T}, activeset::ActiveSet)
   indexes = activeset.indexes
   @inbounds for i=1:activeset.numActive
     ind = indexes[i]
@@ -254,7 +254,7 @@ function _y_minus_ax!{T<:FloatingPoint}(out::StridedArray{T}, y::StridedArray{T}
 end
 
 
-function _y_minus_ax!{T<:FloatingPoint}(
+function _y_minus_ax!{T<:AbstractFloat}(
     out::StridedArray{T}, y::StridedArray{T}, a::T, x::StridedArray{T}, activeset::GroupActiveSet
     )
   groups = activeset.groupToIndex
@@ -272,7 +272,7 @@ function _y_minus_ax!{T<:FloatingPoint}(
 end
 
 # approximates f(z) as f(y) + grad_f(y) * (z-y) + ||z-y||^2 / (2 / lambda)
-function _taylor_value{T<:FloatingPoint}(
+function _taylor_value{T<:AbstractFloat}(
     fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T
     )
   @assert size(y) == size(z) == size(grad_y)
@@ -286,7 +286,7 @@ function _taylor_value{T<:FloatingPoint}(
   fy + dgh + nhsq / 2. / λ
 end
 
-function _taylor_value{T<:FloatingPoint}(
+function _taylor_value{T<:AbstractFloat}(
     fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::ActiveSet
     )
   indexes = activeset.indexes
@@ -301,7 +301,7 @@ function _taylor_value{T<:FloatingPoint}(
   fy + dgh + nhsq / 2. / λ
 end
 
-function _taylor_value{T<:FloatingPoint}(
+function _taylor_value{T<:AbstractFloat}(
     fy::T, z::StridedArray{T}, y::StridedArray{T}, grad_y::StridedArray{T}, λ::T, activeset::GroupActiveSet
     )
   groups = activeset.groupToIndex
@@ -324,7 +324,7 @@ end
 
 
 
-function _update_y!{T<:FloatingPoint}(
+function _update_y!{T<:AbstractFloat}(
     y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T
     )
   @assert size(y) == size(z) == size(x)
@@ -334,7 +334,7 @@ function _update_y!{T<:FloatingPoint}(
   y
 end
 
-function _update_y!{T<:FloatingPoint}(
+function _update_y!{T<:AbstractFloat}(
     y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T, activeset::ActiveSet
     )
   indexes = activeset.indexes
@@ -345,7 +345,7 @@ function _update_y!{T<:FloatingPoint}(
   y
 end
 
-function _update_y!{T<:FloatingPoint}(
+function _update_y!{T<:AbstractFloat}(
     y::StridedArray{T}, z::StridedArray{T}, x::StridedArray{T}, ω::T, activeset::GroupActiveSet
     )
   groups = activeset.groupToIndex

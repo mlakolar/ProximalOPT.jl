@@ -8,7 +8,7 @@
 abstract ProximableFunction
 
 prox!(g::ProximableFunction, hat_x::StridedArray, x::StridedArray) = prox!(g, hat_x, x, 1.0)
-prox{T<:FloatingPoint}(g::ProximableFunction, x::StridedArray, γ::T) = prox!(g, similar(x), x, γ)
+prox{T<:AbstractFloat}(g::ProximableFunction, x::StridedArray, γ::T) = prox!(g, similar(x), x, γ)
 prox(g::ProximableFunction, x::StridedArray) = prox!(g, similar(x), x, 1.0)
 
 ######  zero
@@ -16,9 +16,9 @@ prox(g::ProximableFunction, x::StridedArray) = prox!(g, similar(x), x, 1.0)
 immutable ProxZero <: ProximableFunction
 end
 
-value{T<:FloatingPoint}(g::ProxZero, x::StridedArray{T}) = zero(T)
+value{T<:AbstractFloat}(g::ProxZero, x::StridedArray{T}) = zero(T)
 
-function prox!{T<:FloatingPoint}(::ProxZero, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+function prox!{T<:AbstractFloat}(::ProxZero, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
   @assert size(out_x) == size(x)
   copy!(out_x, x)
   out_x
@@ -26,14 +26,14 @@ end
 
 ######  L1 norm  g(x) = λ * ||x||_1
 
-immutable AProxL1{T<:FloatingPoint, N} <: ProximableFunction
+immutable AProxL1{T<:AbstractFloat, N} <: ProximableFunction
   λ::Array{T, N}
 end
-typealias VProxL1{T<:FloatingPoint} AProxL1{T, 1}
-typealias MProxL1{T<:FloatingPoint} AProxL1{T, 2}
+typealias VProxL1{T<:AbstractFloat} AProxL1{T, 1}
+typealias MProxL1{T<:AbstractFloat} AProxL1{T, 2}
 
-AProxL1{T<:FloatingPoint, N}(λ::Array{T, N}) = AProxL1{T, N}(λ)
-function value{T<:FloatingPoint, N}(g::AProxL1{T, N}, x::StridedArray{T, N})
+AProxL1{T<:AbstractFloat, N}(λ::Array{T, N}) = AProxL1{T, N}(λ)
+function value{T<:AbstractFloat, N}(g::AProxL1{T, N}, x::StridedArray{T, N})
   λ = g.λ
   @assert size(x) == size(λ)
   v = zero(T)
@@ -42,7 +42,7 @@ function value{T<:FloatingPoint, N}(g::AProxL1{T, N}, x::StridedArray{T, N})
   end
   v
 end
-function value{T<:FloatingPoint, N}(g::AProxL1{T, N}, x::StridedArray{T, N}, activeset::ActiveSet)
+function value{T<:AbstractFloat, N}(g::AProxL1{T, N}, x::StridedArray{T, N}, activeset::ActiveSet)
   λ = g.λ
   @assert size(x) == size(λ)
   v = zero(T)
@@ -53,7 +53,7 @@ function value{T<:FloatingPoint, N}(g::AProxL1{T, N}, x::StridedArray{T, N}, act
   end
   v
 end
-function prox!{T<:FloatingPoint}(
+function prox!{T<:AbstractFloat}(
     g::AProxL1{T},
     out_x::StridedArray{T},
     x::StridedArray{T},
@@ -66,7 +66,7 @@ function prox!{T<:FloatingPoint}(
   end
   out_x
 end
-function prox!{T<:FloatingPoint}(
+function prox!{T<:AbstractFloat}(
     g::AProxL1{T},
     out_x::StridedArray{T},
     x::StridedArray{T},
@@ -84,12 +84,12 @@ function prox!{T<:FloatingPoint}(
 end
 
 
-immutable ProxL1{T<:FloatingPoint} <: ProximableFunction
+immutable ProxL1{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
-ProxL1{T<:FloatingPoint}(λ::T) = ProxL1{T}(λ)
-value{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}) = g.λ * sumabs(x)
-function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+ProxL1{T<:AbstractFloat}(λ::T) = ProxL1{T}(λ)
+value{T<:AbstractFloat}(g::ProxL1{T}, x::StridedArray{T}) = g.λ * sumabs(x)
+function prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
   @assert size(out_x) == size(x)
   c = g.λ * γ
   for i in eachindex(x)
@@ -97,7 +97,7 @@ function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   end
   out_x
 end
-function value{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}, activeset::ActiveSet)
+function value{T<:AbstractFloat}(g::ProxL1{T}, x::StridedArray{T}, activeset::ActiveSet)
   r = zero(T)
   indexes = activeset.indexes
   @inbounds for i=1:activeset.numActive
@@ -106,7 +106,7 @@ function value{T<:FloatingPoint}(g::ProxL1{T}, x::StridedArray{T}, activeset::Ac
   end
   g.λ * r
 end
-function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::ActiveSet)
+function prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::ActiveSet)
   @assert size(out_x) == size(x)
   c = g.λ * γ
   indexes = activeset.indexes
@@ -116,7 +116,7 @@ function prox!{T<:FloatingPoint}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   end
   out_x
 end
-function active_set{T<:FloatingPoint}(
+function active_set{T<:AbstractFloat}(
     ::Union(ProxL1{T}, AProxL1{T}),
     x::StridedArray{T};
     zero_thr::T=1e-4
@@ -139,7 +139,7 @@ end
 # differentiable function
 # current iterate
 # tmp array
-function add_violator!{T<:FloatingPoint}(
+function add_violator!{T<:AbstractFloat}(
     activeset::ActiveSet,
     x::StridedArray{T},
     g::ProxL1{T},
@@ -188,7 +188,7 @@ function add_violator!{T<:FloatingPoint}(
   changed
 end
 
-function add_violator!{T<:FloatingPoint}(
+function add_violator!{T<:AbstractFloat}(
     activeset::ActiveSet,
     x::StridedArray{T},
     g::AProxL1{T},
@@ -241,13 +241,13 @@ end
 
 ###### L2 norm   g(x) = λ * ||x||_2
 
-immutable ProxL2{T<:FloatingPoint} <: ProximableFunction
+immutable ProxL2{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
 
-ProxL2{T<:FloatingPoint}(λ::T) = ProxL2{T}(λ)
-value{T<:FloatingPoint}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * norm(x)
-function prox!{T<:FloatingPoint}(g::ProxL2{T}, out_x::StridedVector{T}, x::StridedVector{T}, γ::T)
+ProxL2{T<:AbstractFloat}(λ::T) = ProxL2{T}(λ)
+value{T<:AbstractFloat}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * norm(x)
+function prox!{T<:AbstractFloat}(g::ProxL2{T}, out_x::StridedVector{T}, x::StridedVector{T}, γ::T)
   @assert size(out_x) == size(x)
   c = g.λ * γ
   tmp = max(1. - c / norm(x), 0.)
@@ -263,17 +263,17 @@ end
 
 ###### L2 norm squared g(x) = λ * ||x||_2^2
 
-immutable ProxL2Sq{T<:FloatingPoint} <: ProximableFunction
+immutable ProxL2Sq{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
 
-ProxL2Sq{T<:FloatingPoint}(λ::T) = ProxL2Sq{T}(λ)
+ProxL2Sq{T<:AbstractFloat}(λ::T) = ProxL2Sq{T}(λ)
 
-function value{T<:FloatingPoint}(g::ProxL2Sq{T}, x::StridedArray{T})
+function value{T<:AbstractFloat}(g::ProxL2Sq{T}, x::StridedArray{T})
   g.λ * sumabs2(x)
 end
 
-function prox!{T<:FloatingPoint}(g::ProxL2Sq{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+function prox!{T<:AbstractFloat}(g::ProxL2Sq{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
   @assert size(out_x) == size(x)
   c = g.λ * γ
   c = 1. / (1. + 2. * c)
@@ -285,15 +285,15 @@ end
 
 ####### nuclear norm  g(x) = λ * ||x||_*
 
-immutable ProxNuclear{T<:FloatingPoint} <: ProximableFunction
+immutable ProxNuclear{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
 
-ProxNuclear{T<:FloatingPoint}(λ::T) = ProxNuclear{T}(λ)
+ProxNuclear{T<:AbstractFloat}(λ::T) = ProxNuclear{T}(λ)
 
-value{T<:FloatingPoint}(g::ProxNuclear{T}, x::StridedMatrix{T}) = g.λ * sum(svdvals(x))
+value{T<:AbstractFloat}(g::ProxNuclear{T}, x::StridedMatrix{T}) = g.λ * sum(svdvals(x))
 
-function prox!{T<:FloatingPoint}(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, γ::T)
+function prox!{T<:AbstractFloat}(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, γ::T)
   @assert size(out_x) == size(x)
   U, S, V = svd(x)
   c = g.λ * γ
@@ -319,10 +319,10 @@ immutable ProxSumProx{P<:ProximableFunction, I} <: ProximableFunction
   groups::Vector{I}
 end
 
-ProxL1L2{T<:FloatingPoint, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxL2{T}, I}(ProxL2{T}(λ), groups)
-ProxL1Nuclear{T<:FloatingPoint, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxNuclear{T}, I}(ProxNuclear{T}(λ), groups)
+ProxL1L2{T<:AbstractFloat, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxL2{T}, I}(ProxL2{T}(λ), groups)
+ProxL1Nuclear{T<:AbstractFloat, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxNuclear{T}, I}(ProxNuclear{T}(λ), groups)
 
-function value{T<:FloatingPoint}(g::ProxSumProx, x::StridedArray{T})
+function value{T<:AbstractFloat}(g::ProxSumProx, x::StridedArray{T})
   intern_prox = g.intern_prox
   groups = g.groups
   v = zero(T)
@@ -332,7 +332,7 @@ function value{T<:FloatingPoint}(g::ProxSumProx, x::StridedArray{T})
   v
 end
 
-function prox!{T<:FloatingPoint}(g::ProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+function prox!{T<:AbstractFloat}(g::ProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
   @assert size(out_x) == size(x)
   intern_prox = g.intern_prox
   groups = g.groups
@@ -347,7 +347,7 @@ immutable AProxSumProx{P<:ProximableFunction, I} <: ProximableFunction
   groups::Vector{I}
 end
 
-function ProxL1L2{T<:FloatingPoint, I}(
+function ProxL1L2{T<:AbstractFloat, I}(
     λ::Vector{T},
     groups::Vector{I}
     )
@@ -360,7 +360,7 @@ function ProxL1L2{T<:FloatingPoint, I}(
   AProxSumProx{ProxL2{T}, I}(proxV, groups)
 end
 
-function value{T<:FloatingPoint}(g::AProxSumProx, x::StridedArray{T})
+function value{T<:AbstractFloat}(g::AProxSumProx, x::StridedArray{T})
   intern_prox = g.intern_prox
   groups = g.groups
   v = zero(T)
@@ -370,7 +370,7 @@ function value{T<:FloatingPoint}(g::AProxSumProx, x::StridedArray{T})
   v
 end
 
-function prox!{T<:FloatingPoint}(g::AProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
+function prox!{T<:AbstractFloat}(g::AProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
   @assert size(out_x) == size(x)
   intern_prox = g.intern_prox
   groups = g.groups
@@ -381,7 +381,7 @@ function prox!{T<:FloatingPoint}(g::AProxSumProx, out_x::StridedArray{T}, x::Str
 end
 
 #
-function active_set{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}; zero_thr::T=1e-4)
+function active_set{T<:AbstractFloat, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}; zero_thr::T=1e-4)
   groups = g.groups
   numElem = length(groups)
   activeset = [1:numElem;]
@@ -394,7 +394,7 @@ function active_set{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::S
   end
   GroupActiveSet(activeset, numActive, groups)
 end
-function value{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}, activeset::GroupActiveSet)
+function value{T<:AbstractFloat, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}, activeset::GroupActiveSet)
   v = zero(T)
   intern_prox = g.intern_prox
   groups = g.groups
@@ -405,7 +405,7 @@ function value{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::Stride
   end
   v
 end
-function prox!{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::GroupActiveSet)
+function prox!{T<:AbstractFloat, I}(g::ProxSumProx{ProxNuclear{T}, I}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::GroupActiveSet)
   @assert size(out_x) == size(x)
   intern_prox = g.intern_prox
   groups = g.groups
@@ -416,7 +416,7 @@ function prox!{T<:FloatingPoint, I}(g::ProxSumProx{ProxNuclear{T}, I}, out_x::St
   end
   out_x
 end
-function add_violator!{T<:FloatingPoint, II}(
+function add_violator!{T<:AbstractFloat, II}(
     activeset::GroupActiveSet, x::StridedArray{T},
     g::ProxSumProx{ProxNuclear{T}, II}, f::DifferentiableFunction, tmp::StridedArray{T}; zero_thr::T=1e-4, grad_tol=1e-6
     )
@@ -468,10 +468,10 @@ end
 
 immutable ProxLogDet{T} <: ProximableFunction
 end
-ProxLogDet{T<:FloatingPoint}(λ::T) = ProxLogDet{T}(λ)
+ProxLogDet{T<:AbstractFloat}(λ::T) = ProxLogDet{T}(λ)
 
-function value{T<:FloatingPoint}(g::ProxLogDet{T}, x::Symmetric{T})
+function value{T<:AbstractFloat}(g::ProxLogDet{T}, x::Symmetric{T})
 end
 
-function prox!{T<:FloatingPoint}(g::ProxLogDet{T}, out_x::Symmetric{T}, x::Symmetric{T}, γ::T)
+function prox!{T<:AbstractFloat}(g::ProxLogDet{T}, out_x::Symmetric{T}, x::Symmetric{T}, γ::T)
 end

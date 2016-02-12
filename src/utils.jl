@@ -123,7 +123,7 @@ end
 
 #########################################
 
-function check_optim_done{T<:FloatingPoint}(iter,
+function check_optim_done{T<:AbstractFloat}(iter,
                                             curval::T, lastval::T,
                                             x::StridedArray{T}, z::StridedArray{T},
                                             options::ProximalOptions)
@@ -131,7 +131,7 @@ function check_optim_done{T<:FloatingPoint}(iter,
 end
 
 
-function _sqrl2diff{T<:FloatingPoint}(x::StridedArray{T}, y::StridedArray{T})
+function _sqrl2diff{T<:AbstractFloat}(x::StridedArray{T}, y::StridedArray{T})
     @assert length(x) == length(y)
     s = zero(T)
     @inbounds for i = 1:length(x)
@@ -140,8 +140,8 @@ function _sqrl2diff{T<:FloatingPoint}(x::StridedArray{T}, y::StridedArray{T})
     return s
 end
 
-_l2diff{T<:FloatingPoint}(x::StridedArray{T}, y::StridedArray{T}) =
+_l2diff{T<:AbstractFloat}(x::StridedArray{T}, y::StridedArray{T}) =
     sqrt(_sqrl2diff(x, y))
 
 
-shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
+shrink{T<:AbstractFloat}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))

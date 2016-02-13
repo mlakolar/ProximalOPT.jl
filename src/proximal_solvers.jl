@@ -17,7 +17,7 @@ end
 # minimizes f(x) + g(x)
 # both functions need to be proximable
 function solve!{T<:AbstractFloat}(
-    ::ADMMSolver
+    ::ADMMSolver,
     X::StridedMatrix{T},
     Z::StridedMatrix{T},
     U::StridedMatrix{T},

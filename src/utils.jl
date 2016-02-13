@@ -129,11 +129,11 @@ type ADMMOptions
   reltol::Float64
 end
 
-ADMMSolver(;ρ::Float64=1.,
+ADMMOptions(;ρ::Float64=1.,
            α::Float64=1.,
            maxiter::Int64=200,
            abstol::Float64=1e-4,
-           reltol::Float64=1e-2) = ADMMSolver(ρ, α, maxiter, abstol, reltol)
+           reltol::Float64=1e-2) = ADMMOptions(ρ, α, maxiter, abstol, reltol)
 
 
 #########################################

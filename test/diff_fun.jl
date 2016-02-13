@@ -5,15 +5,15 @@ facts("L2Loss") do
   f1 = L2Loss()
   f2 = L2Loss(y)
 
-  @fact value(f1, x) => roughly(sumabs2(x)/2.)
-  @fact value(f2, x) => roughly(sumabs2(x-y)/2.)
+  @fact value(f1, x) --> roughly(sumabs2(x)/2.)
+  @fact value(f2, x) --> roughly(sumabs2(x-y)/2.)
 
   hat_x = similar(x)
-  @fact value_and_gradient!(f1, hat_x, x) => roughly(sumabs2(x)/2.)
-  @fact hat_x => roughly(x)
+  @fact value_and_gradient!(f1, hat_x, x) --> roughly(sumabs2(x)/2.)
+  @fact hat_x --> roughly(x)
   hat_x = similar(x)
-  @fact value_and_gradient!(f2, hat_x, x) => roughly(sumabs2(x-y)/2.)
-  @fact hat_x => roughly(x-y)
+  @fact value_and_gradient!(f2, hat_x, x) --> roughly(sumabs2(x-y)/2.)
+  @fact hat_x --> roughly(x-y)
 
 end
 
@@ -30,19 +30,19 @@ facts("Quadratic Function") do
   q2 = QuadraticFunction(A, b)
   q3 = QuadraticFunction(A, b, c)
 
-  @fact value(q1, x) => roughly(dot(x, A*x)/2.)
-  @fact value(q2, x) => roughly(dot(x, A*x)/2. + dot(x, b))
-  @fact value(q3, x) => roughly(dot(x, A*x)/2. + dot(x, b) + c)
+  @fact value(q1, x) --> roughly(dot(x, A*x)/2.)
+  @fact value(q2, x) --> roughly(dot(x, A*x)/2. + dot(x, b))
+  @fact value(q3, x) --> roughly(dot(x, A*x)/2. + dot(x, b) + c)
 
   hat_x = similar(x)
-  @fact value_and_gradient!(q1, hat_x, x) => roughly(dot(x, A*x)/2.)
-  @fact hat_x => roughly(A*x)
+  @fact value_and_gradient!(q1, hat_x, x) --> roughly(dot(x, A*x)/2.)
+  @fact hat_x --> roughly(A*x)
 
-  @fact value_and_gradient!(q2, hat_x, x) => roughly(dot(x, A*x)/2. + dot(x, b))
-  @fact hat_x => roughly(A*x + b)
+  @fact value_and_gradient!(q2, hat_x, x) --> roughly(dot(x, A*x)/2. + dot(x, b))
+  @fact hat_x --> roughly(A*x + b)
 
-  @fact value_and_gradient!(q3, hat_x, x) => roughly(dot(x, A*x)/2. + dot(x, b) + c)
-  @fact hat_x => roughly(A*x + b)
+  @fact value_and_gradient!(q3, hat_x, x) --> roughly(dot(x, A*x)/2. + dot(x, b) + c)
+  @fact hat_x --> roughly(A*x + b)
 
 
 end

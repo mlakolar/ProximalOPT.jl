@@ -11,6 +11,63 @@ end
 immutable ActiveAccProxGradDescent <: ProximalSolver
 end
 
+immutable ADMMSolver <: ProximalSolver
+end
+
+# minimizes f(x) + g(x)
+# both functions need to be proximable
+function solve!{T<:AbstractFloat}(
+    ::ADMMSolver
+    X::StridedMatrix{T},
+    Z::StridedMatrix{T},
+    U::StridedMatrix{T},
+    f::ProximableFunction,
+    g::ProximableFunction;
+    options = ADMMOptions()
+    )
+
+  maxiter = options.maxiter
+  ρ = options.ρ
+  α = options.α
+  abstol = options.abstol
+  reltol = options.reltol
+
+  p = size(X, 1)
+  tmpStorage = zeros(T, (p, p))
+  Zold = copy(Z)
+
+  for iter=1:maxiter
+    # x-update
+    # prox_λf(Z - U)
+    @simd for i in eachindex(tmpStorage)
+      @inbounds tmpStorage[i] = Z[i] - U[i]
+    end
+    prox!(f, X, tmpStorage, ρ)
+
+    # z-update with relaxation
+    copy!(Zold, Z)
+    @simd for i in eachindex(tmpStorage)
+      @inbounds tmpStorage[i] = α*X[i] + (one(T)-α)*Z[i] + U[i]
+    end
+    prox!(g, Z, tmpStorage, ρ)
+
+    # u-update
+    @simd for i in eachindex(tmpStorage)
+      @inbounds U[i] = tmpStorage[i] - Z[i]
+    end
+
+    # check convergence
+    r_norm = _normdiff(X, Z)
+    s_norm = _normdiff(Z, Zold) * sqrt(ρ)
+    eps_pri = p*abstol + reltol * max( vecnorm(X), vecnorm(Z) )
+    eps_dual = p*abstol + reltol * ρ * vecnorm(U)
+    if r_norm < eps_pri && s_norm < eps_dual
+      break
+    end
+  end
+  Z
+end
+
 
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf

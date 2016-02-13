@@ -13,7 +13,7 @@ facts("proximal_nuclear") do
   g = ProxNuclear(0.1)
   prox!(g, x, y)
 
-  @fact x => roughly(tx)
+  @fact x --> roughly(tx)
 end
 
 
@@ -27,17 +27,17 @@ facts("proximal_l2") do
     lambda = norm(x) + 0.1
     g = ProxL2(lambda)
     # check the norm
-    @fact value(g, x) => roughly(lambda * norm(x))
+    @fact value(g, x) --> roughly(lambda * norm(x))
     ln = 0.
     for j=1:p
       ln += x[j]^2
     end
-    @fact value(g, x) => roughly(lambda * sqrt(ln))
+    @fact value(g, x) --> roughly(lambda * sqrt(ln))
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
-    @fact hat_x => roughly(zeros(Float64, p))
-    @fact norm(hat_x) => roughly(0.)
+    @fact hat_x --> roughly(zeros(Float64, p))
+    @fact norm(hat_x) --> roughly(0.)
   end
 
   context("shrink not to zero") do
@@ -49,18 +49,18 @@ facts("proximal_l2") do
     # check the norm
     g = ProxL2(lambda)
 
-    @fact value(g, x) => roughly(lambda * norm(x))
+    @fact value(g, x) --> roughly(lambda * norm(x))
     ln = 0.
     for j=1:p
       ln += x[j]^2
     end
-    @fact value(g, x) => roughly(lambda * sqrt(ln))
+    @fact value(g, x) --> roughly(lambda * sqrt(ln))
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
 
-    @fact hat_x => roughly((1.-1./sqrt(5.))*x)
-    @fact norm(hat_x) => roughly(sqrt(5.)-1.)
+    @fact hat_x --> roughly((1.-1./sqrt(5.))*x)
+    @fact norm(hat_x) --> roughly(sqrt(5.)-1.)
   end
 
 end
@@ -80,13 +80,13 @@ facts("proximal_l1l2") do
 
     # check the norm
     g = ProxL1L2(lambda, groups)
-    @fact value(g, x) => roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
+    @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
 
-    @fact hat_x => roughly(zeros(Float64, p))
-    @fact norm(hat_x) => roughly(0.)
+    @fact hat_x --> roughly(zeros(Float64, p))
+    @fact norm(hat_x) --> roughly(0.)
   end
 
   context("shrink not to zero") do
@@ -102,13 +102,13 @@ facts("proximal_l1l2") do
 
     # check the norm
     g = ProxL1L2(lambda, groups)
-    @fact value(g, x) => roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
+    @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
 
-    @fact hat_x[1:5] => roughly( (1.-lambda/norm(x[1:5])) * x[1:5] )
-    @fact hat_x[6:10] => roughly( (1.-lambda/norm(x[6:10])) * x[6:10] )
+    @fact hat_x[1:5] --> roughly( (1.-lambda/norm(x[1:5])) * x[1:5] )
+    @fact hat_x[6:10] --> roughly( (1.-lambda/norm(x[6:10])) * x[6:10] )
   end
 
 end
@@ -121,9 +121,9 @@ facts("proximal_l1") do
 
     hat_x = randn(10)
     prox!(g, hat_x, x)
-    @fact maximum(abs(hat_x)) => 0.
+    @fact maximum(abs(hat_x)) --> 0.
 
-    @fact value(g, x) => roughly(lambda * sumabs(x))
+    @fact value(g, x) --> roughly(lambda * sumabs(x))
   end
 
   context("shrink to zero") do
@@ -133,10 +133,10 @@ facts("proximal_l1") do
 
     hat_x = randn(3)
     prox!(g, hat_x, x)
-    @fact  hat_x => roughly([0.9, 1.3, -3.1])
+    @fact  hat_x --> roughly([0.9, 1.3, -3.1])
 
-    @fact value(g, x) => roughly(lambda * sumabs(x))
-    @fact value(g, hat_x) => roughly(lambda * sumabs(hat_x))
+    @fact value(g, x) --> roughly(lambda * sumabs(x))
+    @fact value(g, hat_x) --> roughly(lambda * sumabs(hat_x))
   end
 end
 
@@ -149,25 +149,25 @@ facts("proximal_l1sq") do
 
     # norm value
     g = ProxL2Sq(0.)
-    @fact value(g, x) => 0.
+    @fact value(g, x) --> 0.
 
     g = ProxL2Sq(1.)
-    @fact value(g, x) => sumabs2(x)
+    @fact value(g, x) --> sumabs2(x)
 
     g = ProxL2Sq(2.)
-    @fact value(g, x) => roughly(2. * norm(x)^2)
+    @fact value(g, x) --> roughly(2. * norm(x)^2)
 
     # prox
     hat_x = similar(x)
 
     g = ProxL2Sq(0.)
-    @fact prox!(g, hat_x, x) => roughly(x)
+    @fact prox!(g, hat_x, x) --> roughly(x)
 
     g = ProxL2Sq(1.)
-    @fact prox!(g, hat_x, x) => roughly(x / 3.)
+    @fact prox!(g, hat_x, x) --> roughly(x / 3.)
 
     g = ProxL2Sq(2.)
-    @fact prox!(g, hat_x, x) => roughly(x / 5.)
+    @fact prox!(g, hat_x, x) --> roughly(x / 5.)
 
 
   end

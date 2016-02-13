@@ -27,7 +27,7 @@ facts("proximal_gradient_descent") do
   f = QuadraticFunction(AA, -Ab)
   g = ProxL1(gamma)
 
-  opt = ProximalOptions(;ftol=1e-6,xtol=1e-6,maxiter=300)
+  opt = ProximalOptions(;ftol=1e-8,xtol=1e-8,maxiter=1000)
   ## prox grad
   h_beta = zeros(p)
   @time solve!(ProxGradDescent(), h_beta, f, g; options=opt)
@@ -51,10 +51,10 @@ facts("proximal_gradient_descent") do
   @time CDLasso.lasso!(hb4, AA, -Ab, lambda)
 
 
-  @fact h_beta2 => roughly(h_beta; atol=1e-2)
-  @fact h_beta2 => roughly(h_beta1; atol=1e-2)
-  @fact h_beta2 => roughly(h_beta3; atol=1e-2)
-  @fact h_beta2 => roughly(hb4; atol=1e-2)
+  @fact h_beta2 --> roughly(h_beta; atol=1e-2)
+  @fact h_beta2 --> roughly(h_beta1; atol=1e-2)
+  @fact h_beta2 --> roughly(h_beta3; atol=1e-2)
+  @fact h_beta2 --> roughly(hb4; atol=1e-2)
 
   #################################### test with intercept
 
@@ -95,6 +95,6 @@ facts("proximal_gradient_descent") do
   h3 = zeros(p+1)
   @time CDLasso.lasso!(h3, AA, -Ab, λ)
 
-  @fact h3 => roughly(h1; atol=1e-2)
-  @fact h3 => roughly(h2; atol=1e-2)
+  @fact h3 --> roughly(h1; atol=1e-2)
+  @fact h3 --> roughly(h2; atol=1e-2)
 end

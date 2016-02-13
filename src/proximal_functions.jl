@@ -117,7 +117,7 @@ function prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::StridedArray{T}, x::Stride
   out_x
 end
 function active_set{T<:AbstractFloat}(
-    ::Union(ProxL1{T}, AProxL1{T}),
+    ::Union{ProxL1{T}, AProxL1{T}},
     x::StridedArray{T};
     zero_thr::T=1e-4
     )
@@ -463,15 +463,38 @@ function add_violator!{T<:AbstractFloat, II}(
   changed
 end
 
-#### -
+# Gaussian likelihood prox
+# f(X) = tr(SX) - log deg(X)
 
-
-immutable ProxLogDet{T} <: ProximableFunction
+immutable ProxGaussLikelihood{T<:AbstractFloat} <: ProximableFunction
+  S::StridedMatrix{T}
+  tmpStorage::StridedMatrix{T}
+  p::Int64
 end
-ProxLogDet{T<:AbstractFloat}(λ::T) = ProxLogDet{T}(λ)
 
-function value{T<:AbstractFloat}(g::ProxLogDet{T}, x::Symmetric{T})
-end
+ProxGaussLikelihood{T<:AbstractFloat}(S::Array{T,2}) = ProxGaussLikelihood{T}(S, similar(S), size(S, 1))
 
-function prox!{T<:AbstractFloat}(g::ProxLogDet{T}, out_x::Symmetric{T}, x::Symmetric{T}, γ::T)
+value{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, x::StridedMatrix{T}) = trace(g.S*x) - logdet(x)
+function prox!{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, γ::T)
+  S = g.S
+  tmpStorage = g.tmpStorage
+  p = g.p
+  @assert size(out_x) == size(x) == size(S)
+  @inbounds for i in eachindex(S)
+    tmpStorage[i] = x[i] / γ - S[i]
+  end
+  ef = eigfact(Symmetric(tmpStorage))
+  efVectors = ef[:vectors]::Array{T, 2}
+  efValues = ef[:values]::Array{T, 1}
+  @simd for i=1:p
+    @inbounds t = efValues[i]
+    @inbounds efValues[i] = (t + sqrt(t^2. + 4./γ)) / (2./γ)
+  end
+  @inbounds for c=1:p, r=1:p
+    out_x[r, c] = zero(T)
+    for i=1:p
+      out_x[r, c] = out_x[r, c] + efVectors[r,i] * efValues[i] * efVectors[c, i]
+    end
+  end
+  out_x
 end

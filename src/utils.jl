@@ -121,6 +121,21 @@ function ProximalOptions(;maxiter::Integer     = 200,
                   )
 end
 
+type ADMMOptions
+  ρ::Float64
+  α::Float64
+  maxiter::Int64
+  abstol::Float64
+  reltol::Float64
+end
+
+ADMMSolver(;ρ::Float64=1.,
+           α::Float64=1.,
+           maxiter::Int64=200,
+           abstol::Float64=1e-4,
+           reltol::Float64=1e-2) = ADMMSolver(ρ, α, maxiter, abstol, reltol)
+
+
 #########################################
 
 function check_optim_done{T<:AbstractFloat}(iter,

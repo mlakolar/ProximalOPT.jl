@@ -5,7 +5,6 @@ using ProximalOPT
 tests = [
 	"diff_fun",
   "prox_solvers",
-  "prox_fun",
   "lasso"
 ]
 
@@ -16,5 +15,3 @@ for t in tests
 end
 
 FactCheck.exitstatus()
-
-

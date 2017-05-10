@@ -1,7 +1,5 @@
 module ProximalOPT
 
-using Compat
-
 export
   # types
   DifferentiableFunction,
@@ -15,14 +13,6 @@ export
   # smooth functions
   QuadraticFunction, L2Loss,
   gradient, gradient!, value_and_gradient!,
-
-  # proximal functions
-  ProxZero,
-  ProxL1, AProxL1,
-  ProxL2, ProxL2Sq, ProxNuclear,
-  ProxSumProx, ProxL1L2, ProxL1Nuclear,
-  AProxSumProx,
-  value, prox!,
 
   #utilities
   ProximalOptions

@@ -157,6 +157,3 @@ end
 
 _l2diff{T<:AbstractFloat}(x::StridedArray{T}, y::StridedArray{T}) =
     sqrt(_sqrl2diff(x, y))
-
-
-shrink{T<:AbstractFloat}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))

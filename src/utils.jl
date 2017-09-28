@@ -1,35 +1,15 @@
-type ActiveSet
-  indexes::Vector{Int64}
-  numActive::Int64
-end
-
-type GroupActiveSet{I}
-  groups::Vector{Int64}
-  numActive::Int64
-  groupToIndex::Vector{I}
-end
-
-
 ###################################
 # tracing based on optim package
 # removed grad norm field
 #
 
-immutable OptimizationState
+immutable OptimizationState{T <: ProximalSolver}
     iteration::Int
     value::Float64
     metadata::Dict
 end
 
-function OptimizationState(i::Integer, f::Real)
-    OptimizationState(int(i), @compat(Float64(f)), Dict())
-end
-
-immutable OptimizationTrace
-    states::Vector{OptimizationState}
-end
-
-OptimizationTrace() = OptimizationTrace(Array(OptimizationState, 0))
+OptimizationTrace{T} = Vector{OptimizationState{T}}
 
 function Base.show(io::IO, t::OptimizationState)
     @printf io "%6d   %14e   \n" t.iteration t.value

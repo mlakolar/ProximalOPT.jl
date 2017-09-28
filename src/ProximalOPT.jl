@@ -1,10 +1,8 @@
 module ProximalOPT
 
-export
-  # types
-  DifferentiableFunction,
-  ProximableFunction,
+using ProximalBase
 
+export
   # proximal minimization algorithms
   ProxGradDescent, AccProxGradDescent, ActiveAccProxGradDescent,
   ProximalSolver,
@@ -18,12 +16,6 @@ export
   ProximalOptions
 
 include("utils.jl")
-
-# DifferentiableFunctions
-include("diff_functions.jl")
-
-# ProximableFunctions
-include("proximal_functions.jl")
 
 # Solvers
 include("proximal_solvers.jl")

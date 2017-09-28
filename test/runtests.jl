@@ -1,5 +1,6 @@
 using FactCheck
 
+using ProximalBase
 using ProximalOPT
 
 tests = [

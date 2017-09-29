@@ -4,20 +4,23 @@ using ProximalBase
 
 export
   # proximal minimization algorithms
-  ProxGradDescent, AccProxGradDescent, ActiveAccProxGradDescent,
-  ProximalSolver,
+  ProxGradDescent,
+  # AccProxGradDescent, ActiveAccProxGradDescent,
   solve!,
 
-  # smooth functions
-  QuadraticFunction, L2Loss,
-  gradient, gradient!, value_and_gradient!,
+  # types
+  ProximalSolver,
+  ProximalOptions,
+  OptimizationState,OptimizationTrace
 
-  #utilities
-  ProximalOptions
 
+
+include("types.jl")
 include("utils.jl")
 
+include("solve.jl")
+
 # Solvers
-include("proximal_solvers.jl")
+include("solvers/proximal_gradient_descent.jl")
 
 end

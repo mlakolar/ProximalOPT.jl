@@ -15,7 +15,7 @@ function solve!(
     tracing = options.store_trace || options.show_trace || options.extended_trace || options.callback != nothing
     stopped, stopped_by_callback, stopped_by_time_limit = false, false, false
     f_limit_reached, grad_f_limit_reached, g_limit_reached = false, false, false
-    x_converged, f_converged, f_increased = false, false, false
+    x_converged, fg_converged, f_increased = false, false, false
 
     converged = false
     iteration = 0
@@ -28,7 +28,7 @@ function solve!(
 
         update_state!(f, g, state, method)
 
-        x_converged, f_converged,
+        x_converged, fg_converged,
         g_converged, converged, f_increased = assess_convergence(state, f, g, options)
 
         if tracing
@@ -58,7 +58,7 @@ function solve!(
                                             x_converged,
                                             options.x_tol,
                                             x_residual(state.x, state.x_previous),
-                                            f_converged,
+                                            fg_converged,
                                             options.f_tol,
                                             f_residual(value(d), state.f_x_previous, options.f_tol),
                                             g_converged,
@@ -80,7 +80,7 @@ function solve!(
                                               x_converged,
                                               options.x_tol,
                                               NaN,
-                                              f_converged,
+                                              fg_converged,
                                               options.f_tol,
                                               NaN,
                                               g_converged,

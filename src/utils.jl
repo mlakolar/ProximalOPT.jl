@@ -33,7 +33,7 @@ function update!(tr::OptimizationTrace{T},
 end
 
 
-function trace!(tr, f, g, state, iteration, method::ProximalGradientDescent, options)
+function trace!(tr, f, g, state, iteration, method::Union{ProximalGradientDescent}, options)
     dt = Dict()
     if options.extended_trace
         dt["x"] = copy(state.x)
@@ -59,6 +59,7 @@ f_residual(f_x, f_x_previous, f_tol) = abs(f_x - f_x_previous) / (abs(f_x) + f_t
 
 function convergence_assessment(
     state::Union{ProximalGradientDescentState}, f, g, options)
+
     x_converged, f_converged, f_increased = false, false, false
 
     norm_x = vecnorm( state.x )
@@ -85,15 +86,6 @@ function convergence_assessment(
 
     return x_converged, f_converged, g_converged, converged, f_increased
 end
-
-function check_optim_done{T<:AbstractFloat}(iter,
-                                            curval::T, lastval::T,
-                                            x::StridedArray{T}, z::StridedArray{T},
-                                            options::ProximalOptions)
-  iter >= options.maxiter || abs(curval-lastval) < convert(T, options.ftol) || _l2diff(z, x) < convert(T, options.xtol)
-end
-
-
 
 ##############################
 

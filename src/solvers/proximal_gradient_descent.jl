@@ -1,5 +1,45 @@
+struct ProximalGradientDescent{L} <: ProximalSolver
+  linesearch!::L
+end
+
+Base.summary(::ProximalGradientDescent) = "Proximal Gradient Descent"
+
+ProximalGradientDescent(; linesearch = LineSearches.BackTracking()) =
+  ProximalGradientDescent{typeof(linesearch)}(linesearch)
+
+mutable struct ProximalGradientDescentState{T,N}
+    x::Array{T,N}
+    f_x::T
+    g_x::T
+    grad_f_x::Array{T,N}
+    x_previous::Array{T,N}
+    f_x_previous::T
+    g_x_previous::T
+    grad_f_x_previous::Array{T,N}
+    @add_linesearch_fields()
+end
 
 
+function initial_state(method::ProximalGradientDescent, options, f, g, x0::Array{T}) where T
+
+    grad_f_x = similar(x0)
+    f_x = value_and_gradient!(f, grad_f_x, x0)
+    g_x = value(g, x0)
+
+    GradientDescentState(x0,          # Maintain current state in state.x
+                         f_x,         # Maintain current f(x) in state.f_x
+                         g_x,         # Maintain current g(x) in state.g_x
+                         grad_f_x,    # Maintain gradient of f at current x in state.grad_f_x
+                         similar(x0), # Maintain previous state in state.x_previous
+                         T(NaN),      # Store previous f in state.f_x_previous
+                         T(NaN),      # Store previous g in state.g_x_previous
+                         similar(x0), # Maintain previous gradient of f in state.grad_f_x_previous for convergence check
+                         @initial_linesearch()...) # Maintain a cache for line search results in state.lsr
+end
+
+function trace!(tr, f, g, state, iteration, method::ProximalGradientDescent, options)
+  common_trace!(tr, f, g, state, iteration, method, options)
+end
 
 
 # implements the algorithm in section 4.2 of
@@ -12,17 +52,6 @@ function solve!{T<:AbstractFloat}(
     options::ProximalOptions=ProximalOptions()
     )
 
-  store_trace = options.store_trace
-  show_trace = options.show_trace
-  extended_trace = options.extended_trace
-  printEvery = options.printEvery
-
-  if extended_trace
-    store_trace = true
-  end
-  if show_trace
-    @printf "Iter     Function value   Gradient norm \n"
-  end
 
   iter = 0
   lambda = one(T)
@@ -35,9 +64,6 @@ function solve!{T<:AbstractFloat}(
   gx = value(g, x)::T
   curVal = fx + gx
 
-  tr = OptimizationTrace()
-  tracing = store_trace || show_trace || extended_trace
-  @gdtrace
   while true
     iter += 1
 

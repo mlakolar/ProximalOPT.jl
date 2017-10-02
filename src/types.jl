@@ -13,6 +13,7 @@ type ProximalOptions{TCallback <: Union{Void, Function}}
   extended_trace::Bool
   callback::TCallback
   printEvery::Int64
+  time_limit::Float64
 end
 
 function ProximalOptions(;maxiter::Integer       = 200,
@@ -25,7 +26,8 @@ function ProximalOptions(;maxiter::Integer       = 200,
                          show_trace::Bool        = false,
                          extended_trace::Bool    = false,
                          printEvery::Integer     = 1,
-                         callback                = nothing)
+                         callback                = nothing,
+                         time_limit              = Inf)
 
   maxiter > 1 || error("maxiter must be an integer greater than 1.")
   ftol > 0 || error("ftol must be a positive real value.")
@@ -42,18 +44,19 @@ function ProximalOptions(;maxiter::Integer       = 200,
                   show_trace,
                   extended_trace,
                   convert(Int64, printEvery),
-                  callback
+                  callback,
+                  time_limit
                   )
 end
 
 function print_header(options::ProximalOptions)
-    if options.show_trace
-        @printf "Iter     Function value   Gradient norm \n"
-    end
+  if options.show_trace
+    @printf "Iter     Function value       |dx|/|x| \n"
+  end
 end
 
-function print_header(method::ProximalSolver)
-        @printf "Iter     Function value   Gradient norm \n"
+function print_header(method::ProximalSolver, options::ProximalOptions)
+    @printf "Iter     Function value       |dx|/|x| \n"
 end
 
 

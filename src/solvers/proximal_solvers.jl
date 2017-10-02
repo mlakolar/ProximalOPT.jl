@@ -2,8 +2,6 @@
 
 
 
-immutable ProxGradDescent <: ProximalSolver
-end
 
 immutable AccProxGradDescent <: ProximalSolver
 end

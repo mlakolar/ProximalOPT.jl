@@ -33,7 +33,7 @@ function update!(tr::OptimizationTrace{T},
 end
 
 
-function common_trace!(tr, d, state, iteration, method::Union{LBFGS, AcceleratedGradientDescent, GradientDescent, MomentumGradientDescent, ConjugateGradient}, options)
+function trace!(tr, f, g, state, iteration, method::ProximalGradientDescent, options)
     dt = Dict()
     if options.extended_trace
         dt["x"] = copy(state.x)
@@ -55,7 +55,36 @@ end
 
 ###################################
 
+f_residual(f_x, f_x_previous, f_tol) = abs(f_x - f_x_previous) / (abs(f_x) + f_tol)
 
+function convergence_assessment(
+    state::Union{ProximalGradientDescentState}, f, g, options)
+    x_converged, f_converged, f_increased = false, false, false
+
+    norm_x = vecnorm( state.x )
+    norm_dx = norm_diff(state.x, state.x_previous, 2.)
+
+
+    if norm_dx < options.xtol * max( norm_x, 1. )
+        x_converged = true
+    end
+
+    # Relative Tolerance
+    fval = state.f_x + state.g_x
+    fval_prev = state.f_x_previous + state.g_x_previous
+    if f_residual(fval, fval_prev, options.ftol) < options.ftol ||
+              abs(fval - fval_prev) < eps(abs(fval)+abs(fval_prev))
+        f_converged = true
+    end
+
+    if fval > fval_prev
+        f_increased = true
+    end
+
+    converged = x_converged || f_converged || g_converged
+
+    return x_converged, f_converged, g_converged, converged, f_increased
+end
 
 function check_optim_done{T<:AbstractFloat}(iter,
                                             curval::T, lastval::T,
@@ -78,14 +107,12 @@ end
 
 @def add_linesearch_fields begin
     x_ls::Array{T,N}
-    alpha::T
-    mayterminate::Bool
+    L::T
     lsr::LineSearches.LineSearchResults
 end
 
 @def initial_linesearch begin
-    (similar(initial_x), # Buffer of x for line search in state.x_ls
-    LineSearches.alphainit(one(T), initial_x, gradient(d), value(d)), # Keep track of step size in state.alpha
-    false, # state.mayterminate
+    (similar(x0), # Buffer of x for line search in state.x_ls
+    one(T),       # Keep track of step size in state.L
     LineSearches.LineSearchResults(T))
 end

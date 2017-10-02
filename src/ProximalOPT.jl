@@ -1,6 +1,9 @@
 module ProximalOPT
 
+include("lineSearches.jl")
+
 using ProximalBase
+using .LineSearches
 
 export
   # proximal minimization algorithms

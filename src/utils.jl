@@ -88,23 +88,3 @@ function convergence_assessment(
 end
 
 ##############################
-
-macro def(name, definition)
-  esc(quote
-    macro $name()
-      esc($(Expr(:quote, definition)))
-    end
-  end)
-end
-
-@def add_linesearch_fields begin
-    x_ls::Array{T,N}
-    L::T
-    lsr::LineSearches.LineSearchResults
-end
-
-@def initial_linesearch begin
-    (similar(x0), # Buffer of x for line search in state.x_ls
-    one(T),       # Keep track of step size in state.L
-    LineSearches.LineSearchResults(T))
-end

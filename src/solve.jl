@@ -47,7 +47,6 @@ function solve!(
         end
     end # while
 
-    try
     return MultivariateOptimizationResults(method,
                                             NLSolversBase.iscomplex(d),
                                             initial_x,
@@ -69,28 +68,7 @@ function solve!(
                                             f_calls(d),
                                             g_calls(d),
                                             h_calls(d))
-    catch
-      return MultivariateOptimizationResults(method,
-                                              NLSolversBase.iscomplex(d),
-                                              initial_x,
-                                              f_increased ? state.x_previous : state.x,
-                                              f_increased ? state.f_x_previous : value(d),
-                                              iteration,
-                                              iteration == options.iterations,
-                                              x_converged,
-                                              options.x_tol,
-                                              NaN,
-                                              fg_converged,
-                                              options.f_tol,
-                                              NaN,
-                                              g_converged,
-                                              options.g_tol,
-                                              NaN,
-                                              f_increased,
-                                              tr,
-                                              f_calls(d),
-                                              g_calls(d),
-                                              h_calls(d))
+
     end
 
 end

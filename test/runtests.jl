@@ -4,7 +4,6 @@ using ProximalBase
 using ProximalOPT
 
 tests = [
-	"diff_fun",
   "prox_solvers",
   "lasso"
 ]

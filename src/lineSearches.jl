@@ -4,7 +4,7 @@ using Parameters
 using ProximalBase
 
 export
-  backtrack!,
+  backtrack!,has_updated_gradient,
   BackTracking
 
 
@@ -28,11 +28,11 @@ export
     backtrack_simple::Bool = true
 end
 
-function backtrack!(state, ls::BackTracking{TF, TI}, f, g) where TF <: Real, TI <: Integer
+function backtrack!(state, ls::BackTracking{TF, TI}, f, g) where TF <: Real where TI <: Integer
 
     # Quick exit if no progress made
     @. state.deltaX = state.x - state.x_previous
-    xy_sq = norm_diff( state.x, state.x_previous, 2 )
+    xy_sq = vecnorm( state.deltaX )^2
 
     if xy_sq == zero(TF)
       return true
@@ -40,10 +40,10 @@ function backtrack!(state, ls::BackTracking{TF, TI}, f, g) where TF <: Real, TI 
 
     localL = Inf
     # Compute Lipschitz estimate
-    if ls.backtrack_simple,
-        q_x = state.f_x_previous + dot( state.deltaX, state.grad_f_x_previous ) + 0.5 * L * xy_sq
+    if ls.backtrack_simple
+        q_x = state.f_x_previous + dot( state.deltaX, state.grad_f_x_previous ) + 0.5 * state.L * xy_sq
         localL = state.L + 2. * max( state.f_x - q_x, zero(TF) ) / xy_sq
-        if abs( f_y - f_x ) >= backtrack_tol * max( abs( f_x ), abs( f_y ) )
+        if abs( state.f_x_previous - state.f_x ) >= 1e-10 * max( abs( state.f_x ), abs( state.f_x_previous ) )
             ls.backtrack_simple = false
             value_and_gradient!(f, state.grad_f_x, state.x)
         end
@@ -57,10 +57,11 @@ function backtrack!(state, ls::BackTracking{TF, TI}, f, g) where TF <: Real, TI 
     end
 
     # Exit if Lipschitz criterion satisfied, or if we hit Lexact
-    ls.backtrack_steps = ls.backtrack_steps + 1;
+    ls.backtrack_steps += 1;
     (localL <= state.L || state.L >= ls.Lexact) && return true
+    (ls.backtrack_steps > 20) && return true                ## TODO
     state.L = min( ls.Lexact, localL )
-    state.L = min( ls.Lexact, max( localL, state.L / ls.β ) );
+    state.L = min( ls.Lexact, max( localL, state.L / ls.β ) )
 
     return false
 end

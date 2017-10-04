@@ -14,16 +14,18 @@ export
   # types
   ProximalSolver,
   ProximalOptions,
-  OptimizationState,OptimizationTrace
+  OptimizationState, OptimizationTrace
 
 
 
 include("types.jl")
-include("utils.jl")
 
 include("solve.jl")
 
 # Solvers
 include("solvers/proximal_gradient_descent.jl")
+
+
+include("utils.jl")
 
 end

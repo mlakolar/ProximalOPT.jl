@@ -7,7 +7,7 @@ using .LineSearches
 
 export
   # proximal minimization algorithms
-  ProxGradDescent,
+  ProximalGradientDescent,
   # AccProxGradDescent, ActiveAccProxGradDescent,
   solve!,
 

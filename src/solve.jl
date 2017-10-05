@@ -4,11 +4,11 @@ function solve!(
     f::D,
     g::P,
     method::M,
-    options::ProximalOptions = ProximalOptions(),
-    state = initial_state(method, options, f, g, initial_x)
+    options::ProximalOptions = ProximalOptions()
     ) where {D<:DifferentiableFunction, P<:ProximableFunction, M<:ProximalSolver}
 
   t0 = time()
+  state = initial_state(method, options, f, g, initial_x)
 
   tr = OptimizationTrace{typeof(method)}()
   tracing = options.store_trace || options.show_trace || options.extended_trace || options.callback != nothing
@@ -48,7 +48,7 @@ function solve!(
   return OptimizationResults(
                 method,
                 state.x,
-                state.f_x,
+                state.f_x + state.g_x,
                 iteration,
                 iteration == options.maxiter,
                 x_converged,
@@ -56,8 +56,8 @@ function solve!(
                 norm_diff(state.x, state.x_previous, 2.),
                 fg_converged,
                 options.ftol,
-                f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.f_tol),
-                g_converged,
+                f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol),
+                grad_converged,
                 options.gradtol,
                 g_residual(state.grad_f_x, state.deltaX, state.L),
                 f_increased,

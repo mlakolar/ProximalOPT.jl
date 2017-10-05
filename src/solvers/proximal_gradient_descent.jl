@@ -63,8 +63,8 @@ function update_state!(
 
     # copy x --> x_previous
     copy!(state.x_previous, state.x)
-    state.f_x = state.f_x_previous
-    state.g_x = state.g_x_previous
+    state.f_x_previous = state.f_x
+    state.g_x_previous = state.g_x
     copy!(state.grad_f_x_previous, state.grad_f_x)
     state.L *= method.ls.α
 
@@ -73,6 +73,8 @@ function update_state!(
       # find next point
       @. state.xhat =  state.x_previous - state.grad_f_x_previous / state.L
       prox!(g, state.x, state.xhat, one(T) / state.L)
+      state.f_x = value(f, state.x)
+      state.g_x = value(g, state.x)
 
       # check if enough progress is done
       backtrack!(state, method.ls, f, g) && break

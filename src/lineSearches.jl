@@ -59,8 +59,6 @@ function backtrack!(state, ls::BackTracking{TF, TI}, f, g) where TF <: Real wher
     # Exit if Lipschitz criterion satisfied, or if we hit Lexact
     ls.backtrack_steps += 1;
     (localL <= state.L || state.L >= ls.Lexact) && return true
-    (ls.backtrack_steps > 20) && return true                ## TODO
-    state.L = min( ls.Lexact, localL )
     state.L = min( ls.Lexact, max( localL, state.L / ls.β ) )
 
     return false

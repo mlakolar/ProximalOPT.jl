@@ -108,7 +108,7 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     f_converged::Bool
     f_tol::Float64
     f_residual::Float64
-    g_converged::Bool
+    grad_converged::Bool
     g_tol::Float64
     g_residual::Float64
     f_increased::Bool
@@ -118,31 +118,50 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     h_calls::Int
 end
 
-# function Base.show(io::IO, r::OptimizationResults)
-#     @printf io "Results of Optimization Algorithm\n"
-#     @printf io " * Algorithm: %s\n" summary(r)
-#     if length(join(initial_state(r), ",")) < 40
-#         @printf io " * Starting Point: [%s]\n" join(initial_state(r), ",")
-#     else
-#         @printf io " * Starting Point: [%s, ...]\n" join(initial_state(r)[1:2], ",")
-#     end
-#     if length(join(minimizer(r), ",")) < 40
-#         @printf io " * Minimizer: [%s]\n" join(minimizer(r), ",")
-#     else
-#         @printf io " * Minimizer: [%s, ...]\n" join(minimizer(r)[1:2], ",")
-#     end
-#     @printf io " * Minimum: %e\n" minimum(r)
-#     @printf io " * Iterations: %d\n" iterations(r)
-#     @printf io " * Convergence: %s\n" converged(r)
-#     @printf io "   * |x - x'| < %.1e: %s \n" x_tol(r) x_converged(r)
-#     @printf io "     |x - x'| = %.2e \n"  x_residual(r)
-#     @printf io "   * |f(x) - f(x')| / |f(x)| < %.1e: %s\n" f_tol(r) f_converged(r)
-#     @printf io "     |f(x) - f(x')| / |f(x)| = %.2e \n" f_residual(r)
-#     @printf io "   * |g(x)| < %.1e: %s \n" g_tol(r) g_converged(r)
-#     @printf io "     |g(x)| = %.2e \n"  g_residual(r)
-#     @printf io "   * stopped by an increasing objective: %s\n" f_increased(r)
-#     @printf io "   * Reached Maximum Number of Iterations: %s\n" iteration_limit_reached(r)
-#     @printf io " * Objective Calls: %d" f_calls(r)
-#     @printf io "\n * Gradient Calls: %d" g_calls(r)
-#     return
-# end
+Base.summary(r::OptimizationResults) = summary(r.method)
+minimizer(r::OptimizationResults) = r.minimizer
+minimum(r::OptimizationResults) = r.minimum
+iterations(r::OptimizationResults) = r.iterations
+iteration_limit_reached(r::OptimizationResults) = r.iteration_converged
+converged(r::OptimizationResults) = r.x_converged || r.f_converged || r.grad_converged
+x_converged(r::OptimizationResults) = r.x_converged
+f_converged(r::OptimizationResults) = r.f_converged
+f_increased(r::OptimizationResults) = r.f_increased
+grad_converged(r::OptimizationResults) = r.grad_converged
+
+x_tol(r::OptimizationResults) = r.x_tol
+x_residual(r::OptimizationResults) = r.x_residual
+f_tol(r::OptimizationResults) = r.f_tol
+f_residual(r::OptimizationResults) = r.f_residual
+g_tol(r::OptimizationResults) = r.g_tol
+g_residual(r::OptimizationResults) = r.g_residual
+
+
+function Base.show(io::IO, r::OptimizationResults)
+    @printf io "Results of Optimization Algorithm\n"
+    @printf io " * Algorithm: %s\n" summary(r)
+    # if length(join(initial_state(r), ",")) < 40
+    #     @printf io " * Starting Point: [%s]\n" join(initial_state(r), ",")
+    # else
+    #     @printf io " * Starting Point: [%s, ...]\n" join(initial_state(r)[1:2], ",")
+    # end
+    if length(join(minimizer(r), ",")) < 40
+        @printf io " * Minimizer: [%s]\n" join(minimizer(r), ",")
+    else
+        @printf io " * Minimizer: [%s, ...]\n" join(minimizer(r)[1:2], ",")
+    end
+    @printf io " * Minimum: %e\n" minimum(r)
+    @printf io " * Iterations: %d\n" iterations(r)
+    @printf io " * Convergence: %s\n" converged(r)
+    @printf io "   * |x - x'| < %.1e: %s \n" x_tol(r) x_converged(r)
+    @printf io "     |x - x'| = %.2e \n"  x_residual(r)
+    @printf io "   * |f(x) - f(x')| / |f(x)| < %.1e: %s\n" f_tol(r) f_converged(r)
+    @printf io "     |f(x) - f(x')| / |f(x)| = %.2e \n" f_residual(r)
+    @printf io "   * |g(x)| < %.1e: %s \n" g_tol(r) grad_converged(r)
+    @printf io "     |g(x)| = %.2e \n"  g_residual(r)
+    @printf io "   * stopped by an increasing objective: %s\n" f_increased(r)
+    @printf io "   * Reached Maximum Number of Iterations: %s\n" iteration_limit_reached(r)
+    # @printf io " * Objective Calls: %d" f_calls(r)
+    # @printf io "\n * Gradient Calls: %d" g_calls(r)
+    return
+end

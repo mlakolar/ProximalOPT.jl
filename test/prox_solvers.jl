@@ -1,19 +1,28 @@
-facts("active proximal_gradient_descent") do
+module ProxSolversTest
 
-  y = [1., 2., 3.]
-  x = zeros(3)
-
-  f = L2Loss(y)
-  g = ProxL1(1.5)
-  solve!(ActiveAccProxGradDescent(), x, f, g)
-
-  @fact x --> roughly([0, 0.5, 1.5])
-end
+using Test
+using Random
+using LinearAlgebra
+using ProximalBase
+using ProximalOPT
 
 
-facts("proximal_gradient_descent") do
+# @testset "active proximal_gradient_descent" begin
+#
+#   y = [1., 2., 3.]
+#   x = zeros(3)
+#
+#   f = L2Loss(y)
+#   g = ProxL1(1.5)
+#   solve!(ActiveAccProxGradDescent(), x, f, g)
+#
+#   @test x ≈ [0, 0.5, 1.5]
+# end
 
-  context("L2Loss + nuclear norm") do
+
+@testset "proximal_gradient_descent" begin
+
+  @testset "L2Loss + nuclear norm" begin
     # one group
     x = randn(10, 10)
     y = randn(30, 10)
@@ -28,8 +37,8 @@ facts("proximal_gradient_descent") do
     end
     tx = U * (Diagonal(S)*V')
 
-    solve!(ProxGradDescent(), x, f, g)
-    @fact x --> roughly(tx; atol=1e-3)
+    solve!(ProximalGradientDescent(), x, f, g)
+    @test x ≈ tx atol = 1e-3
 
     # two groups
 
@@ -56,97 +65,101 @@ facts("proximal_gradient_descent") do
       txv[:] = U * Diagonal(S) * V'
     end
 
-    solve!(ProxGradDescent(), x, f, g)
-    @fact x --> roughly(tx; atol=1e-3)
+    solve!(ProximalGradientDescent(), x, f, g)
+    @test x ≈ tx atol = 1e-3
   end
 
-  context("L2Loss + no penalty") do
-    x = randn(5)
-    y = randn(5)
-
-    f1 = L2Loss()
-    f2 = L2Loss(y)
-    g = ProxZero()
-
-    solve!(ProxGradDescent(), x, f1, g)
-    @fact norm(x) --> roughly(0.; atol=1e-5)
-
-    solve!(ProxGradDescent(), x, f2, g)
-    @fact x --> roughly(y; atol=1e-5)
-  end
-
-  context("L2Loss + l1 penalty") do
-    opt = ProximalOptions(;ftol=1e-12,xtol=1e-12,maxiter=1000)
-    x = randn(5)
-    y = randn(5) + 1.
-
-    f = L2Loss(y)
-    g = ProxL1(0.1)
-
-    solve!(ProxGradDescent(), x, f, g; options=opt)
-    x2 = similar(x)
-    prox!(g, x2, y)
-    @fact x --> roughly(x2;atol=1e-5)
-  end
-
-  context("no penalty") do
-
-    A = randn(20, 10)
-    A = A'A
-    b = randn(10)
-    c = 1.
-
-    f = QuadraticFunction(A, b, c)
-    g = ProxZero()
-
-    x = randn(10)
-    solve!(ProxGradDescent(), x, f, g; options = ProximalOptions(;maxiter = 500))
-    tx = -A \ b
-    @fact abs(value(f, tx) - value(f, x)) / value(f, tx) < 1e-3 --> true
-
-    x = randn(10)
-    solve!(AccProxGradDescent(), x, f, g)
-    tx = -A \ b
-    @fact abs(value(f, tx) - value(f, x)) / value(f, tx) < 1e-3 --> true
-  end
-
-
-  context("ridge regression") do
-    n = 200
-    p = 30
-
-    X = randn(n, p)
-    Y = X * ones(p) + 0.1*randn(n)
-
-    true_beta = X \ Y
-
-    f = QuadraticFunction(X'X / n, -X'Y / n)
-
-    # solve ols
-    g = ProxL2Sq(0.)
-    hat_beta = zeros(p)
-    solve!(ProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-    @fact abs(value(f, true_beta) - value(f, hat_beta)) / value(f, true_beta) < 1e-3 --> true
-
-    hat_beta = zeros(p)
-    solve!(AccProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-    @fact abs(value(f, true_beta) - value(f, hat_beta)) / value(f, true_beta) < 1e-3 --> true
-
-
-    # solve ridge regression
-    ridge_beta = (X'X / n + 2 * eye(p)) \ (X'Y / n)
-    g = ProxL2Sq(1.)
-    hat_beta = zeros(p)
-    solve!(ProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-    @fact abs(value(f, ridge_beta) - value(f, hat_beta)
-              + value(g, ridge_beta) - value(g, hat_beta)) / (value(f, ridge_beta) + value(g, hat_beta)) < 1e-3 --> true
-
-
-    hat_beta = zeros(p)
-    solve!(AccProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-    @fact abs(value(f, ridge_beta) - value(f, hat_beta)
-              + value(g, ridge_beta) - value(g, hat_beta)) / (value(f, ridge_beta) + value(g, hat_beta)) < 1e-3 --> true
-
-  end
+end
+#   context("L2Loss + no penalty") do
+#     x = randn(5)
+#     y = randn(5)
+#
+#     f1 = L2Loss()
+#     f2 = L2Loss(y)
+#     g = ProxZero()
+#
+#     solve!(ProxGradDescent(), x, f1, g)
+#     @fact norm(x) --> roughly(0.; atol=1e-5)
+#
+#     solve!(ProxGradDescent(), x, f2, g)
+#     @fact x --> roughly(y; atol=1e-5)
+#   end
+#
+#   context("L2Loss + l1 penalty") do
+#     opt = ProximalOptions(;ftol=1e-12,xtol=1e-12,maxiter=1000)
+#     x = randn(5)
+#     y = randn(5) + 1.
+#
+#     f = L2Loss(y)
+#     g = ProxL1(0.1)
+#
+#     solve!(ProxGradDescent(), x, f, g; options=opt)
+#     x2 = similar(x)
+#     prox!(g, x2, y)
+#     @fact x --> roughly(x2;atol=1e-5)
+#   end
+#
+#   context("no penalty") do
+#
+#     A = randn(20, 10)
+#     A = A'A
+#     b = randn(10)
+#     c = 1.
+#
+#     f = QuadraticFunction(A, b, c)
+#     g = ProxZero()
+#
+#     x = randn(10)
+#     solve!(ProxGradDescent(), x, f, g; options = ProximalOptions(;maxiter = 500))
+#     tx = -A \ b
+#     @fact abs(value(f, tx) - value(f, x)) / value(f, tx) < 1e-3 --> true
+#
+#     x = randn(10)
+#     solve!(AccProxGradDescent(), x, f, g)
+#     tx = -A \ b
+#     @fact abs(value(f, tx) - value(f, x)) / value(f, tx) < 1e-3 --> true
+#   end
+#
+#
+#   context("ridge regression") do
+#     n = 200
+#     p = 30
+#
+#     X = randn(n, p)
+#     Y = X * ones(p) + 0.1*randn(n)
+#
+#     true_beta = X \ Y
+#
+#     f = QuadraticFunction(X'X / n, -X'Y / n)
+#
+#     # solve ols
+#     g = ProxL2Sq(0.)
+#     hat_beta = zeros(p)
+#     solve!(ProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
+#     @fact abs(value(f, true_beta) - value(f, hat_beta)) / value(f, true_beta) < 1e-3 --> true
+#
+#     hat_beta = zeros(p)
+#     solve!(AccProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
+#     @fact abs(value(f, true_beta) - value(f, hat_beta)) / value(f, true_beta) < 1e-3 --> true
+#
+#
+#     # solve ridge regression
+#     ridge_beta = (X'X / n + 2 * eye(p)) \ (X'Y / n)
+#     g = ProxL2Sq(1.)
+#     hat_beta = zeros(p)
+#     solve!(ProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
+#     @fact abs(value(f, ridge_beta) - value(f, hat_beta)
+#               + value(g, ridge_beta) - value(g, hat_beta)) / (value(f, ridge_beta) + value(g, hat_beta)) < 1e-3 --> true
+#
+#
+#     hat_beta = zeros(p)
+#     solve!(AccProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
+#     @fact abs(value(f, ridge_beta) - value(f, hat_beta)
+#               + value(g, ridge_beta) - value(g, hat_beta)) / (value(f, ridge_beta) + value(g, hat_beta)) < 1e-3 --> true
+#
+#   end
+#
+# end
+#
 
 end

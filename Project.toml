@@ -1,0 +1,17 @@
+name = "ProximalOPT"
+uuid = "7b454996-d86a-11e8-189a-bd4064dc21e3"
+author = ["Mladen Kolar <mkolar@chicagobooth.edu>"]
+version = "0.1.0"
+
+[deps]
+Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+ProximalBase = "e46f183a-ae2f-11e8-253c-bfe2254e1c56"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[targets]
+test = ["Test", "Random"]

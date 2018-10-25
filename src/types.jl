@@ -1,7 +1,7 @@
 abstract type ProximalSolver end
 
 
-type ProximalOptions{TCallback <: Union{Void, Function}}
+struct ProximalOptions{TCallback <: Union{Nothing, Function}}
   maxiter::Int64
   ftol::Float64
   xtol::Float64
@@ -64,7 +64,7 @@ function print_header(method::ProximalSolver, options::ProximalOptions)
 end
 
 
-immutable OptimizationState{T <: ProximalSolver}
+struct OptimizationState{T <: ProximalSolver}
     iteration::Int
     fg_x::Float64
     dxx::Float64
@@ -76,7 +76,7 @@ OptimizationTrace{T} = Vector{OptimizationState{T}}
 
 
 function Base.show(io::IO, t::OptimizationState)
-    @printf io "%6d   %14e   %14e   %14e\n" t.iteration t.fg_x t.dxx 1./t.L
+    @printf io "%6d   %14e   %14e   %14e\n" t.iteration t.fg_x t.dxx 1. / t.L
     if !isempty(t.metadata)
         for (key, value) in t.metadata
             @printf io " * %s: %s\n" key value

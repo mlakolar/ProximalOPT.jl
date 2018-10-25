@@ -1,17 +1,14 @@
-using FactCheck
+using Test
 
-using ProximalBase
-using ProximalOPT
 
 tests = [
   "prox_solvers",
-  "lasso"
+  # "lasso"
 ]
 
 for t in tests
 	f = "$t.jl"
 	println("* running $f ...")
-	include(f)
+    t = @elapsed include(f)
+    println("done (took $t seconds).")
 end
-
-FactCheck.exitstatus()

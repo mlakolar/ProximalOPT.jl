@@ -3,13 +3,13 @@
 
 
 
-immutable AccProxGradDescent <: ProximalSolver
+struct AccProxGradDescent <: ProximalSolver
 end
 
-immutable ActiveAccProxGradDescent <: ProximalSolver
+struct ActiveAccProxGradDescent <: ProximalSolver
 end
 
-immutable ADMMSolver <: ProximalSolver
+struct ADMMSolver <: ProximalSolver
 end
 
 

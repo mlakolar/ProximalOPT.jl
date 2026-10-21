@@ -81,8 +81,6 @@ function solve!(
                 g_residual(state),
                 f_increased,
                 tr,
-                0,
-                0,
-                0)
+                state.backtrack_steps)
 
 end

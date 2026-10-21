@@ -151,7 +151,9 @@ Returned by [`solve!`](@ref) for [`ProximalGradientDescent`](@ref) and
 (`f + g` at the minimizer), `iterations`, the flags `x_converged`,
 `f_converged`, `grad_converged`, `f_increased` and `iteration_converged`
 (the iteration limit was reached), the final residuals `x_residual`,
-`f_residual` and `g_residual` with their tolerances, and the `trace`.
+`f_residual` and `g_residual` with their tolerances, the `trace`, and
+`backtrack_steps`, the number of trial steps checked by the backtracking line
+search over all iterations (accepted steps included).
 """
 mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     method::O
@@ -170,9 +172,7 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     g_residual::Float64
     f_increased::Bool
     trace::OptimizationTrace{M}
-    f_calls::Int
-    g_calls::Int
-    h_calls::Int
+    backtrack_steps::Int
 end
 
 Base.summary(r::OptimizationResults) = summary(r.method)
@@ -192,6 +192,7 @@ f_tol(r::OptimizationResults) = r.f_tol
 f_residual(r::OptimizationResults) = r.f_residual
 g_tol(r::OptimizationResults) = r.g_tol
 g_residual(r::OptimizationResults) = r.g_residual
+backtrack_steps(r::OptimizationResults) = r.backtrack_steps
 
 
 function Base.show(io::IO, r::OptimizationResults)
@@ -218,7 +219,6 @@ function Base.show(io::IO, r::OptimizationResults)
     @printf io "     |g(x)| = %.2e \n"  g_residual(r)
     @printf io "   * stopped by an increasing objective: %s\n" f_increased(r)
     @printf io "   * Reached Maximum Number of Iterations: %s\n" iteration_limit_reached(r)
-    # @printf io " * Objective Calls: %d" f_calls(r)
-    # @printf io "\n * Gradient Calls: %d" g_calls(r)
+    @printf io " * Backtracking steps: %d\n" backtrack_steps(r)
     return
 end

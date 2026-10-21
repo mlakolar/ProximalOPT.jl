@@ -46,6 +46,7 @@ mutable struct AccProxGradDescentState{T,N}
     maxResidual::T
     k::Int            # iterations since the last restart
     restarts::Int
+    backtrack_steps::Int
 end
 
 
@@ -71,7 +72,8 @@ function initial_state(
                          one(T),      # L
                          T(-Inf),     # maxResidual
                          0,
-                         0
+                         0,
+                         0            # backtrack_steps
                          )
 end
 
@@ -120,6 +122,7 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
 
       @. state.xhat = state.x - state.y
       upper = state.f_y + dot(state.grad_f_y, state.xhat) + state.L / 2 * sum(abs2, state.xhat)
+      state.backtrack_steps += 1
       # slack guards against an endless loop from rounding error near the solution
       state.f_x <= upper + 10 * eps(T) * max(abs(state.f_y), one(T)) && break
       state.L /= method.β

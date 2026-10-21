@@ -32,6 +32,8 @@ mutable struct ProximalGradientDescentState{T,N}
     deltaX::Array{T,N}
     L::T
     maxResidual::T
+    backtrack_simple::Bool  # line search uses function values, not gradients
+    backtrack_steps::Int
 end
 
 
@@ -58,7 +60,9 @@ function initial_state(
                          similar(x0), # Temporary storage
                          similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
-                         -Inf
+                         -Inf,
+                         true,        # backtrack_simple
+                         0            # backtrack_steps
                          )
 end
 
@@ -86,7 +90,7 @@ function update_state!(
       # check if enough progress is done
       backtrack!(state, method.ls, f, g) && break
     end
-    if has_updated_gradient( method.ls ) == false
+    if has_updated_gradient( state, method.ls ) == false
         value_and_gradient!(f, state.grad_f_x, state.x)
     end
 end

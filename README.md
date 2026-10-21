@@ -86,12 +86,14 @@ res = solve!(x, f, g, solver, ProximalOptions(; maxiter = 1000))
 ```
 
 `solve!` overwrites `x` with the solution and returns a results object with
-`minimizer`, `minimum`, `iterations` and convergence information; printing it
-shows a summary.
+`minimizer`, `minimum`, `iterations`, convergence information and the number
+of evaluations of `f` (`f_calls`), of its gradient (`grad_calls`) and of
+proximal operators (`prox_calls`); printing it shows a summary.
 
 ## Options and stopping rules
 
-`ProximalOptions` controls the iteration limit, tolerances and tracing:
+`ProximalOptions` controls the iteration and call limits, tolerances and
+tracing:
 
 | Keyword | Default | Meaning |
 |---|---|---|
@@ -100,12 +102,16 @@ shows a summary.
 | `xtol` | `1e-8` | Relative change in the iterate |
 | `gradtol` | `1e-5` | Optimality residual (FASTA; Goldstein, Studer and Baraniuk) |
 | `time_limit` | `Inf` | Maximum run time in seconds |
+| `f_calls_limit`, `grad_calls_limit`, `prox_calls_limit` | `0`, `0`, `0` | Maximum number of evaluations of `f`, of its gradient and of proximal operators; `0` means no limit |
 | `show_trace`, `store_trace`, `extended_trace`, `printEvery` | `false`, `false`, `false`, `1` | Print or record progress |
 | `callback` | `nothing` | Called every `printEvery` iterations; return `true` to stop |
 
 The gradient solvers stop when any of the `ftol`, `xtol` or `gradtol` tests
 passes. `ADMMSolver` uses its own primal and dual residual tolerances
-(`abstol`, `reltol`) and ignores the other three.
+(`abstol`, `reltol`) and ignores the other three, as well as `f_calls_limit`
+and `grad_calls_limit`. The call limits are checked after each iteration, so a
+count can exceed its limit by the evaluations of one iteration;
+`res.call_limit_reached` tells whether a limit stopped the solver.
 
 Every exported function and type has a docstring; use `?name` in the Julia
 REPL, for example `?ProximalOptions`.

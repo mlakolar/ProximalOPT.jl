@@ -3,6 +3,13 @@
 # implements the algorithm in section 4.2 of
 # https://web.stanford.edu/~boyd/papers/pdf/prox_algs.pdf
 
+"""
+    ProximalGradientDescent(; ls = LineSearches.BackTracking())
+
+Proximal gradient descent (Parikh and Boyd, *Proximal Algorithms*, §4.2):
+`x ← prox_{g/L}(x - ∇f(x) / L)`, with the step size `1/L` chosen by the
+backtracking line search `ls` of TFOCS. Use with [`solve!`](@ref).
+"""
 struct ProximalGradientDescent{L} <: ProximalSolver
   ls::L
 end

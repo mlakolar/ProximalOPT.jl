@@ -1,3 +1,12 @@
+"""
+    ProximalOPT
+
+Solvers for `minimize f(x) + g(x)`, with `f` smooth and `g` proximable, built
+on the functions and proximal operators of ProximalBase:
+[`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
+[`ADMMSolver`](@ref), all called through [`solve!`](@ref) with
+[`ProximalOptions`](@ref).
+"""
 module ProximalOPT
 
 include("lineSearches.jl")

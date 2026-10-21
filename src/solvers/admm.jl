@@ -21,8 +21,8 @@ Multipliers*, 2011). It splits `x = z` and iterates
 over-relaxation (`α = 1` is plain ADMM). It stops when the primal residual
 `‖x - z‖` and dual residual `ρ‖z - z_previous‖` are below
 `√n abstol + reltol * scale` (§3.3 of the paper). Of the
-[`ProximalOptions`](@ref), only `maxiter`, `time_limit`, `show_trace` and
-`printEvery` are used. Use with [`solve!`](@ref).
+[`ProximalOptions`](@ref), only `maxiter`, `time_limit`, `prox_calls_limit`,
+`show_trace` and `printEvery` are used. Use with [`solve!`](@ref).
 """
 struct ADMMSolver{T<:AbstractFloat} <: ProximalSolver
   ρ::T          # augmented Lagrangian parameter
@@ -44,9 +44,12 @@ end
     ADMMResults
 
 Returned by [`solve!`](@ref) with an [`ADMMSolver`](@ref): `minimizer`,
-`minimum` (`f + g` at the minimizer), `iterations`, `converged`, and the final
+`minimum` (`f + g` at the minimizer), `iterations`, `converged`, the final
 primal and dual residuals `r_norm`, `s_norm` with their tolerances `eps_pri`,
-`eps_dual`.
+`eps_dual`, and the number of evaluations: `f_calls` of the value of `f` (for
+the trace and `minimum`), `grad_calls` (always `0`) and `prox_calls` of the
+proximal operators of `f` and `g`. `call_limit_reached` is `true` when the
+solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)).
 """
 struct ADMMResults{T,N}
     minimizer::Array{T,N}
@@ -57,6 +60,10 @@ struct ADMMResults{T,N}
     s_norm::T     # dual residual ρ‖z - z_previous‖
     eps_pri::T
     eps_dual::T
+    f_calls::Int
+    grad_calls::Int
+    prox_calls::Int
+    call_limit_reached::Bool
 end
 
 Base.summary(::ADMMResults) = "ADMM"
@@ -64,6 +71,10 @@ minimizer(r::ADMMResults) = r.minimizer
 minimum(r::ADMMResults) = r.minimum
 iterations(r::ADMMResults) = r.iterations
 converged(r::ADMMResults) = r.converged
+f_calls(r::ADMMResults) = r.f_calls
+grad_calls(r::ADMMResults) = r.grad_calls
+prox_calls(r::ADMMResults) = r.prox_calls
+call_limit_reached(r::ADMMResults) = r.call_limit_reached
 
 function Base.show(io::IO, r::ADMMResults)
     @printf io "Results of Optimization Algorithm\n"
@@ -73,6 +84,10 @@ function Base.show(io::IO, r::ADMMResults)
     @printf io " * Convergence: %s\n" converged(r)
     @printf io "   * primal residual %.2e (tolerance %.2e)\n" r.r_norm r.eps_pri
     @printf io "   * dual residual   %.2e (tolerance %.2e)\n" r.s_norm r.eps_dual
+    @printf io "   * Reached a limit on the number of calls: %s\n" call_limit_reached(r)
+    @printf io " * f(x) calls: %d\n" f_calls(r)
+    @printf io " * ∇f(x) calls: %d\n" grad_calls(r)
+    @printf io " * prox calls: %d\n" prox_calls(r)
     return
 end
 
@@ -98,11 +113,13 @@ function solve!(
 
   r_norm = s_norm = eps_pri = eps_dual = T(Inf)
   converged = false
+  call_limit_reached = false
   iteration = 0
+  f_calls = prox_calls = 0
 
   options.show_trace && @printf "Iter     Function value   primal res.      dual res.\n"
 
-  while !converged && iteration < options.maxiter && time() - t0 <= options.time_limit
+  while !converged && !call_limit_reached && iteration < options.maxiter && time() - t0 <= options.time_limit
     iteration += 1
 
     # x-update: x = prox_{f/ρ}(z - u)
@@ -116,6 +133,7 @@ function solve!(
 
     # u-update
     @. u = tmp - z
+    prox_calls += 2
 
     # check convergence
     r_norm = norm_diff(xk, z)
@@ -123,12 +141,16 @@ function solve!(
     eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * max(norm(xk), norm(z))
     eps_dual = sqrt_n * T(method.abstol) + T(method.reltol) * ρ * norm(u)
     converged = r_norm <= eps_pri && s_norm <= eps_dual
+    call_limit_reached = options.prox_calls_limit > 0 && prox_calls >= options.prox_calls_limit
 
     if options.show_trace && iteration % options.printEvery == 0
       @printf "%6d   %14e   %14e   %14e\n" iteration value(f, z) + value(g, z) r_norm s_norm
+      f_calls += 1
     end
   end
 
+  # value(f, z) for the minimum is one more call
   ADMMResults(z, value(f, z) + value(g, z), iteration, converged,
-              r_norm, s_norm, eps_pri, eps_dual)
+              r_norm, s_norm, eps_pri, eps_dual,
+              f_calls + 1, 0, prox_calls, call_limit_reached)
 end

@@ -47,7 +47,11 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
     if xy_sq == zero(T)
       # in the gradient mode, update_state! expects ∇f(x), but state.grad_f_x may
       # hold the gradient at a rejected trial point
-      state.backtrack_simple || value_and_gradient!(f, state.grad_f_x, state.x)
+      if !state.backtrack_simple
+          value_and_gradient!(f, state.grad_f_x, state.x)
+          state.f_calls += 1
+          state.grad_calls += 1
+      end
       return true
     end
 
@@ -62,9 +66,13 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
         state.backtrack_simple = abs( state.f_x_previous - state.f_x ) >= 1e-10 * max( abs( state.f_x ), abs( state.f_x_previous ) )
         if !state.backtrack_simple
             value_and_gradient!(f, state.grad_f_x, state.x)
+            state.f_calls += 1
+            state.grad_calls += 1
         end
     else
         value_and_gradient!(f, state.grad_f_x, state.x)
+        state.f_calls += 1
+        state.grad_calls += 1
         localL = zero(T)
         @inbounds @simd for i in eachindex(state.grad_f_x)
             localL += (state.grad_f_x[i] - state.grad_f_x_previous[i]) * state.deltaX[i]

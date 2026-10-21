@@ -4,6 +4,7 @@ using Test
 tests = [
   "prox_solvers",
   "linesearch",
+  "call_limits",
   "admm",
   "aqua",
   # "lasso"

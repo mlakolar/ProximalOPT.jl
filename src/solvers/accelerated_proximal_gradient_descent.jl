@@ -47,6 +47,9 @@ mutable struct AccProxGradDescentState{T,N}
     k::Int            # iterations since the last restart
     restarts::Int
     backtrack_steps::Int
+    f_calls::Int
+    grad_calls::Int
+    prox_calls::Int
 end
 
 
@@ -73,7 +76,10 @@ function initial_state(
                          T(-Inf),     # maxResidual
                          0,
                          0,
-                         0            # backtrack_steps
+                         0,           # backtrack_steps
+                         1,           # f_calls
+                         0,           # grad_calls
+                         0            # prox_calls
                          )
 end
 
@@ -115,10 +121,14 @@ end
 # f(x) <= f(y) + <∇f(y), x - y> + L/2 ‖x - y‖²
 function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccProxGradDescent) where T
     state.f_y = value_and_gradient!(f, state.grad_f_y, state.y)
+    state.f_calls += 1
+    state.grad_calls += 1
     while true
       @. state.xhat = state.y - state.grad_f_y / state.L
       prox!(g, state.x, state.xhat, one(T) / state.L)
       state.f_x = value(f, state.x)
+      state.prox_calls += 1
+      state.f_calls += 1
 
       @. state.xhat = state.x - state.y
       upper = state.f_y + dot(state.grad_f_y, state.xhat) + state.L / 2 * sum(abs2, state.xhat)

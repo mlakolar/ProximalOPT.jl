@@ -34,6 +34,9 @@ mutable struct ProximalGradientDescentState{T,N}
     maxResidual::T
     backtrack_simple::Bool  # line search uses function values, not gradients
     backtrack_steps::Int
+    f_calls::Int
+    grad_calls::Int
+    prox_calls::Int
 end
 
 
@@ -62,7 +65,10 @@ function initial_state(
                          one(T),      # L
                          -Inf,
                          true,        # backtrack_simple
-                         0            # backtrack_steps
+                         0,           # backtrack_steps
+                         1,           # f_calls
+                         1,           # grad_calls
+                         0            # prox_calls
                          )
 end
 
@@ -86,11 +92,15 @@ function update_state!(
       prox!(g, state.x, state.xhat, one(T) / state.L)
       state.f_x = value(f, state.x)
       state.g_x = value(g, state.x)
+      state.prox_calls += 1
+      state.f_calls += 1
 
       # check if enough progress is done
       backtrack!(state, method.ls, f, g) && break
     end
     if has_updated_gradient( state, method.ls ) == false
         value_and_gradient!(f, state.grad_f_x, state.x)
+        state.f_calls += 1
+        state.grad_calls += 1
     end
 end

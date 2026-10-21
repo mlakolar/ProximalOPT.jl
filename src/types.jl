@@ -12,8 +12,9 @@ abstract type ProximalSolver end
     ProximalOptions(; kwargs...)
 
 Options for [`solve!`](@ref). The solver stops at the first of: a convergence
-test passes, `maxiter` iterations, `time_limit` seconds, the objective
-increases (unless `allow_f_increases`), or `callback` returns `true`.
+test passes, `maxiter` iterations, `time_limit` seconds, a limit on the number
+of calls, the objective increases (unless `allow_f_increases`), or `callback`
+returns `true`.
 
 # Keywords
 - `maxiter = 200`: maximum number of iterations.
@@ -32,7 +33,12 @@ increases (unless `allow_f_increases`), or `callback` returns `true`.
 - `callback = nothing`: a function called every `printEvery` iterations with
   the trace (if `store_trace`) or the current state; return `true` to stop.
 - `time_limit = Inf`: maximum run time in seconds.
-- `f_calls_limit = 0`, `g_calls_limit = 0`: accepted but not enforced yet.
+- `f_calls_limit = 0`, `grad_calls_limit = 0`, `prox_calls_limit = 0`: stop
+  once `f`, the gradient of `f`, or proximal operators (`prox!`) have been
+  evaluated this many times; `0` means no limit. The counts are checked after
+  each iteration, which always finishes, so a count can exceed its limit by
+  the evaluations of one iteration. [`ADMMSolver`](@ref) uses only
+  `prox_calls_limit`.
 """
 struct ProximalOptions{TCallback <: Union{Nothing, Function}}
   maxiter::Int64
@@ -40,7 +46,8 @@ struct ProximalOptions{TCallback <: Union{Nothing, Function}}
   xtol::Float64
   gradtol::Float64
   f_calls_limit::Int
-  g_calls_limit::Int
+  grad_calls_limit::Int
+  prox_calls_limit::Int
   allow_f_increases::Bool
   store_trace::Bool
   show_trace::Bool
@@ -55,7 +62,8 @@ function ProximalOptions(;maxiter::Integer       = 200,
                          xtol::Real              = 1.0e-8,
                          gradtol::Real           = 1.0e-5,
                          f_calls_limit::Int      = 0,
-                         g_calls_limit::Int      = 0,
+                         grad_calls_limit::Int   = 0,
+                         prox_calls_limit::Int   = 0,
                          allow_f_increases::Bool = false,
                          store_trace::Bool       = false,
                          show_trace::Bool        = false,
@@ -75,7 +83,8 @@ function ProximalOptions(;maxiter::Integer       = 200,
                   convert(Float64, xtol),
                   convert(Float64, gradtol),
                   f_calls_limit,
-                  g_calls_limit,
+                  grad_calls_limit,
+                  prox_calls_limit,
                   allow_f_increases,
                   store_trace,
                   show_trace,
@@ -151,9 +160,13 @@ Returned by [`solve!`](@ref) for [`ProximalGradientDescent`](@ref) and
 (`f + g` at the minimizer), `iterations`, the flags `x_converged`,
 `f_converged`, `grad_converged`, `f_increased` and `iteration_converged`
 (the iteration limit was reached), the final residuals `x_residual`,
-`f_residual` and `g_residual` with their tolerances, the `trace`, and
+`f_residual` and `g_residual` with their tolerances, the `trace`,
 `backtrack_steps`, the number of trial steps checked by the backtracking line
-search over all iterations (accepted steps included).
+search over all iterations (accepted steps included), and the number of
+evaluations: `f_calls` of `f` (by `value` or `value_and_gradient!`),
+`grad_calls` of its gradient and `prox_calls` of the proximal operator of `g`.
+`call_limit_reached` is `true` when the solver stopped at one of the limits in
+[`ProximalOptions`](@ref).
 """
 mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     method::O
@@ -173,6 +186,10 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     f_increased::Bool
     trace::OptimizationTrace{M}
     backtrack_steps::Int
+    f_calls::Int
+    grad_calls::Int
+    prox_calls::Int
+    call_limit_reached::Bool
 end
 
 Base.summary(r::OptimizationResults) = summary(r.method)
@@ -193,6 +210,10 @@ f_residual(r::OptimizationResults) = r.f_residual
 g_tol(r::OptimizationResults) = r.g_tol
 g_residual(r::OptimizationResults) = r.g_residual
 backtrack_steps(r::OptimizationResults) = r.backtrack_steps
+f_calls(r::OptimizationResults) = r.f_calls
+grad_calls(r::OptimizationResults) = r.grad_calls
+prox_calls(r::OptimizationResults) = r.prox_calls
+call_limit_reached(r::OptimizationResults) = r.call_limit_reached
 
 
 function Base.show(io::IO, r::OptimizationResults)
@@ -219,6 +240,10 @@ function Base.show(io::IO, r::OptimizationResults)
     @printf io "     |g(x)| = %.2e \n"  g_residual(r)
     @printf io "   * stopped by an increasing objective: %s\n" f_increased(r)
     @printf io "   * Reached Maximum Number of Iterations: %s\n" iteration_limit_reached(r)
+    @printf io "   * Reached a limit on the number of calls: %s\n" call_limit_reached(r)
     @printf io " * Backtracking steps: %d\n" backtrack_steps(r)
+    @printf io " * f(x) calls: %d\n" f_calls(r)
+    @printf io " * ∇f(x) calls: %d\n" grad_calls(r)
+    @printf io " * prox calls: %d\n" prox_calls(r)
     return
 end

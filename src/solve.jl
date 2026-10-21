@@ -32,7 +32,7 @@ function solve!(
   tr = OptimizationTrace{typeof(method)}()
   tracing = options.store_trace || options.show_trace || options.extended_trace || options.callback !== nothing
   stopped, stopped_by_callback, stopped_by_time_limit = false, false, false
-  f_limit_reached, grad_f_limit_reached, g_limit_reached = false, false, false
+  f_limit_reached, grad_limit_reached, prox_limit_reached = false, false, false
   x_converged, fg_converged, grad_converged, f_increased = false, false, false, false
 
   converged = false
@@ -54,12 +54,12 @@ function solve!(
     end
 
     stopped_by_time_limit = time()-t0 > options.time_limit ? true : false
-    # f_limit_reached = options.f_calls_limit > 0 && f_calls(d) >= options.f_calls_limit ? true : false
-    # grad_f_limit_reached = options.f_calls_limit > 0 && f_calls(d) >= options.f_calls_limit ? true : false
-    # g_limit_reached = options.g_calls_limit > 0 && g_calls(d) >= options.g_calls_limit ? true : false
+    f_limit_reached = options.f_calls_limit > 0 && state.f_calls >= options.f_calls_limit
+    grad_limit_reached = options.grad_calls_limit > 0 && state.grad_calls >= options.grad_calls_limit
+    prox_limit_reached = options.prox_calls_limit > 0 && state.prox_calls >= options.prox_calls_limit
 
     if (f_increased && !options.allow_f_increases) || stopped_by_callback ||
-        stopped_by_time_limit || f_limit_reached || grad_f_limit_reached || g_limit_reached
+        stopped_by_time_limit || f_limit_reached || grad_limit_reached || prox_limit_reached
         stopped = true
     end
   end # while
@@ -81,6 +81,10 @@ function solve!(
                 g_residual(state),
                 f_increased,
                 tr,
-                state.backtrack_steps)
+                state.backtrack_steps,
+                state.f_calls,
+                state.grad_calls,
+                state.prox_calls,
+                f_limit_reached || grad_limit_reached || prox_limit_reached)
 
 end

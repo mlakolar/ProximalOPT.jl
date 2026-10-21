@@ -7,6 +7,7 @@ tests = [
   "call_limits",
   "admm",
   "active_set",
+  "group_lasso",
   "aqua",
   # "lasso"
 ]

@@ -45,6 +45,9 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
     xy_sq = norm( state.deltaX )^2
 
     if xy_sq == zero(T)
+      # in the gradient mode, update_state! expects ∇f(x), but state.grad_f_x may
+      # hold the gradient at a rejected trial point
+      state.backtrack_simple || value_and_gradient!(f, state.grad_f_x, state.x)
       return true
     end
 

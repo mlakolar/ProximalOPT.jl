@@ -61,4 +61,20 @@ end
   @test fresh_gradient
 end
 
+@testset "gradient is current when a retried step does not move x" begin
+  # f(x) = x²/2 - x, so ∇f(x) = x - 1. In the gradient mode, the first trial step
+  # from x' = 1 + eps() rounds to x = 1 and evaluates ∇f there; it is rejected,
+  # and the retry with a larger L rounds back to x'
+  f, g = QuadraticFunction(ones(1, 1), [-1.]), ProxZero()
+  method = ProximalGradientDescent()
+  state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
+  state.backtrack_simple = false
+  state.L = 2.
+
+  ProximalOPT.update_state!(f, g, state, method)
+  @test state.backtrack_steps == 1
+  @test state.x == [1. + eps()]
+  @test state.grad_f_x == [eps()]
+end
+
 end

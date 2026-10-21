@@ -124,3 +124,7 @@ REPL, for example `?ProximalOptions`.
 - S. Becker, E. Candès and M. Grant. Templates for Convex Cone Problems with
   Applications to Sparse Signal Recovery (TFOCS). *Mathematical Programming
   Computation*, 3, 2011.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

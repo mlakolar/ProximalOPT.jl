@@ -1,4 +1,23 @@
 
+"""
+    solve!(x, f, g, method::ProximalSolver, options = ProximalOptions())
+
+Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
+
+For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
+a smooth `DifferentiableFunction` and `g` a `ProximableFunction`, both from
+ProximalBase; the result is an [`OptimizationResults`](@ref). For
+[`ADMMSolver`](@ref), both `f` and `g` are `ProximableFunction`s and the result
+is an `ADMMResults`.
+
+# Example
+```julia
+using ProximalBase, ProximalOPT
+A, b = [2. 0.; 0. 1.], [-1., -1.]
+x = zeros(2)
+res = solve!(x, QuadraticFunction(A, b), ProxL1(0.1), AccProxGradDescent())
+```
+"""
 function solve!(
     initial_x::AbstractArray,
     f::D,

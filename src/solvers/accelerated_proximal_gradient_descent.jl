@@ -7,6 +7,18 @@
 # (O'Donoghue and Candès, 2015, Adaptive restart for accelerated gradient schemes),
 # so the objective is nonincreasing across iterations.
 
+"""
+    AccProxGradDescent(; β = 0.5)
+
+Accelerated proximal gradient descent (Parikh and Boyd, *Proximal Algorithms*,
+§4.3). Each iteration extrapolates `y = x + k/(k+3) (x - x')` and takes a
+proximal gradient step from `y`; the step size `1/L` is found by
+backtracking, shrinking it by the factor `β ∈ (0, 1)`.
+
+The momentum restarts whenever the objective would increase (O'Donoghue and
+Candès, *Adaptive restart for accelerated gradient schemes*, 2015), so the
+objective is nonincreasing. Use with [`solve!`](@ref).
+"""
 struct AccProxGradDescent{T<:AbstractFloat} <: ProximalSolver
   β::T          # factor by which the step size 1/L shrinks during backtracking
 end

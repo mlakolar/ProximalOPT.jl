@@ -1,6 +1,39 @@
+"""
+    ProximalSolver
+
+Abstract supertype of the solvers passed to [`solve!`](@ref):
+[`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
+[`ADMMSolver`](@ref).
+"""
 abstract type ProximalSolver end
 
 
+"""
+    ProximalOptions(; kwargs...)
+
+Options for [`solve!`](@ref). The solver stops at the first of: a convergence
+test passes, `maxiter` iterations, `time_limit` seconds, the objective
+increases (unless `allow_f_increases`), or `callback` returns `true`.
+
+# Keywords
+- `maxiter = 200`: maximum number of iterations.
+- `ftol = 1e-6`: stop when `|F(x) - F(x')| / (|F(x)| + ftol) < ftol`, where
+  `F = f + g` and `x'` is the previous iterate.
+- `xtol = 1e-8`: stop when `‖x - x'‖ < xtol * max(‖x‖, 1)`.
+- `gradtol = 1e-5`: stop when the relative or normalized optimality residual of
+  Goldstein, Studer and Baraniuk (FASTA) is below `gradtol`. Not used by
+  [`ADMMSolver`](@ref), which has its own tolerances.
+- `allow_f_increases = false`: keep iterating when the objective increases.
+- `store_trace = false`: record an [`OptimizationState`](@ref) per iteration in
+  the results.
+- `show_trace = false`: print the progress every `printEvery` iterations.
+- `extended_trace = false`: also store the iterate and gradient in each state.
+- `printEvery = 1`: how often to print, store and call `callback`.
+- `callback = nothing`: a function called every `printEvery` iterations with
+  the trace (if `store_trace`) or the current state; return `true` to stop.
+- `time_limit = Inf`: maximum run time in seconds.
+- `f_calls_limit = 0`, `g_calls_limit = 0`: accepted but not enforced yet.
+"""
 struct ProximalOptions{TCallback <: Union{Nothing, Function}}
   maxiter::Int64
   ftol::Float64
@@ -64,6 +97,14 @@ function print_header(method::ProximalSolver, options::ProximalOptions)
 end
 
 
+"""
+    OptimizationState{T<:ProximalSolver}
+
+One iteration of a trace: `iteration`, the objective `fg_x = f(x) + g(x)`,
+the relative change `dxx = ‖x - x'‖ / ‖x‖`, the inverse step size `L`, and a
+`metadata` dictionary that holds the iterate and gradient when
+`extended_trace = true`.
+"""
 struct OptimizationState{T <: ProximalSolver}
     iteration::Int
     fg_x::Float64
@@ -72,6 +113,12 @@ struct OptimizationState{T <: ProximalSolver}
     metadata::Dict
 end
 
+"""
+    OptimizationTrace{T}
+
+A `Vector{OptimizationState{T}}`, stored in the results when
+`store_trace = true` (see [`ProximalOptions`](@ref)).
+"""
 OptimizationTrace{T} = Vector{OptimizationState{T}}
 
 
@@ -96,6 +143,16 @@ end
 
 
 
+"""
+    OptimizationResults
+
+Returned by [`solve!`](@ref) for [`ProximalGradientDescent`](@ref) and
+[`AccProxGradDescent`](@ref). Its fields include `minimizer`, `minimum`
+(`f + g` at the minimizer), `iterations`, the flags `x_converged`,
+`f_converged`, `grad_converged`, `f_increased` and `iteration_converged`
+(the iteration limit was reached), the final residuals `x_residual`,
+`f_residual` and `g_residual` with their tolerances, and the `trace`.
+"""
 mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
     method::O
     minimizer::Array{T,N}

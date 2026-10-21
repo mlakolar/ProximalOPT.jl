@@ -5,6 +5,25 @@
 # Boyd et al. (2011), Distributed Optimization and Statistical Learning
 # via the Alternating Direction Method of Multipliers
 
+"""
+    ADMMSolver(; ρ = 1.0, α = 1.0, abstol = 1e-6, reltol = 1e-4)
+
+The alternating direction method of multipliers for `f(x) + g(x)` when both
+`f` and `g` have easy proximal operators (Boyd et al., *Distributed
+Optimization and Statistical Learning via the Alternating Direction Method of
+Multipliers*, 2011). It splits `x = z` and iterates
+
+    x ← prox_{f/ρ}(z - u)
+    z ← prox_{g/ρ}(α x + (1 - α) z + u)
+    u ← u + α x + (1 - α) z_previous - z
+
+`ρ > 0` is the augmented Lagrangian parameter and `α ∈ (0, 2)` the
+over-relaxation (`α = 1` is plain ADMM). It stops when the primal residual
+`‖x - z‖` and dual residual `ρ‖z - z_previous‖` are below
+`√n abstol + reltol * scale` (§3.3 of the paper). Of the
+[`ProximalOptions`](@ref), only `maxiter`, `time_limit`, `show_trace` and
+`printEvery` are used. Use with [`solve!`](@ref).
+"""
 struct ADMMSolver{T<:AbstractFloat} <: ProximalSolver
   ρ::T          # augmented Lagrangian parameter
   α::T          # over-relaxation parameter, α ∈ (0, 2); α = 1 is plain ADMM
@@ -21,6 +40,14 @@ function ADMMSolver(; ρ::AbstractFloat = 1.0, α::AbstractFloat = 1.0,
   ADMMSolver(promote(ρ, α, abstol, reltol)...)
 end
 
+"""
+    ADMMResults
+
+Returned by [`solve!`](@ref) with an [`ADMMSolver`](@ref): `minimizer`,
+`minimum` (`f + g` at the minimizer), `iterations`, `converged`, and the final
+primal and dual residuals `r_norm`, `s_norm` with their tolerances `eps_pri`,
+`eps_dual`.
+"""
 struct ADMMResults{T,N}
     minimizer::Array{T,N}
     minimum::T

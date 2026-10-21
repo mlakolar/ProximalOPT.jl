@@ -7,8 +7,9 @@ Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
 For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
 a smooth `DifferentiableFunction` and `g` a `ProximableFunction`, both from
 ProximalBase; the result is an [`OptimizationResults`](@ref). For
-[`ADMMSolver`](@ref), both `f` and `g` are `ProximableFunction`s and the result
-is an `ADMMResults`.
+[`ActiveAccProxGradDescent`](@ref), `x` is a vector or a `SparseIterate`, and
+the result is an `ActiveSetResults`. For [`ADMMSolver`](@ref), both `f` and
+`g` are `ProximableFunction`s and the result is an `ADMMResults`.
 
 # Example
 ```julia

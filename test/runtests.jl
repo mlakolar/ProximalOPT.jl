@@ -6,6 +6,7 @@ tests = [
   "linesearch",
   "call_limits",
   "admm",
+  "active_set",
   "aqua",
   # "lasso"
 ]

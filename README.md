@@ -50,7 +50,11 @@ res.minimum, res.iterations, count(!iszero, β)
 
 `β` recovers the five nonzero coefficients and sets the rest to exactly zero.
 Replace `AccProxGradDescent()` with `ProximalGradientDescent()` to use the
-unaccelerated method.
+unaccelerated method. When `p` is large and the solution sparse,
+`ActiveAccProxGradDescent()` is usually much faster: it runs the accelerated
+method on an active set of coordinates, which it grows by the coordinates that
+violate the optimality conditions. Its starting point may be a vector, as here,
+or a `SparseIterate`.
 
 ## Example: graphical lasso by ADMM
 
@@ -77,6 +81,7 @@ res.converged, res.iterations
 |---|---|---|
 | `ProximalGradientDescent()` | `f` smooth, `g` proximable | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2) |
 | `AccProxGradDescent(; β = 0.5)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking and adaptive restart |
+| `ActiveAccProxGradDescent(; β, max_add, max_outer)` | `f` smooth, `g` = `ProxL1` or `ProxZero`, sparse solution | Active set: adds the coordinates that violate the optimality conditions and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011) |
 
 All solvers are called the same way:

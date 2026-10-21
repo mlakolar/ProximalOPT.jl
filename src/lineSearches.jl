@@ -1,5 +1,6 @@
 module LineSearches
 
+using LinearAlgebra
 using Parameters
 using ProximalBase
 
@@ -32,7 +33,7 @@ function backtrack!(state, ls::BackTracking{TF, TI}, f, g) where TF <: Real wher
 
     # Quick exit if no progress made
     @. state.deltaX = state.x - state.x_previous
-    xy_sq = vecnorm( state.deltaX )^2
+    xy_sq = norm( state.deltaX )^2
 
     if xy_sq == zero(TF)
       return true

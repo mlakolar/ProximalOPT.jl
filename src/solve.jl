@@ -11,7 +11,7 @@ function solve!(
   state = initial_state(method, options, f, g, initial_x)
 
   tr = OptimizationTrace{typeof(method)}()
-  tracing = options.store_trace || options.show_trace || options.extended_trace || options.callback != nothing
+  tracing = options.store_trace || options.show_trace || options.extended_trace || options.callback !== nothing
   stopped, stopped_by_callback, stopped_by_time_limit = false, false, false
   f_limit_reached, grad_f_limit_reached, g_limit_reached = false, false, false
   x_converged, fg_converged, grad_converged, f_increased = false, false, false, false
@@ -59,7 +59,7 @@ function solve!(
                 f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol),
                 grad_converged,
                 options.gradtol,
-                g_residual(state.grad_f_x, state.deltaX, state.L),
+                g_residual(state),
                 f_increased,
                 tr,
                 0,

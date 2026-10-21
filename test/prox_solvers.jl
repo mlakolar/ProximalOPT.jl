@@ -6,160 +6,113 @@ using LinearAlgebra
 using ProximalBase
 using ProximalOPT
 
+Random.seed!(1)
 
-# @testset "active proximal_gradient_descent" begin
-#
-#   y = [1., 2., 3.]
-#   x = zeros(3)
-#
-#   f = L2Loss(y)
-#   g = ProxL1(1.5)
-#   solve!(ActiveAccProxGradDescent(), x, f, g)
-#
-#   @test x ≈ [0, 0.5, 1.5]
-# end
+opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5000)
 
+@testset "$(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
 
-@testset "proximal_gradient_descent" begin
+  @testset "L2Loss + no penalty" begin
+    x = randn(5)
+    y = randn(5)
+
+    solve!(x, L2Loss(), ProxZero(), solver, opt)
+    @test norm(x) ≈ 0. atol = 1e-5
+
+    solve!(x, L2Loss(y), ProxZero(), solver, opt)
+    @test x ≈ y atol = 1e-5
+  end
+
+  @testset "L2Loss + l1 penalty" begin
+    x = randn(5)
+    y = randn(5) .+ 1.
+    g = ProxL1(0.1)
+
+    solve!(x, L2Loss(y), g, solver, opt)
+    @test x ≈ prox(g, y) atol = 1e-5
+  end
 
   @testset "L2Loss + nuclear norm" begin
-    # one group
     x = randn(10, 10)
     y = randn(30, 10)
     y = y'y
 
-    f = L2Loss(y)
-    g = ProxNuclear(0.1)
-
     U, S, V = svd(y)
-    for k=1:10
-      S[k] = max(S[k] - 0.1, 0.)
-    end
-    tx = U * (Diagonal(S)*V')
+    S = max.(S .- 0.1, 0.)
+    tx = U * Diagonal(S) * V'
 
-    solve!(ProximalGradientDescent(), x, f, g)
-    @test x ≈ tx atol = 1e-3
-
-    # two groups
-
-    x = randn(10, 20)
-
-    t = randn(30, 10)
-    y = t't / 30
-    t = randn(30, 10)
-    y = hcat(y, t't / 30)
-
-    lambda = 0.2
-    f = L2Loss(y)
-    groups = [(1:10, 1:10), (1:10,11:20)]
-    g = ProxL1Nuclear(lambda, groups)
-
-    tx = similar(x)
-    # construct true x
-    for i = 1:length(groups)
-      U, S, V = svd(sub(y, groups[i]))
-      for k=1:length(S)
-        S[k] = max(S[k] - lambda, 0.)
-      end
-      txv = sub(tx, groups[i])
-      txv[:] = U * Diagonal(S) * V'
-    end
-
-    solve!(ProximalGradientDescent(), x, f, g)
+    solve!(x, L2Loss(y), ProxNuclear(0.1), solver, opt)
     @test x ≈ tx atol = 1e-3
   end
 
+  @testset "quadratic + no penalty" begin
+    A = randn(20, 10)
+    A = A'A / 20
+    b = randn(10)
+    f = QuadraticFunction(A, b, 1.)
+
+    x = randn(10)
+    solve!(x, f, ProxZero(), solver, opt)
+    @test x ≈ -(A \ b) atol = 1e-4
+  end
+
+  @testset "ridge regression" begin
+    n, p = 200, 30
+    X = randn(n, p)
+    Y = X * ones(p) + 0.1 * randn(n)
+    f = QuadraticFunction(X'X / n, -X'Y / n)
+
+    # ProxL2Sq(λ) is λ‖x‖², so the minimizer solves (X'X/n + 2λI) x = X'Y/n
+    for λ in (0., 1.)
+      hat_beta = zeros(p)
+      solve!(hat_beta, f, ProxL2Sq(λ), solver, opt)
+      @test hat_beta ≈ (X'X / n + 2λ * I) \ (X'Y / n) atol = 1e-4
+    end
+  end
+
+  @testset "lasso" begin
+    n, p = 100, 50
+    X = randn(n, p)
+    β = vcat(randn(5), zeros(p - 5))
+    Y = X * β + 0.1 * randn(n)
+    A, b = X'X / n, -X'Y / n
+    λ = 0.1 * norm(b, Inf)
+
+    x = zeros(p)
+    res = solve!(x, QuadraticFunction(A, b), ProxL1(λ), solver, opt)
+    @test res.iterations < opt.maxiter
+
+    # KKT conditions: ∇f(x) = -λ sign(x) on the support, |∇f(x)| ≤ λ off it
+    grad = A * x + b
+    S = abs.(x) .> 1e-8
+    @test any(S)
+    @test grad[S] ≈ -λ * sign.(x[S]) atol = 1e-4
+    @test all(abs.(grad[.!S]) .<= λ + 1e-4)
+  end
+
 end
-#   context("L2Loss + no penalty") do
-#     x = randn(5)
-#     y = randn(5)
-#
-#     f1 = L2Loss()
-#     f2 = L2Loss(y)
-#     g = ProxZero()
-#
-#     solve!(ProxGradDescent(), x, f1, g)
-#     @fact norm(x) --> roughly(0.; atol=1e-5)
-#
-#     solve!(ProxGradDescent(), x, f2, g)
-#     @fact x --> roughly(y; atol=1e-5)
-#   end
-#
-#   context("L2Loss + l1 penalty") do
-#     opt = ProximalOptions(;ftol=1e-12,xtol=1e-12,maxiter=1000)
-#     x = randn(5)
-#     y = randn(5) + 1.
-#
-#     f = L2Loss(y)
-#     g = ProxL1(0.1)
-#
-#     solve!(ProxGradDescent(), x, f, g; options=opt)
-#     x2 = similar(x)
-#     prox!(g, x2, y)
-#     @fact x --> roughly(x2;atol=1e-5)
-#   end
-#
-#   context("no penalty") do
-#
-#     A = randn(20, 10)
-#     A = A'A
-#     b = randn(10)
-#     c = 1.
-#
-#     f = QuadraticFunction(A, b, c)
-#     g = ProxZero()
-#
-#     x = randn(10)
-#     solve!(ProxGradDescent(), x, f, g; options = ProximalOptions(;maxiter = 500))
-#     tx = -A \ b
-#     @fact abs(value(f, tx) - value(f, x)) / value(f, tx) < 1e-3 --> true
-#
-#     x = randn(10)
-#     solve!(AccProxGradDescent(), x, f, g)
-#     tx = -A \ b
-#     @fact abs(value(f, tx) - value(f, x)) / value(f, tx) < 1e-3 --> true
-#   end
-#
-#
-#   context("ridge regression") do
-#     n = 200
-#     p = 30
-#
-#     X = randn(n, p)
-#     Y = X * ones(p) + 0.1*randn(n)
-#
-#     true_beta = X \ Y
-#
-#     f = QuadraticFunction(X'X / n, -X'Y / n)
-#
-#     # solve ols
-#     g = ProxL2Sq(0.)
-#     hat_beta = zeros(p)
-#     solve!(ProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-#     @fact abs(value(f, true_beta) - value(f, hat_beta)) / value(f, true_beta) < 1e-3 --> true
-#
-#     hat_beta = zeros(p)
-#     solve!(AccProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-#     @fact abs(value(f, true_beta) - value(f, hat_beta)) / value(f, true_beta) < 1e-3 --> true
-#
-#
-#     # solve ridge regression
-#     ridge_beta = (X'X / n + 2 * eye(p)) \ (X'Y / n)
-#     g = ProxL2Sq(1.)
-#     hat_beta = zeros(p)
-#     solve!(ProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-#     @fact abs(value(f, ridge_beta) - value(f, hat_beta)
-#               + value(g, ridge_beta) - value(g, hat_beta)) / (value(f, ridge_beta) + value(g, hat_beta)) < 1e-3 --> true
-#
-#
-#     hat_beta = zeros(p)
-#     solve!(AccProxGradDescent(), hat_beta, f, g; options = ProximalOptions(;maxiter = 500))
-#     @fact abs(value(f, ridge_beta) - value(f, hat_beta)
-#               + value(g, ridge_beta) - value(g, hat_beta)) / (value(f, ridge_beta) + value(g, hat_beta)) < 1e-3 --> true
-#
-#   end
-#
-# end
-#
+
+@testset "gradient residual stops $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
+  # with ftol and xtol out of reach, only the FASTA residual can stop the solver;
+  # it must reach zero at a lasso solution where ∇f(x) ≠ 0
+  n, p = 100, 50
+  X = randn(n, p)
+  Y = X * vcat(randn(5), zeros(p - 5)) + 0.1 * randn(n)
+  A, b = X'X / n, -X'Y / n
+  λ = 0.1 * norm(b, Inf)
+
+  x = zeros(p)
+  opt = ProximalOptions(; ftol = 1e-300, xtol = 1e-300, gradtol = 1e-6, maxiter = 5000)
+  res = solve!(x, QuadraticFunction(A, b), ProxL1(λ), solver, opt)
+  @test res.grad_converged
+  @test res.iterations < opt.maxiter
+  @test res.g_residual < 1e-5
+
+  # the solver stopped near a solution: KKT conditions hold
+  grad = A * x + b
+  S = abs.(x) .> 1e-8
+  @test grad[S] ≈ -λ * sign.(x[S]) atol = 1e-4
+  @test all(abs.(grad[.!S]) .<= λ + 1e-4)
+end
 
 end

@@ -3,6 +3,8 @@ using Test
 
 tests = [
   "prox_solvers",
+  "admm",
+  "aqua",
   # "lasso"
 ]
 

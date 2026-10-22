@@ -1,0 +1,298 @@
+# The baseline: the coordinate descent and solver code as it was before
+# ProximalOPT took it over, in CoordinateDescent, CovSel, DiffPrecTest and
+# ProximalOPT 0.1, on ProximalBase 0.4.
+#
+#     julia --project=benchmark/engine/old -e 'using Pkg; Pkg.instantiate()'
+#     julia --project=benchmark/engine/old benchmark/engine/old/run.jl [--only REGEX]
+#
+# Writes benchmark/engine/results/old_<timestamp>.csv and .jls; compare.jl
+# compares them with a run of new/run.jl. Random coordinate orders draw from the
+# global random number generator, which each run seeds, so that a run is
+# reproducible.
+
+using CoordinateDescent, ProximalBase, ProximalOPT, CovSel, DiffPrecTest
+using LinearAlgebra, Random, SparseArrays, Statistics
+
+include(joinpath(@__DIR__, "..", "common.jl"))
+BLAS.set_num_threads(1)
+
+const SEED = 20261023
+const rec = Recorder("old"; only = only_from_args(ARGS))
+
+cdopts(; kw...) = CDOptions(; maxIter = 1_000_000, kw...)
+info_out(x, info::CDInfo) = (x, info.iterations, info.converged)
+
+println(environment_summary())
+
+################################################################################
+# lasso: CDLeastSquaresLoss at one λ, from zero
+
+for name in (:A, :B, :C, :D, :E)
+  P = design(name)
+  X, y = P.X, P.y
+  p = size(X, 2)
+  λmax = lasso_λmax(X, y)
+  for frac in (0.1, 0.02)
+    λ = frac * λmax
+    prob = "$name λ=$(frac)λmax"
+    obj = x -> lasso_objective(X, y, x, λ)
+    for (order, randomize) in (("cyclic", false), ("random", true))
+      run!(rec, Case("lasso", prob, "CD $order"); objective = obj) do
+        Random.seed!(SEED)
+        x, info = SparseIterate(p), CDInfo()
+        coordinateDescent!(x, CDLeastSquaresLoss(y, X), ProxL1(λ), cdopts(; randomize), info)
+        info_out(Vector(x), info)
+      end
+    end
+    # the path of 50 penalty levels from λmax of warmStart = false
+    if frac == 0.02
+      run!(rec, Case("lasso", prob, "CD random path from λmax"); objective = obj) do
+        Random.seed!(SEED)
+        x, info = SparseIterate(p), CDInfo()
+        coordinateDescent!(x, CDLeastSquaresLoss(y, X), ProxL1(λ), cdopts(; warmStart = false), info)
+        info_out(Vector(x), info)
+      end
+    end
+    # the quadratic X'X/n, -X'y/n, when it fits in memory
+    if name != :D
+      A, b = Symmetric(X' * X ./ size(X, 1)), -(X' * y) ./ size(X, 1)
+      A = Matrix(A)
+      run!(rec, Case("lasso", prob, "CD X'X/n cyclic"); objective = obj) do
+        x, info = SparseIterate(p), CDInfo()
+        coordinateDescent!(x, CDQuadraticLoss(A, b), ProxL1(λ), cdopts(; randomize = false), info)
+        info_out(Vector(x), info)
+      end
+    end
+  end
+end
+
+# with an intercept and standardized columns, through lasso()
+let P = design(:A), λ = 0.05 * lasso_λmax(design(:A).X, design(:A).y)
+  X, y = P.X, P.y
+  run!(rec, Case("lasso", "A λ=0.05λmax intercept", "lasso() random")) do
+    Random.seed!(SEED)
+    s = lasso(X, y, λ; intercept = true, standardizeX = true)
+    (vcat(s.intercept, Vector(s.x)), s.iterations, s.converged)
+  end
+end
+
+################################################################################
+# lasso path: LassoPath with 50 λ from λmax to λmax/100, strong rule
+
+for name in (:A, :B, :C, :D, :E)
+  P = design(name)
+  X, y = P.X, P.y
+  λs = lasso_λmax(X, y) .* 10 .^ range(0, -2; length = 50)
+  run!(rec, Case("path", "$name 50λ", "LassoPath random"); budget = 2.0) do
+    Random.seed!(SEED)
+    path = CoordinateDescent.LassoPath(X, y, λs, cdopts(); standardizeX = false)
+    (reduce(vcat, Vector.(path.βpath)), sum(path.iterations), all(path.converged))
+  end
+end
+
+################################################################################
+# group lasso: block coordinate descent on an AtomIterate, groups of 5 columns
+
+for name in (:A, :C)
+  P = design(name)
+  X, y = P.X, P.y
+  p = size(X, 2)
+  groups = consecutive_groups(p, 5)
+  λmax = group_λmax(X, y, groups)
+  for frac in (0.1, 0.02)
+    λ = frac * λmax
+    g = ProxGroupL2(λ, groups, ones(length(groups)))
+    obj = x -> group_objective(X, y, x, λ, groups)
+    run!(rec, Case("group", "$name λ=$(frac)λmax", "BCD cyclic"); objective = obj) do
+      x, info = AtomIterate(p, groups), CDInfo()
+      coordinateDescent!(x, CDLeastSquaresLoss(y, X), g, cdopts(; randomize = false), info)
+      info_out(Vector(x), info)
+    end
+  end
+end
+
+################################################################################
+# square-root lasso, scaled lasso, heteroscedastic (feasible) lasso
+
+for name in (:A, :C)
+  P = design(name)
+  X, y = P.X, P.y
+  n, p = size(X)
+  ω = column_scales(X)
+  # sqrt lasso: λmax = maxⱼ |Xⱼ'y| / (ωⱼ ‖y‖)
+  λmax = maximum(abs.(X' * y) ./ ω) / norm(y)
+  for frac in (0.6, 0.4)
+    run!(rec, Case("sqrtlasso", "$name λ=$(frac)λmax", "sqrtLasso() random")) do
+      Random.seed!(SEED)
+      s = sqrtLasso(X, y, frac * λmax)
+      (Vector(s.x), s.iterations, s.converged)
+    end
+  end
+  λ = sqrt(2 * log(p) / n)
+  run!(rec, Case("scaledlasso", "$name λ=√(2log p/n)", "scaledLasso() random")) do
+    Random.seed!(SEED)
+    s = scaledLasso(X, y, λ, ω)
+    (vcat(s.σ, Vector(s.x)), s.iterations, s.converged)
+  end
+  run!(rec, Case("feasiblelasso", "$name λ=√(2log p/n)", "feasibleLasso!() random")) do
+    Random.seed!(SEED)
+    s = feasibleLasso!(SparseIterate(p), X, y, λ)
+    (Vector(s.x), s.iterations, s.converged)
+  end
+end
+
+################################################################################
+# local polynomial lasso (CDWeightedLSLoss), as in CoordinateDescent's
+# benchmark/locpoly_bench.jl: n = 500, 2 varying and 48 irrelevant coefficients
+
+let n = 500, s = 2, p = 50, degree = 2
+  V = varying_coefficient_data(n, s)
+  X = [V.X randn(Xoshiro(2), n, p - s)]
+  zgrid = collect(range(0.025, 0.975; length = 20))
+  run!(rec, Case("locpoly", "n=500 p=50 degree=2 20 points", "locpolyl1() random")) do
+    Random.seed!(SEED)
+    B, _ = locpolyl1(X, V.Z, V.Y, zgrid, degree, GaussianKernel(0.2), 0.05, false, cdopts(; optTol = 1e-8))
+    (vec(Matrix(B)), -1, true)
+  end
+end
+
+################################################################################
+# direct difference estimation (CovSel's D-trace loss on a SymmetricSparseIterate)
+
+for p in (20, 50, 100)
+  D = difference_problem(p)
+  Sx, Sy = D.Sx, D.Sy
+  λmax = dtrace_λmax(Sx, Sy)
+  for frac in (0.5, 0.2)
+    λ = frac * λmax
+    obj = x -> dtrace_objective(Sx, Sy, reshape(x, p, p), λ)
+    for (order, randomize) in (("cyclic", false), ("random", true))
+      run!(rec, Case("dtrace", "p=$p λ=$(frac)λmax", "CD $order"); objective = obj) do
+        Random.seed!(SEED)
+        x, info = SymmetricSparseIterate(p), CDInfo()
+        coordinateDescent!(x, CovSel.CDDirectDifferenceLoss(Sx, Sy), ProxL1(λ), cdopts(; randomize), info)
+        info_out(vec(Matrix(x)), info)
+      end
+    end
+    if frac == 0.2
+      run!(rec, Case("dtrace", "p=$p λ=$(frac)λmax", "CD random path from λmax"); objective = obj) do
+        Random.seed!(SEED)
+        x, info = SymmetricSparseIterate(p), CDInfo()
+        coordinateDescent!(x, CovSel.CDDirectDifferenceLoss(Sx, Sy), ProxL1(λ), cdopts(; warmStart = false), info)
+        info_out(vec(Matrix(x)), info)
+      end
+    end
+  end
+end
+
+# a path of 20 λ with validation on held-out covariances, as DiffPrecTest's
+# DTraceValidationSupport
+let p = 50
+  D, V = difference_problem(p), difference_problem(p; seed = 1000 + p)
+  λs = dtrace_λmax(D.Sx, D.Sy) .* 10 .^ range(0, -1.3; length = 20)
+  run!(rec, Case("dtrace", "p=$p 20λ validation", "supportEstimate random"); budget = 2.0) do
+    Random.seed!(SEED)
+    eΔ, i2, iInf, l2, lInf = DiffPrecTest.supportEstimate(DiffPrecTest.DTraceValidationSupport(),
+                                                          D.Sx, D.Sy, V.Sx, V.Sy, collect(λs))
+    (vcat(l2, lInf, vec(Matrix(eΔ[i2]))), -1, true)
+  end
+end
+
+################################################################################
+# DiffPrecTest: the two-stage direct difference estimate and the rows of the
+# inverse Hessians, at its penalty level _penaltyLevel(p), with weights from the
+# data. The "CD only" cases time the coordinate descent of the first stage at
+# fixed weights, which the weights computation would otherwise dominate.
+
+for p in (30, 50)
+  D = difference_problem(p; n = 500)
+  Sx, Sy, X, Y = D.Sx, D.Sy, D.X, D.Y
+  λ = DiffPrecTest._penaltyLevel(p)
+  ri, ci = 2, 1
+  run!(rec, Case("diffprectest", "p=$p", "diffEstimation random"); budget = 2.0) do
+    Random.seed!(SEED)
+    (vec(Matrix(DiffPrecTest.diffEstimation(Sx, Sy, X, Y, λ))), -1, true)
+  end
+  run!(rec, Case("diffprectest", "p=$p", "invAsymHessianEstimation random"); budget = 2.0) do
+    Random.seed!(SEED)
+    (Vector(DiffPrecTest.invAsymHessianEstimation(Sx, Sy, ri, ci, X, Y, λ)), -1, true)
+  end
+  j = ProximalBase.sub2indLowerTriangular(p, ri, ci)
+  run!(rec, Case("diffprectest", "p=$p", "invQSymHessian random"); budget = 2.0) do
+    Random.seed!(SEED)
+    (Vector(DiffPrecTest.invQSymHessian(Sx, Sy, j, X, Y, λ)), -1, true)
+  end
+
+  # first stages at fixed weights
+  fK = DiffPrecTest.CDInverseKroneckerLoss(Sx, Sy, ri, ci)
+  t = (ci - 1) * p + ri
+  x0 = SparseIterate(p * p); x0[t] = 1.0
+  CoordinateDescent.initialize!(fK, x0)
+  ωK = zeros(p * p); DiffPrecTest._computeVar!(ωK, fK, X, Y, x0); ωK[t] = 0
+  run!(rec, Case("diffprectest", "p=$p", "Kronecker CD only random")) do
+    Random.seed!(SEED)
+    x = SparseIterate(p * p); x[t] = 1.0
+    info = CDInfo()
+    coordinateDescent!(x, DiffPrecTest.CDInverseKroneckerLoss(Sx, Sy, ri, ci), ProxL1(λ, ωK), cdopts(), info)
+    info_out(Vector(x), info)
+  end
+  fS = DiffPrecTest.CDInverseReducedSymKroneckerLoss(Sx, Sy, j)
+  y0 = SparseIterate(div(p * (p + 1), 2)); y0[j] = 1.0
+  CoordinateDescent.initialize!(fS, y0)
+  ωS = zeros(div(p * (p + 1), 2))
+  # the weights of invQSymHessian are standard errors; any positive weights do
+  # for timing, so take ωK at the matching lower-triangle entries
+  for c in 1:p, r in c:p
+    ωS[ProximalBase.sub2indLowerTriangular(p, r, c)] = ωK[(c - 1) * p + r]
+  end
+  ωS[j] = 0
+  run!(rec, Case("diffprectest", "p=$p", "reduced symmetric Kronecker CD only random")) do
+    Random.seed!(SEED)
+    x = SparseIterate(div(p * (p + 1), 2)); x[j] = 1.0
+    info = CDInfo()
+    coordinateDescent!(x, DiffPrecTest.CDInverseReducedSymKroneckerLoss(Sx, Sy, j), ProxL1(λ, ωS), cdopts(), info)
+    info_out(Vector(x), info)
+  end
+end
+
+################################################################################
+# ProximalOPT 0.1: the proximal gradient solvers on the lasso, and ADMM for the
+# graphical lasso
+
+for name in (:A, :E)
+  P = design(name)
+  X, y = P.X, P.y
+  n, p = size(X)
+  Xs, ys = X ./ sqrt(n), y ./ sqrt(n)
+  λ = 0.1 * lasso_λmax(X, y)
+  o = ProximalOptions(; maxiter = 1_000_000, ftol = 1e-10, xtol = 1e-10, gradtol = 1e-10, time_limit = 60.0)
+  obj = x -> lasso_objective(X, y, x, λ)
+  run!(rec, Case("proxgrad", "$name λ=0.1λmax", "AccProxGrad tol 1e-10"); objective = obj) do
+    x = zeros(p)
+    r = solve!(x, LeastSquaresLoss(ys, Xs), ProxL1(λ), AccProxGradDescent(), o)
+    (x, r.iterations, ProximalOPT.converged(r))
+  end
+  run!(rec, Case("proxgrad", "$name λ=0.1λmax", "ActiveAccProxGrad tol 1e-10"); objective = obj) do
+    x = SparseIterate(p)
+    r = solve!(x, LeastSquaresLoss(ys, Xs), ProxL1(λ), ActiveAccProxGradDescent(), o)
+    (Vector(x), r.inner_iterations, r.converged)
+  end
+end
+
+for p in (50, 100)
+  S = Matrix(difference_problem(p).Sy)
+  run!(rec, Case("admm", "glasso p=$p λ=0.1", "CovSel covsel!")) do
+    Xa, Z, U = zeros(p, p), zeros(p, p), zeros(p, p)
+    info = ADMMInfo()
+    covsel!(Xa, Z, U, S, 0.1; info)
+    (vec(Z), info.iterations, info.converged)
+  end
+  run!(rec, Case("admm", "glasso p=$p λ=0.1", "ProximalOPT ADMMSolver")) do
+    Xa = Matrix(1.0I, p, p)
+    r = solve!(Xa, ProxGaussLikelihood(Symmetric(S)), ProxL1(0.1), ADMMSolver(),
+               ProximalOptions(; maxiter = 100_000))
+    (vec(Xa), r.iterations, r.converged)
+  end
+end
+
+println("\nwrote ", save(rec))

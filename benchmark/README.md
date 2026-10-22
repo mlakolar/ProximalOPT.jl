@@ -13,7 +13,7 @@ glmnet (through GLMNet.jl) and Lasso.jl as outside references.
 ```
 julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
 julia --project=benchmark benchmark/lasso_bench.jl --quick   # about 30 seconds
-julia --project=benchmark benchmark/lasso_bench.jl           # about an hour and a half
+julia --project=benchmark benchmark/lasso_bench.jl           # 1.5 to 3.5 hours
 julia --project=benchmark benchmark/lasso_summary.jl         # tables; --raw adds every run
 ```
 
@@ -67,9 +67,9 @@ The solvers:
 
 These results are from 22 October 2026, on an Apple M3 Pro with Julia 1.13.2 and one BLAS thread. Package versions:
 
-- ProximalOPT at `fdb5701`
-- ProximalBase 0.3.2
-- CoordinateDescent 0.4.1, before the screening that 0.5 adds to `LassoPath`
+- ProximalOPT at `07a0c3e`
+- ProximalBase 0.4.0
+- CoordinateDescent 0.5.1
 - GLMNet.jl 0.7.4
 - Lasso.jl 0.7.5
 
@@ -77,36 +77,37 @@ These results are from 22 October 2026, on an Apple M3 Pro with Julia 1.13.2 and
 
 | solver | A, 0.1 | A, 0.02 | B, 0.1 | B, 0.02 | C, 0.1 | C, 0.02 | D, 0.1 | D, 0.02 | E, 0.1 | E, 0.02 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| CD random | **3.6** | 157 | 7.1 | 176 | 1.4 | 7.1 | 44.4 | 364 | **1.0** | **12.1** |
-| CD cyclic | 4.3 | **111** | **5.5** | **123** | 1.3 | 6.2 | **16.9** | **249** | 1.7 | 209 |
-| CD path from λmax | 38.9 | 251 | 50.1 | 428 | 41.6 | 59.7 | 1044 | 2051 | 23.9 | 54.3 |
-| CD X'X/n | 17.3 | 379 | 18.9 | 417 | **0.1** | **0.4** | – | – | 4.7 | 35.8 |
-| ProxGrad | 41.4 | 759 | 107 | 837 | 19.2 | 30.2 | 483 | 8475 | 122 | 4997 |
-| AccProxGrad | 65.4 | 297 | 121 | 328 | 27.3 | 32.2 | 1292 | 5192 | 397 | 1947 |
-| ActiveAccProxGrad | 27.5 | 237 | 85.2 | 221 | 14.1 | 40.1 | 462 | 3512 | 398 | 1931 |
-| AccProxGrad X'X/n | 218 | 978 | 402 | 1194 | 2.0 | 2.4 | – | – | 1372 | 6714 |
-| ActiveAccProxGrad X'X/n | 53.9 | 640 | 133 | 663 | 0.5 | 2.1 | – | – | 1399 | 6703 |
-| glmnet | 33.2 | 1771 | 48.3 | 1488 | 16.0 | 49.8 | 145 | 5644 | 22.5 | 4277 |
-| Lasso.jl | 123 | 578 | 137 | 566 | 42.0 | 81.1 | 20.9 | 582 | 15.2 | 180 |
+| CD cyclic | **3.4** | **144** | **3.7** | **65.8** | 1.3 | 6.6 | **17.1** | **277** | 2.0 | 209 |
+| CD random | 6.8 | 172 | 4.9 | 147 | 1.5 | 7.0 | 53.9 | 425 | **1.1** | **12.1** |
+| CD path from λmax | 20.4 | 311 | 21.8 | 427 | 26.5 | 48.4 | 154 | 688 | 10.3 | 38.1 |
+| CD X'X/n | 17.4 | 713 | 19.0 | 307 | **0.1** | **0.4** | – | – | 4.2 | 38.0 |
+| ProxGrad | 44.7 | 849 | 114 | 871 | 16.6 | 30.3 | 478 | 8359 | 122 | 4932 |
+| AccProxGrad | 70.8 | 272 | 114 | 340 | 27.2 | 32.3 | 1296 | 5275 | 395 | 1915 |
+| ActiveAccProxGrad | 30.2 | 262 | 56.9 | 200 | 14.0 | 39.7 | 434 | 3479 | 399 | 2761 |
+| AccProxGrad X'X/n | 250 | 984 | 408 | 1251 | 1.9 | 2.4 | – | – | 1367 | ✗ |
+| ActiveAccProxGrad X'X/n | 60.5 | 597 | 117 | 712 | 0.5 | 2.0 | – | – | 1372 | 5621 |
+| glmnet | 37.3 | 1797 | 45.7 | 1529 | 16.7 | 50.0 | 145 | 5529 | 22.4 | 4053 |
+| Lasso.jl | 143 | 626 | 133 | 596 | 42.0 | 80.9 | 20.5 | 565 | 15.1 | 181 |
 | nonzeros in the solution | 278 | 452 | 221 | 424 | 54 | 227 | 333 | 865 | 40 | 302 |
 
 Column headings give the design and λ/λmax. The X'X/n rows do not include
-forming X'X/n, which takes 94 ms for A, 109 ms for B, 24 ms for C and 69 ms
-for E; for D it would need 3.2 GB of memory. `lasso_summary.jl` also prints
-the table for a relative suboptimality of 1e-10.
+forming X'X/n, which takes 77 ms for A, 106 ms for B, 25 ms for C and 77 ms
+for E; for D it would need 3.2 GB of memory. ✗ means the target was not
+reached (here the best was 2e-6). `lasso_summary.jl` also prints the table for
+a relative suboptimality of 1e-10.
 
 ### Path of 50 λ values: seconds until every λ is within the target
 
 | solver | A, 1e-6 | B, 1e-6 | C, 1e-6 | D, 1e-6 | E, 1e-6 | A, 1e-10 | B, 1e-10 | C, 1e-10 | D, 1e-10 | E, 1e-10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| CD LassoPath | 0.52 | 0.73 | 0.08 | 2.5 | **0.09** | 3.2 | 2.6 | 0.15 | 6.4 | 0.43 |
-| CD X'X/n | 1.4 | 2.1 | **0.03** | – | 0.46 | 14.9 | 6.7 | **0.03** | – | 1.1 |
-| ProxGrad | 9.1 | 15.3 | 0.52 | ✗ | ✗ | ✗ | ✗ | 1.1 | ✗ | ✗ |
-| AccProxGrad | 1.4 | 1.7 | 0.64 | 18.2 | 8.0 | 4.7 | 7.0 | 1.2 | ✗ | ✗ |
-| ActiveAccProxGrad | 0.39 | 0.37 | 0.30 | **1.2** | 1.3 | **1.1** | **1.6** | 0.57 | **4.6** | ✗ |
-| ActiveAccProxGrad X'X/n | **0.37** | **0.35** | **0.03** | – | 0.52 | ✗ | ✗ | 0.04 | – | ✗ |
-| glmnet | 2.4 | 2.0 | 0.38 | 3.1 | 2.1 | ✗ | ✗ | 0.63 | ✗ | ✗ |
-| Lasso.jl | 0.53 | 0.71 | 0.08 | 1.5 | 0.12 | ✗ | 2.3 | 0.08 | 6.4 | **0.30** |
+| CD LassoPath | 0.64 | 0.77 | 0.07 | **1.2** | **0.08** | 3.4 | 2.9 | 0.14 | 5.3 | **0.28** |
+| CD X'X/n | 3.4 | 1.7 | **0.03** | – | 0.29 | 15.2 | 9.8 | **0.03** | – | 0.82 |
+| ProxGrad | 9.8 | 13.8 | 0.53 | ✗ | ✗ | ✗ | ✗ | 1.1 | ✗ | ✗ |
+| AccProxGrad | 1.3 | 1.7 | 0.64 | 17.2 | 8.1 | 4.8 | 6.9 | 1.2 | ✗ | ✗ |
+| ActiveAccProxGrad | 0.42 | 0.36 | 0.26 | 1.3 | 0.98 | **1.2** | **1.6** | 0.54 | **4.6** | ✗ |
+| ActiveAccProxGrad X'X/n | **0.36** | **0.33** | **0.03** | – | 0.49 | ✗ | ✗ | 0.04 | – | ✗ |
+| glmnet | 2.5 | 2.0 | 0.38 | 3.2 | 2.1 | ✗ | ✗ | 0.63 | ✗ | ✗ |
+| Lasso.jl | 0.56 | 0.71 | 0.08 | 1.4 | 0.13 | ✗ | 2.3 | 0.08 | 6.3 | 0.30 |
 
 Here the X'X/n rows include forming X'X/n. ✗ means the target was not reached
 within the sweep: tolerances down to 1e-14, or 90 seconds per solver.
@@ -115,7 +116,7 @@ within the sweep: tolerances down to 1e-14, or 90 seconds per solver.
 
 | solver | A: relative gap | A: support errors | E: relative gap | E: support errors |
 |---|---:|---:|---:|---:|
-| CD `lasso()` | 9.2e-12 | 0 | 1.5e-13 | 0 |
+| CD `lasso()` | 4.9e-10 | 0 | 1.2e-11 | 0 |
 | ProxGrad | 2.0e-3 | 92 | 0.35 | 934 |
 | AccProxGrad | 9.4e-5 | 24 | 0.097 | 709 |
 | ActiveAccProxGrad | 2.4e-5 | 17 | 3.0e-4 | 21 |
@@ -129,23 +130,23 @@ the other. The solution has 452 nonzeros for A and 302 for E.
 ## What the numbers say
 
 - **For one λ, coordinate descent is fastest.**
-  - At a relative gap of 1e-6 it is 1.8–27× faster than the best ProximalOPT solver on designs A–D.
-  - On the equicorrelated design E it is 120–160× faster. There the common factor gives X'X/n one very large eigenvalue, which forces ProximalOPT's gradient methods to take small steps.
-- **For a path, `ActiveAccProxGradDescent` is fastest when p > n and the columns are not strongly correlated** (designs A, B and D).
-  - It beats CoordinateDescent 0.4.1's `LassoPath` by 1.3–2.1× at a gap of 1e-6, and by 1.4–2.9× at 1e-10.
-  - On E it is the other way round: `LassoPath` is 14× faster, and `ActiveAccProxGrad` does not reach 1e-10.
-  - CoordinateDescent 0.5 adds strong-rule screening to `LassoPath`, which makes paths 1.5–1.7× faster when p ≫ n.
+  - At a relative gap of 1e-6 it is 1.8–25× faster than the best ProximalOPT solver on designs A–D.
+  - On the equicorrelated design E it is 110–160× faster. There the common factor gives X'X/n one very large eigenvalue, which forces ProximalOPT's gradient methods to take small steps.
+- **For a path, `ActiveAccProxGradDescent` is fastest when p > n and the columns are not strongly correlated.**
+  - On A and B it beats `LassoPath` by 1.5–2.3× at a gap of 1e-6, and by 1.8–2.8× at 1e-10.
+  - On D (p = 20,000) the two are about even: `LassoPath` is slightly faster at 1e-6 (1.2 s against 1.3 s), `ActiveAccProxGrad` at 1e-10 (4.6 s against 5.3 s). The strong-rule screening of CoordinateDescent 0.5 made `LassoPath` 2.2× faster here than CoordinateDescent 0.4.1.
+  - On E it is the other way round: `LassoPath` is 12× faster, and `ActiveAccProxGrad` does not reach 1e-10.
 - **When n ≫ p (design C), solve on X'X/n.** `CD X'X/n` and `ActiveAccProxGrad X'X/n` compute the whole path in 0.03 s, including forming X'X/n.
 - **Within ProximalOPT, use `ActiveAccProxGradDescent`.**
-  - `AccProxGrad` without the active set is up to 15× slower on paths: 18.2 s against 1.2 s for D.
+  - `AccProxGrad` without the active set is up to 13× slower on paths: 17.2 s against 1.3 s for D.
   - `ProxGrad` is competitive only at low accuracy on easy problems.
   - The X'X/n variants pay off only when n ≫ p.
 - **Coordinate order matters for coordinate descent.**
-  - Cyclic order beats random order in 7 of the 8 cases on A–D, by up to 2.6×.
+  - Cyclic order beats random order in all 8 cases on A–D, by up to 3.2×.
   - On E cyclic order is 17× slower (209 against 12.1 ms), which is why random order is CoordinateDescent's default.
 - **ProximalOPT's defaults stop early on harder problems.** The defaults are `maxiter = 200` and `ftol = 1e-6`.
   - At 0.02 λmax on A–D its solvers stop with relative gaps of 1e-5 to 4e-3 and 16 to 260 support errors.
   - On E, `ProxGrad` and `AccProxGrad` stop with gaps of 0.35 and 0.1 and most of the support wrong.
   - For accurate solutions, set `ftol`, `xtol` and `gradtol` to about 1e-10 and raise `maxiter`.
-  - CoordinateDescent's defaults reach gaps below 1e-11 in every case.
+  - CoordinateDescent's defaults reach gaps of 5e-10 or smaller, with no support errors, in every case.
 - **glmnet's tolerance is on a different scale.** Its `tol` bounds squared changes in the coefficients, so reaching a gap of 1e-6 at every λ of a path needs a `tol` of about 1e-11. That makes it slow in these tables. At its default `tol`, its paths take a fraction of these times but are only accurate to about 1e-3.

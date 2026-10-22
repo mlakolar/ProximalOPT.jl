@@ -1,7 +1,7 @@
 # Lasso benchmark: ProximalOPT's proximal gradient solvers against
 # CoordinateDescent.jl, with glmnet (GLMNet.jl) and Lasso.jl for reference.
 #
-#     julia --project=benchmark benchmark/lasso_bench.jl            # about an hour
+#     julia --project=benchmark benchmark/lasso_bench.jl            # 1.5 to 3.5 hours
 #     julia --project=benchmark benchmark/lasso_bench.jl --quick    # a minute
 #
 # 1. One λ, starting from β = 0: each solver is run over a sweep of its

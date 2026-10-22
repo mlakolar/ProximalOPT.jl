@@ -298,13 +298,29 @@ _warn_not_converged(st::_CDState, s::CDSolver) =
 
 Minimize `f(x) + g(x)` by coordinate descent, starting from `x`, a
 `SparseIterate`, a `SymmetricSparseIterate`, or an `AtomIterate` with the groups
-of a group penalty `g`; `x` is overwritten with the solution. Returns a
-[`CDResults`](@ref). See [`CDSolver`](@ref).
+of a group penalty `g`; `x` is overwritten with the solution. A dense vector `x`
+is converted to a `SparseIterate` (an `AtomIterate` for a `GroupNormL2`) and
+overwritten with the solution. Returns a [`CDResults`](@ref). See
+[`CDSolver`](@ref).
 """
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f::AbstractFunction,
                 g::AbstractFunction, method::CDSolver)
   m = cdmodel(f, x)
   solve!(x, m, g, method)
+end
+
+# a dense vector is converted to an iterate and overwritten with the solution:
+# an AtomIterate with the groups of a GroupNormL2, a SparseIterate otherwise
+solve!(x::Vector{T}, f::AbstractFunction, g::AbstractFunction, method::CDSolver; kwargs...) where {T<:AbstractFloat} =
+  _solve_dense!(x, f, g, method; kwargs...)
+solve!(x::Vector{T}, m::CDModel, g::AbstractFunction, method::CDSolver; kwargs...) where {T<:AbstractFloat} =
+  _solve_dense!(x, m, g, method; kwargs...)
+
+function _solve_dense!(x::Vector, f, g, method::CDSolver; kwargs...)
+  xs = g isa GroupNormL2 ? AtomIterate(x, g.groups) : SparseIterate(x)
+  r = solve!(xs, f, g, method; kwargs...)
+  copyto!(x, Vector(xs))
+  CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks)
 end
 
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, m::CDModel{T},

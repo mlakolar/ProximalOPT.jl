@@ -71,6 +71,17 @@ end
     @test Vector(x1) ≈ Vector(x2) atol = 1e-9
   end
 
+  @testset "a dense starting vector" begin
+    x = zeros(p)
+    r = solve!(x, f, NormL1(λ), CDSolver(; tol = 1e-10))
+    @test r.minimizer === x && r.converged
+    @test kkt_l1(lsgrad(X, y, x), x, λ) < 1e-7
+    groups = [i:i+4 for i in 1:5:p]
+    xg = zeros(p)
+    solve!(xg, f, GroupNormL2(λ, groups, ones(length(groups))), CDSolver(; tol = 1e-10); continuation = 5)
+    @test any(!iszero, xg)
+  end
+
   @testset "a seeded random order is reproducible" begin
     run() = (Random.seed!(7); x = SparseIterate(p); r = solve!(x, f, NormL1(λ), CDSolver()); (Vector(x), r.passes))
     @test run() == run()

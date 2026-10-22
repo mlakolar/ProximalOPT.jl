@@ -1,12 +1,16 @@
-# Compare two runs of old/run.jl or new/run.jl, case by case:
+# Compare runs of old/run.jl and new/run.jl, case by case:
 #
-#     julia benchmark/engine/compare.jl results/old_<stamp>.csv results/new_<stamp>.csv [--all]
+#     julia benchmark/engine/compare.jl first.csv second.csv [--all]
+#     julia benchmark/engine/compare.jl old1.csv,old2.csv new1.csv,new2.csv
 #
-# For each case in both runs it prints the minimum times, their ratio (second
-# run over first), the passes, the largest difference between the solutions and
-# the relative difference of the objectives; then the geometric mean of the
-# ratios by group and the cases more than 10% slower. Only standard libraries,
-# so any environment runs it.
+# Each side is one run or several, separated by commas; a case's time is the
+# minimum over the runs of its side, since load on the machine only ever adds
+# time (ab.sh makes interleaved runs). For each case in both sides it prints the
+# times, their ratio (second over first), the passes, the largest difference
+# between the solutions and the relative difference of the objectives (from the
+# first run of each side); then the geometric mean of the ratios by group and
+# the cases more than 10% slower. Only standard libraries, so any environment
+# runs it.
 
 using Printf, Serialization, Statistics
 
@@ -24,7 +28,7 @@ function read_rows(csv)
   rows = Dict{String, Row}()
   order = String[]
   for line in eachline(csv)
-    (startswith(line, "#") || startswith(line, "group,")) && continue
+    (startswith(line, "#") || startswith(line, "group,problem,solver,")) && continue
     f = split(line, ',')
     # group, problem, solver, then 8 numbers; an old problem name may hold a comma
     group, solver = f[1], f[end - 8]
@@ -37,16 +41,28 @@ function read_rows(csv)
   rows, order
 end
 
+# the rows of several runs, each case with its minimum time over the runs
+function read_side(spec)
+  files = split(spec, ',')
+  rows, order = read_rows(files[1])
+  for f in files[2:end]
+    more, _ = read_rows(f)
+    for (key, r) in more
+      haskey(rows, key) && r.time < rows[key].time &&
+        (rows[key] = Row(key, r.group, r.time, rows[key].passes, rows[key].converged, rows[key].objective, rows[key].nnz))
+    end
+  end
+  rows, order, deserialize(replace(String(files[1]), r"\.csv$" => ".jls")), files
+end
+
 function main(args)
-  files = filter(a -> !startswith(a, "--"), args)
-  length(files) == 2 || error("usage: compare.jl first.csv second.csv [--all]")
+  specs = filter(a -> !startswith(a, "--"), args)
+  length(specs) == 2 || error("usage: compare.jl first.csv[,more.csv] second.csv[,more.csv] [--all]")
   showall = "--all" in args
-  r1, order = read_rows(files[1])
-  r2, _ = read_rows(files[2])
-  s1 = deserialize(replace(files[1], r"\.csv$" => ".jls"))
-  s2 = deserialize(replace(files[2], r"\.csv$" => ".jls"))
-  println("first:  ", files[1], "\n        ", readline(files[1]))
-  println("second: ", files[2], "\n        ", readline(files[2]))
+  r1, order, s1, f1 = read_side(specs[1])
+  r2, _, s2, f2 = read_side(specs[2])
+  println("first:  ", join(f1, ", "), "\n        ", readline(f1[1]))
+  println("second: ", join(f2, ", "), "\n        ", readline(f2[1]))
 
   ratios = Dict{String, Vector{Float64}}()
   slow = String[]

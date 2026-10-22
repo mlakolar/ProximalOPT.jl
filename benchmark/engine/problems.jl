@@ -98,3 +98,56 @@ dtrace_objective(Sx, Sy, Δ, λ) = tr(Sx * Δ * Sy * Δ) / 2 - tr(Δ * (Sy - Sx)
 
 # the smallest λ with a zero direct difference solution, ‖Sy - Sx‖∞ entrywise
 dtrace_λmax(Sx, Sy) = maximum(abs, Sy - Sx)
+
+"""
+The penalty weights of DiffPrecTest's second stage at its starting point
+Θ = E_ab: the standard errors of the gradient of `tr(SxΘSyΘ')/2 - Θ[a, b]`,
+as `DiffPrecTest._computeVar!` computes them for `CDInverseKroneckerLoss`,
+written out for Θ = E_ab. Entry `(c - 1)p + r` is the weight of `Θ[r, c]`.
+"""
+function kron_weights(Sx, Sy, X, Y, a, b)
+  nx, p = size(X)
+  ny = size(Y, 1)
+  ω = zeros(p * p)
+  q, rr = zeros(nx), zeros(ny)
+  for col in 1:p, row in 1:p
+    δ = row == a && col == b ? -1.0 : 0.0
+    t = Sx[row, a] * Sy[b, col] + δ
+    for k in 1:nx
+      q[k] = X[k, row] * X[k, a] * Sy[b, col] + δ
+    end
+    for k in 1:ny
+      rr[k] = Sx[row, a] * Y[k, b] * Y[k, col] + δ
+    end
+    σ1 = sum(abs2, q) / (nx - 1) - nx / (nx - 1) * t^2
+    σ2 = sum(abs2, rr) / (ny - 1) - ny / (ny - 1) * t^2
+    ω[(col - 1) * p + row] = sqrt(σ1 / nx + σ2 / ny)
+  end
+  ω
+end
+
+# the weights of the reduced (svec) problem used for timing: those of
+# kron_weights at the matching lower-triangle entries; j is the coordinate of
+# the free entry, unpenalized
+function svec_weights(ωK, p, j)
+  ωS = zeros(div(p * (p + 1), 2))
+  k = 0
+  for c in 1:p, r in c:p
+    k += 1
+    ωS[k] = ωK[(c - 1) * p + r]
+  end
+  ωS[j] = 0
+  ωS
+end
+
+"""
+Residuals of the least-squares fit of y on the s columns of X most correlated
+with y (all those tied with the s-th largest |X'y|), without an intercept: the
+:Screening start of CoordinateDescent's scaledLasso and feasibleLasso!.
+"""
+function screening_residuals(X, y, s)
+  c = abs.(X' * y)
+  S = c .>= sort(c; rev = true)[s]
+  Xs = view(X, :, S)
+  y - Xs * (Xs \ y)
+end

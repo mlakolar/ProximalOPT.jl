@@ -185,16 +185,48 @@ for p in (20, 50, 100)
   end
 end
 
-# a path of 20 λ with validation on held-out covariances, as DiffPrecTest's
-# DTraceValidationSupport
+# the refit on the support of a solution, by coordinate descent with the
+# entries off the support penalized by 1e10, as CovSel's differencePrecisionRefit
 let p = 50
-  D, V = difference_problem(p), difference_problem(p; seed = 1000 + p)
-  λs = dtrace_λmax(D.Sx, D.Sy) .* 10 .^ range(0, -1.3; length = 20)
-  run!(rec, Case("dtrace", "p=$p 20λ validation", "supportEstimate random"); budget = 2.0) do
+  D = difference_problem(p)
+  x = SymmetricSparseIterate(p)
+  Random.seed!(SEED)
+  coordinateDescent!(x, CovSel.CDDirectDifferenceLoss(D.Sx, D.Sy), ProxL1(0.2 * dtrace_λmax(D.Sx, D.Sy)), cdopts())
+  S = [CartesianIndex(ProximalBase.ind2subLowerTriangular(p, k)) for k in 1:div(p * (p + 1), 2) if !iszero(x[ProximalBase.ind2subLowerTriangular(p, k)...])]
+  obj = v -> dtrace_objective(D.Sx, D.Sy, reshape(v, p, p), 0.0)
+  run!(rec, Case("refit", "dtrace p=$p support of λ=0.2λmax", "differencePrecisionRefit random"); objective = obj) do
     Random.seed!(SEED)
-    eΔ, i2, iInf, l2, lInf = DiffPrecTest.supportEstimate(DiffPrecTest.DTraceValidationSupport(),
-                                                          D.Sx, D.Sy, V.Sx, V.Sy, collect(λs))
-    (vcat(l2, lInf, vec(Matrix(eΔ[i2]))), -1, true)
+    (vec(Matrix(CovSel.differencePrecisionRefit(D.Sx, D.Sy, S))), -1, true)
+  end
+end
+
+# iterative hard thresholding: at most 2p - 1 nonzero entries in the lower
+# triangle, a fixed step 1/(‖Sx‖‖Sy‖), as CovSel's benchmark
+let p = 50
+  D = difference_problem(p)
+  s, η = 2p - 1, 1 / (opnorm(Matrix(D.Sx)) * opnorm(Matrix(D.Sy)))
+  obj = v -> dtrace_objective(D.Sx, D.Sy, reshape(v, p, p), 0.0)
+  run!(rec, Case("iht", "dtrace p=$p s=$s", "differencePrecisionIHT"); objective = obj) do
+    Δ, fvals = CovSel.differencePrecisionIHT(D.Sx, D.Sy, η, s)
+    (vec(Matrix(Δ)), length(fvals) - 1, length(fvals) - 1 < 1000)
+  end
+end
+
+# a path of 20 λ, each warm started from the previous solution, as DiffPrecTest's
+# DTraceValidationSupport solves it (without its validation losses)
+let p = 50
+  D = difference_problem(p)
+  λs = dtrace_λmax(D.Sx, D.Sy) .* 10 .^ range(0, -1.3; length = 20)
+  run!(rec, Case("dtrace", "p=$p 20λ path", "warm starts random"); budget = 2.0) do
+    Random.seed!(SEED)
+    f = CovSel.CDDirectDifferenceLoss(D.Sx, D.Sy)
+    x, info = SymmetricSparseIterate(p), CDInfo()
+    sols, passes, conv = Vector{Float64}[], 0, true
+    for λ in λs
+      coordinateDescent!(x, f, ProxL1(λ), cdopts(), info)
+      push!(sols, vec(Matrix(x))); passes += info.iterations; conv &= info.converged
+    end
+    (reduce(vcat, sols), passes, conv)
   end
 end
 
@@ -228,7 +260,9 @@ for p in (30, 50)
   t = (ci - 1) * p + ri
   x0 = SparseIterate(p * p); x0[t] = 1.0
   CoordinateDescent.initialize!(fK, x0)
-  ωK = zeros(p * p); DiffPrecTest._computeVar!(ωK, fK, X, Y, x0); ωK[t] = 0
+  ωK = zeros(p * p); DiffPrecTest._computeVar!(ωK, fK, X, Y, x0)
+  ωK ≈ kron_weights(Sx, Sy, X, Y, ri, ci) || error("kron_weights does not match DiffPrecTest._computeVar!")
+  ωK = kron_weights(Sx, Sy, X, Y, ri, ci); ωK[t] = 0
   run!(rec, Case("diffprectest", "p=$p", "Kronecker CD only random")) do
     Random.seed!(SEED)
     x = SparseIterate(p * p); x[t] = 1.0
@@ -239,13 +273,9 @@ for p in (30, 50)
   fS = DiffPrecTest.CDInverseReducedSymKroneckerLoss(Sx, Sy, j)
   y0 = SparseIterate(div(p * (p + 1), 2)); y0[j] = 1.0
   CoordinateDescent.initialize!(fS, y0)
-  ωS = zeros(div(p * (p + 1), 2))
   # the weights of invQSymHessian are standard errors; any positive weights do
   # for timing, so take ωK at the matching lower-triangle entries
-  for c in 1:p, r in c:p
-    ωS[ProximalBase.sub2indLowerTriangular(p, r, c)] = ωK[(c - 1) * p + r]
-  end
-  ωS[j] = 0
+  ωS = svec_weights(ωK, p, j)
   run!(rec, Case("diffprectest", "p=$p", "reduced symmetric Kronecker CD only random")) do
     Random.seed!(SEED)
     x = SparseIterate(div(p * (p + 1), 2)); x[j] = 1.0

@@ -56,6 +56,35 @@ method on an active set of coordinates, which it grows by the coordinates that
 violate the optimality conditions. Its starting point may be a vector, as here,
 or a `SparseIterate`.
 
+## Example: group lasso
+
+Minimize `‖Y - Xβ‖² / 2 + λ Σₖ √|Gₖ| ‖β[Gₖ]‖₂` over groups `Gₖ` of
+coefficients that enter or leave the model together, such as the dummy
+variables of a factor:
+
+```julia
+using ProximalBase, ProximalOPT, LinearAlgebra, Random
+
+Random.seed!(1)
+n = 100
+groups = [1:3, 4:5, 6:10, 11:12, [13, 15], [14]]   # sizes 3, 2, 5, 2, 2 and 1
+X = randn(n, 15)
+β_true = [ones(3); zeros(2); ones(5); zeros(5)]
+Y = X * β_true + 0.1 * randn(n)
+
+f = LeastSquaresLoss(Y, X)
+g = ProxGroupL2(10.0, groups)    # weights √|Gₖ| by default
+
+β = zeros(15)
+res = solve!(β, f, g, AccProxGradDescent())
+
+[norm(β[G]) for G in groups]
+```
+
+The first and third groups are selected, and the other four are exactly zero.
+`ProxGroupL2(λ, groups, w)` takes other weights, coordinates in no group are
+not penalized, and `ActiveAccProxGradDescent()` accepts the group penalty too.
+
 ## Example: graphical lasso by ADMM
 
 Estimate a sparse precision matrix by minimizing
@@ -81,7 +110,7 @@ res.converged, res.iterations
 |---|---|---|
 | `ProximalGradientDescent()` | `f` smooth, `g` proximable | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2) |
 | `AccProxGradDescent(; β = 0.5)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking and adaptive restart |
-| `ActiveAccProxGradDescent(; β, max_add, max_outer)` | `f` smooth, `g` = `ProxL1` or `ProxZero`, sparse solution | Active set: adds the coordinates that violate the optimality conditions and runs `AccProxGradDescent` on the active coordinates only |
+| `ActiveAccProxGradDescent(; β, max_add, max_outer)` | `f` smooth, `g` = `ProxL1`, `ProxGroupL2` or `ProxZero`, sparse solution | Active set: adds the coordinates that violate the optimality conditions and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011) |
 
 All solvers are called the same way:

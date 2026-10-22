@@ -25,8 +25,11 @@ Step 5 runs on `restrict(f, S)` and `restrict(g, S)` from ProximalBase, a
 problem in the active coordinates `S` only; step 2 is the only one that involves
 all coordinates. `f` and `g` need `restrict`, `g` needs `kkt_violation`, and
 `f` needs `value_and_gradient!` at a `SparseIterate`: in ProximalBase these are
-`QuadraticFunction`, `L2Loss` and `LeastSquaresLoss`, with `ProxL1` or
-`ProxZero`.
+`QuadraticFunction`, `L2Loss` and `LeastSquaresLoss`, with `ProxL1`,
+`ProxGroupL2` or `ProxZero`. For the group lasso `ProxGroupL2`, all the
+coordinates of a group at zero share the violation of the group, so a group
+that violates the optimality conditions joins the active set whole, unless
+`max_add` cuts it.
 
 `max_outer` limits the number of outer iterations. The
 [`ProximalOptions`](@ref) apply to each inner solve. Use with
@@ -175,7 +178,7 @@ function _kkt_violators!(violators, violations, g, grad, x::SparseIterate{T}) wh
   max_violation = T(-Inf)
   for i in eachindex(grad)
     x.ind2nzval[i] == 0 || continue
-    v = kkt_violation(g, grad, i)
+    v = kkt_violation(g, grad, x, i)
     max_violation = max(max_violation, v)
     if v > 0
       push!(violators, i)

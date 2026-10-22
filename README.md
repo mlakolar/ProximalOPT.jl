@@ -91,6 +91,48 @@ take it as a starting point and multiply by it over the nonzero groups only,
 and `ActiveAccProxGradDescent()` adds and removes whole groups, as it also does
 from a dense starting point.
 
+## Example: low-rank multi-response regression
+
+Regress `k` responses on the same `p` predictors, `Y = XB + E`, with a `p × k`
+coefficient matrix `B` of low rank, by minimizing `‖Y - XB‖²_F / 2 + λ‖B‖_*`.
+The nuclear norm `‖B‖_*`, the sum of the singular values of `B`, sets the small
+singular values to exactly zero, as the ℓ1 norm of the lasso does with the small
+coefficients:
+
+```julia
+using ProximalBase, ProximalOPT, LinearAlgebra, Random
+
+Random.seed!(1)
+n, p, k = 200, 20, 10
+X = randn(n, p)
+B_true = randn(p, 2) * randn(2, k)    # rank 2
+Y = X * B_true + 0.5 * randn(n, k)
+
+σ = norm(Y - X * (X \ Y)) / sqrt((n - p) * k)   # noise level, from least squares
+λ = σ * opnorm(X) * (sqrt(p) + sqrt(k))
+
+f = LeastSquaresLoss(Y, X)            # f(B) = ‖Y - XB‖²_F / 2
+g = ProxNuclear(λ)                    # g(B) = λ ‖B‖_*
+
+B = zeros(p, k)                       # starting point, overwritten with the solution
+res = solve!(B, f, g, AccProxGradDescent())
+
+rank(B; atol = 1e-6), norm(B - B_true) / norm(B_true)
+```
+
+`B` has rank 2, as `B_true`, and relative error 0.029; least squares, `X \ Y`,
+has rank 10 and relative error 0.026. As here, the starting point of
+`ProximalGradientDescent()` and `AccProxGradDescent()` may be a matrix, or an
+array of any shape that `f` and `g` accept.
+
+The rule for `λ` makes the penalty dominate the noise in the gradient of `f` at
+`B_true`, which is `-X'E`: for Gaussian noise with standard deviation `σ`, its
+operator norm `‖X'E‖`, the largest singular value, is at most about
+`σ‖X‖(√p + √k)`. The penalty also shrinks the singular values that it keeps, so
+a smaller `λ` has a smaller error but keeps more of them: `λ = 50`, close to
+`‖X'E‖ = 49.7`, still gives rank 2, with relative error 0.022, and `λ = 20`
+gives rank 7 and relative error 0.016. For `λ ≥ ‖X'Y‖`, `B = 0`.
+
 ## Example: graphical lasso by ADMM
 
 Estimate a sparse precision matrix by minimizing

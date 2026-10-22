@@ -160,8 +160,8 @@ res.converged, res.iterations
 | Solver | Problem | Method |
 |---|---|---|
 | `ProximalGradientDescent()` | `f` smooth, `g` proximable | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2) |
-| `AccProxGradDescent(; β = 0.5)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking and adaptive restart |
-| `ActiveAccProxGradDescent(; β, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
+| `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking that also lets the step grow (`α`), and adaptive restart |
+| `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
 | `CDSolver(; maxpasses, tol, order, relative)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in cyclic or random order, and a scale-free stopping rule (see below) |
 | `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |

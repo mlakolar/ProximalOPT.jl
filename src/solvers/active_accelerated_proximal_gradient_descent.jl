@@ -5,7 +5,7 @@
 # AccProxGradDescent
 
 """
-    ActiveAccProxGradDescent(; β = 0.5, max_add = 100, growth = 2, max_outer = 1000)
+    ActiveAccProxGradDescent(; β = 0.5, α = 0.9, max_add = 100, growth = 2, max_outer = 1000)
 
 Active-set accelerated proximal gradient descent, for `f(x) + g(x)` with a
 sparse minimizer, such as the lasso or the group lasso. The active set is the
@@ -22,7 +22,7 @@ set of stored entries of a `SparseIterate`, or the set of active groups of an
    first, until they hold `max(max_add, (growth - 1) s)` entries, where `s` is
    the number of entries left in the active set by step 1, and with them the
    violators whose violation equals the last one;
-5. minimizes `f + g` over the active set with [`AccProxGradDescent`](@ref)`(; β)`,
+5. minimizes `f + g` over the active set with [`AccProxGradDescent`](@ref)`(; β, α)`,
    warm-started from the current values.
 
 The limit in step 4 keeps the active set from filling up with the many
@@ -53,6 +53,7 @@ conditions joins the active set whole too.
 """
 struct ActiveAccProxGradDescent{T<:AbstractFloat} <: ProximalSolver
   β::T            # backtracking factor of the inner AccProxGradDescent
+  α::T            # factor by which its L shrinks before each iteration
   max_add::Int    # entries that an outer iteration may always add
   growth::Int     # factor by which an outer iteration may grow the nonzero entries
   max_outer::Int  # outer iteration limit
@@ -60,13 +61,14 @@ end
 
 Base.summary(::ActiveAccProxGradDescent) = "Active-Set Accelerated Proximal Gradient Descent"
 
-function ActiveAccProxGradDescent(; β::AbstractFloat = 0.5, max_add::Integer = 100,
+function ActiveAccProxGradDescent(; β::AbstractFloat = 0.5, α::AbstractFloat = 0.9, max_add::Integer = 100,
                                   growth::Integer = 2, max_outer::Integer = 1000)
   0 < β < 1 || error("β must be in (0, 1).")
+  0 < α <= 1 || error("α must be in (0, 1].")
   max_add > 0 || error("max_add must be positive.")
   growth > 0 || error("growth must be positive.")
   max_outer > 0 || error("max_outer must be positive.")
-  ActiveAccProxGradDescent(β, Int(max_add), Int(growth), Int(max_outer))
+  ActiveAccProxGradDescent(promote(β, α)..., Int(max_add), Int(growth), Int(max_outer))
 end
 
 """
@@ -122,7 +124,7 @@ function solve!(
     ) where {T<:AbstractFloat}
 
   _check_groups(x, g)
-  inner_method = AccProxGradDescent(; β = T(method.β))
+  inner_method = AccProxGradDescent(; β = T(method.β), α = T(method.α))
   grad = Vector{T}(undef, length(x))
   violators, violations = Int[], T[]
   S = Int[]                   # the active entries

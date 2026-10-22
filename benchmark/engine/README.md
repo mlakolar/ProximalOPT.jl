@@ -80,11 +80,12 @@ branch of ProximalBase at `7d5893a`. Ratios are new over old times.
 | diffprectest | 4 | 0.25 (0.12–0.44) | within 2 | 7e-8 |
 | refit | 1 | 0.14 | | 1e-7 |
 | iht | 1 | 0.29 | 41 against 453 | see below |
-| proxgrad | 4 | 1.00 (0.98–1.02) | the same | 0 |
+| proxgrad | 4 | 0.42 (0.13–0.84) | fewer | 5e-4, at a lower objective |
 | admm | 4 | 0.99 (0.98–0.99) | the same | 0 |
 
-All 81 cases: 0.87. No case is more than 4% slower, which is within the noise of
-repeated runs of the same code.
+All 81 cases: 0.87 in that run, and about 0.83 with the gradient solvers
+changed since (see below). No case is more than 4% slower, which is within the
+noise of repeated runs of the same code.
 
 - The lasso, path, group, square-root, scaled and feasible lasso take the same
   steps as CoordinateDescent: the same passes, and solutions that agree to
@@ -109,6 +110,12 @@ repeated runs of the same code.
   (224 → 96 ms), 2.2× on B, 1.6× on D and 2.6× on E (1468 → 562 ms), and 1.2×
   on the direct difference estimator at p = 50 and 100, at the same or a lower
   objective. It does not help a random order, which ignores it.
+- The accelerated gradient solvers let their curvature estimate `L` decrease
+  before each iteration (`α = 0.9`, as in TFOCS), where ProximalOPT 0.1 only let
+  it grow: `AccProxGradDescent` takes 37 instead of 86 ms on A and 62 instead
+  of 466 ms on E, at tolerance 1e-10, and stops at a lower objective. With
+  `α = 1` they take the same steps as before (the rows above, measured before
+  this change, were 0.98–1.02).
 - `ADMMSolver(; ρ = s², α = 1.5, adaptive = true, abstol = 1e-5/s,
   abstol_dual = 1e-5 s, reltol = 1e-3)`, with `s = tr(S)/p`, is CovSel's
   `covsel!`: the same iterations and solution. The default `ADMMSolver` takes

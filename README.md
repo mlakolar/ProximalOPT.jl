@@ -11,10 +11,13 @@ minimize  f(x) + g(x)
 ```
 
 where `f` is smooth and `g` has an easy proximal operator (lasso, group lasso,
-nuclear-norm and graphical-lasso penalties, ...). The loss functions and
-proximal operators come from
+nuclear-norm and graphical-lasso penalties, ...), or `g` separates across
+coordinates and `f` has a structure that coordinate descent can exploit (least
+squares, quadratics, Kronecker-structured quadratics of matrices, generalized
+linear losses). The loss functions and proximal operators come from
 [ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) (0.5); ProximalOPT
-provides the solvers that put them together.
+provides the solvers that put them together, and the drivers built on them:
+paths of penalty levels with screening, reweighting, and refits.
 
 ## Installation
 
@@ -160,6 +163,8 @@ res.converged, res.iterations
 | `AccProxGradDescent(; β = 0.5)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking and adaptive restart |
 | `ActiveAccProxGradDescent(; β, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
+| `CDSolver(; maxpasses, tol, order, relative)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in cyclic or random order, and a scale-free stopping rule (see below) |
+| `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |
 
 All solvers are called the same way:
 
@@ -172,6 +177,72 @@ res = solve!(x, f, g, solver, ProximalOptions(; maxiter = 1000))
 of evaluations of `f` (`f_calls`), of its gradient (`grad_calls`) and of
 proximal operators (`prox_calls`); printing it shows a summary. The solvers
 work in the element type of `x`, `Float64` or `Float32`.
+
+## Coordinate descent
+
+`CDSolver` minimizes `f + g` one coordinate at a time on a `SparseIterate`, a
+`SymmetricSparseIterate` (the lower-triangle entries of a symmetric matrix) or
+an `AtomIterate` (the groups of a `GroupNormL2`). It reads the structure of
+`f` to make each step cheap, caching the residuals of least squares or the
+product `Ax` of a quadratic, and goes through `cdprox` of ProximalBase for the
+penalty, so every separable penalty works: `NormL1` (with weights), `ElasticNet`,
+`MCP`, `SCAD`, `NormL1Nonneg`, `IndBox`, ... The lasso of glmnet's scaling,
+`‖y - Xβ‖² / (2n) + λ‖β‖₁`:
+
+```julia
+using ProximalBase, ProximalOPT, LinearAlgebra, Random, Statistics
+
+Random.seed!(1)
+n, p = 200, 1000
+X = randn(n, p)
+y = X[:, 1:5] * ones(5) + randn(n)
+f = (1 / n) * LeastSquaresLoss(y, X)
+
+λmax = lambda_max(f, NormL1(1.0), SparseIterate(p))   # ‖X'y‖∞ / n
+β = SparseIterate(p)
+res = solve!(β, f, NormL1(0.1λmax), CDSolver())
+
+path = solve_path(f, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50))
+```
+
+`solve_path` warm starts each level from the previous solution and screens it
+with the sequential strong rule, checking the optimality conditions of the
+screened coordinates afterwards; `callback(k, λ, x, m)` can compute a
+validation loss or stop the path. `solve!(β, f, g, CDSolver(); continuation = 50)`
+starts from zero and follows 50 levels down to `g`. Each pass visits the
+coordinates once, passes over all of them alternate with passes over the
+nonzero ones, and the method stops after a full pass followed by a pass in which
+no coordinate moves by more than `tol` times a scale of the data, so that the
+tolerance does not depend on its units.
+
+The losses it knows:
+
+| Loss | Coordinate step | Use |
+|---|---|---|
+| `LeastSquaresLoss(y, X)`, `GLMLoss(ProximalBase.Squared(), y, X; weights, offset)` | O(n), residuals cached | lasso, weighted lasso; `cdmodel(f, x; intercept = true)` adds an unpenalized intercept |
+| `QuadraticFunction(A, b)` | O(p), `Ax` cached | the lasso on `X'X/n` when `n ≫ p` |
+| `KronQuadratic(A, B, C)`, `⟨Θ, AΘB⟩/2 + ⟨C, Θ⟩` | O(pq), `AΘB` cached | the D-trace loss of a symmetric `Θ`, inverse Hessians of Kronecker form |
+| `SqrtLeastSquaresLoss(y, X)`, `‖y - Xβ‖` | exact, O(n) | square-root lasso (with `NormL1`) |
+| `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster |
+
+Any of them scaled, as `(1/n) * f`, works too. The difference of two precision
+matrices by the D-trace loss (Zhao, Cai and Li, 2014), on a symmetric iterate:
+
+```julia
+Sx, Sy = cov(randn(500, 30)), cov(randn(500, 30))
+f = KronQuadratic(Sx, Sy, Sx - Sy)       # tr(SxΔSyΔ)/2 - tr(Δ(Sy - Sx))
+Δ = SymmetricSparseIterate(30)
+solve!(Δ, f, NormL1(0.1), CDSolver())
+refit!(Δ, f)                              # the exact minimizer on the support of Δ
+```
+
+`reweight!(x, f, g, update)` alternates between solving and updating the
+penalty from the solution: the scaled lasso, data-driven penalty loadings,
+two-stage weights. `refit!` minimizes the loss exactly over a support, by a
+QR factorization for least squares and the Hessian on the support for the
+quadratics. A new loss needs a `CDModel` with a few methods (`initialize!`, and
+the derivative and curvature along a coordinate with a cache update); see
+`?CDModel`.
 
 ## Options and stopping rules
 
@@ -204,7 +275,9 @@ REPL, for example `?ProximalOptions`.
 [`benchmark/`](benchmark) times the solvers on the lasso against coordinate
 descent ([CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl)),
 glmnet and Lasso.jl; [benchmark/README.md](benchmark/README.md) explains how to
-run it and summarizes the results.
+run it and summarizes the results. [`benchmark/engine/`](benchmark/engine)
+compares the coordinate descent of ProximalOPT, case by case, with the code it
+replaces in CoordinateDescent, CovSel and DiffPrecTest.
 
 ## References
 
@@ -220,6 +293,14 @@ run it and summarizes the results.
 - S. Becker, E. Candès and M. Grant. Templates for Convex Cone Problems with
   Applications to Sparse Signal Recovery (TFOCS). *Mathematical Programming
   Computation*, 3, 2011.
+- J. Friedman, T. Hastie and R. Tibshirani. Regularization Paths for
+  Generalized Linear Models via Coordinate Descent. *Journal of Statistical
+  Software*, 33(1), 2010.
+- R. Tibshirani, J. Bien, J. Friedman, T. Hastie, N. Simon, J. Taylor and
+  R. Tibshirani. Strong Rules for Discarding Predictors in Lasso-type Problems.
+  *Journal of the Royal Statistical Society B*, 74(2), 2012.
+- S. D. Zhao, T. T. Cai and H. Li. Direct Estimation of Differential Networks.
+  *Biometrika*, 101(2), 2014.
 
 ## License
 

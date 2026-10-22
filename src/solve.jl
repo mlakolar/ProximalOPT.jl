@@ -21,7 +21,8 @@ iterates touch only their stored entries or active groups. For
 [`ActiveAccProxGradDescent`](@ref), `x` is a vector, a `SparseIterate` or an
 `AtomIterate`, and the result is an `ActiveSetResults`. For
 [`ADMMSolver`](@ref), both `f` and `g` are proximable and the result is an
-`ADMMResults`.
+`ADMMResults`. For [`CDSolver`](@ref) and [`ProxNewton`](@ref), see their
+documentation.
 
 # Example
 ```julia

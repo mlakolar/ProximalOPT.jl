@@ -66,26 +66,25 @@ that).
 ## Results
 
 23 October 2026, Apple M3 Pro, Julia 1.13.2, one BLAS thread, three interleaved
-rounds of each side. The new code is ProximalOPT 0.2.0 on the `proximalbase-0.5`
-branch of ProximalBase at `7d5893a`. Ratios are new over old times.
+rounds of each side. The new code is ProximalOPT 0.2.0 on ProximalBase 0.5 (the
+finished `proximalbase-0.5` branch, `247a352`). Ratios are new over old times.
 
 | group | cases | time ratio, geometric mean (range) | passes | largest difference of the solutions |
 |---|---:|---|---|---|
-| lasso | 34 | 0.94 (0.77–0.99) | the same | 1e-13 |
-| path | 5 | 0.98 (0.96–1.01) | the same | 3e-14 |
-| group | 4 | 1.01 (1.00–1.02) | the same | 6e-15 |
-| sqrtlasso | 4 | 0.97 (0.94–1.01) | the same | 3e-15 |
-| scaledlasso, feasiblelasso | 4 | 1.01 (0.97–1.04) | the same | 9e-16 |
-| dtrace | 16 | 0.97 (0.87–1.02) | within 7% | 2e-7 |
-| diffprectest | 4 | 0.25 (0.12–0.44) | within 2 | 7e-8 |
-| refit | 1 | 0.14 | | 1e-7 |
-| iht | 1 | 0.29 | 41 against 453 | see below |
-| proxgrad | 4 | 0.42 (0.13–0.84) | fewer | 5e-4, at a lower objective |
-| admm | 4 | 0.99 (0.98–0.99) | the same | 0 |
+| lasso | 34 | 0.95 (0.77–0.99) | the same | 1e-13 |
+| path | 5 | 0.97 (0.96–0.97) | the same | 3e-14 |
+| group | 4 | 1.01 (0.99–1.03) | the same | 6e-15 |
+| sqrtlasso | 4 | 0.95 (0.92–1.00) | the same | 3e-15 |
+| scaledlasso, feasiblelasso | 4 | 0.99 (0.97–1.00) | the same | 9e-16 |
+| dtrace | 16 | 0.96 (0.85–1.04) | within 7% | 2e-7 |
+| diffprectest | 4 | 0.24 (0.12–0.42) | within 2 | 7e-8 |
+| refit | 1 | 0.13 | | 1e-7 |
+| iht | 1 | 0.28 | 41 against 453 | see below |
+| proxgrad | 4 | 0.42 (0.14–0.82) | fewer | 5e-4, at a lower objective |
+| admm | 4 | 0.99 (0.99–0.99) | the same | 1e-14 |
 
-All 81 cases: 0.87 in that run, and about 0.83 with the gradient solvers
-changed since (see below). No case is more than 4% slower, which is within the
-noise of repeated runs of the same code.
+All 81 cases: 0.83. No case is more than 4% slower, which is within the noise of
+repeated runs of the same code.
 
 - The lasso, path, group, square-root, scaled and feasible lasso take the same
   steps as CoordinateDescent: the same passes, and solutions that agree to
@@ -96,27 +95,27 @@ noise of repeated runs of the same code.
   stop at the tolerance, 1e-7 relative.
 - DiffPrecTest's losses indexed `Symmetric` matrices in their O(p²) cache
   updates; `KronQuadratic` keeps dense copies, and its symmetric form needs
-  no √2 bookkeeping. At p = 50 the reduced symmetric loss goes from 9.4 to
+  no √2 bookkeeping. At p = 50 the reduced symmetric loss goes from 9.3 to
   1.1 ms.
 - `refit!` solves the D-trace loss on the support exactly, by the Hessian on
   the support, where `differencePrecisionRefit` ran coordinate descent with
   1e10 penalties off the support (and agrees with the exact refit to 1e-7).
 - Projected gradient with backtracking stops at a lower objective than CovSel's
   IHT with its fixed step (−47.45 against −46.20; both are local solutions of a
-  nonconvex problem), in 41 instead of 453 iterations, allocating 0.2 instead of
+  nonconvex problem with the same constraint, at most s nonzero entries in the
+  lower triangle), in 41 instead of 453 iterations, allocating 0.2 instead of
   6.2 MB.
+- The accelerated gradient solvers let their curvature estimate `L` decrease
+  before each iteration (`α = 0.9`, as in TFOCS), where ProximalOPT 0.1 only let
+  it grow: `AccProxGradDescent` takes 35 instead of 81 ms on A and 59 instead
+  of 410 ms on E, at tolerance 1e-10, and stops at a lower objective. With
+  `α = 1` they take the same steps as before.
 - Beyond the old code: `CDSolver(; order = :cyclic, anderson = 5)` against
   cyclic order alone, both new code, at 0.02 λmax: 2.3× faster on A
   (224 → 96 ms), 2.2× on B, 1.6× on D and 2.6× on E (1468 → 562 ms), and 1.2×
   on the direct difference estimator at p = 50 and 100, at the same or a lower
   objective. It does not help a random order, which ignores it.
-- The accelerated gradient solvers let their curvature estimate `L` decrease
-  before each iteration (`α = 0.9`, as in TFOCS), where ProximalOPT 0.1 only let
-  it grow: `AccProxGradDescent` takes 37 instead of 86 ms on A and 62 instead
-  of 466 ms on E, at tolerance 1e-10, and stops at a lower objective. With
-  `α = 1` they take the same steps as before (the rows above, measured before
-  this change, were 0.98–1.02).
 - `ADMMSolver(; ρ = s², α = 1.5, adaptive = true, abstol = 1e-5/s,
   abstol_dual = 1e-5 s, reltol = 1e-3)`, with `s = tr(S)/p`, is CovSel's
-  `covsel!`: the same iterations and solution. The default `ADMMSolver` takes
-  the same iterations as before the port.
+  `covsel!`: the same iterations, and the same solution up to rounding. The
+  default `ADMMSolver` takes the same iterations as before the port.

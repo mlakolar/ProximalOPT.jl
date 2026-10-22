@@ -9,7 +9,6 @@ tests = [
   "active_set",
   "group_lasso",
   "aqua",
-  # "lasso"
 ]
 
 for t in tests

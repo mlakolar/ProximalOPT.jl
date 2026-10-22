@@ -150,6 +150,13 @@ count can exceed its limit by the evaluations of one iteration;
 Every exported function and type has a docstring; use `?name` in the Julia
 REPL, for example `?ProximalOptions`.
 
+## Benchmark
+
+[`benchmark/`](benchmark) times the solvers on the lasso against coordinate
+descent ([CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl)),
+glmnet and Lasso.jl; [benchmark/README.md](benchmark/README.md) explains how to
+run it and summarizes the results.
+
 ## References
 
 - N. Parikh and S. Boyd. Proximal Algorithms. *Foundations and Trends in

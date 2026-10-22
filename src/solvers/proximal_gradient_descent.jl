@@ -63,7 +63,7 @@ function initial_state(
                          similar(x0), # Temporary storage
                          similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
-                         -Inf,
+                         T(-Inf),     # maxResidual
                          true,        # backtrack_simple
                          0,           # backtrack_steps
                          1,           # f_calls

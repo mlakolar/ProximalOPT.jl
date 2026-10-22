@@ -65,6 +65,7 @@ function solve!(
     end
   end # while
 
+  # the residuals are stored as Float64, like the tolerances, whatever the element type
   return OptimizationResults(
                 method,
                 state.x,
@@ -73,13 +74,13 @@ function solve!(
                 iteration == options.maxiter,
                 x_converged,
                 options.xtol,
-                norm_diff(state.x, state.x_previous, 2.),
+                Float64(norm_diff(state.x, state.x_previous, 2.)),
                 fg_converged,
                 options.ftol,
-                f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol),
+                Float64(f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol)),
                 grad_converged,
                 options.gradtol,
-                g_residual(state),
+                Float64(g_residual(state)),
                 f_increased,
                 tr,
                 state.backtrack_steps,

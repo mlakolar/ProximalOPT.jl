@@ -115,4 +115,23 @@ end
   @test all(abs.(grad[.!S]) .<= λ + 1e-4)
 end
 
+@testset "Float32 $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), ActiveAccProxGradDescent())
+  # the iterates, the minimum and the arithmetic stay in Float32; the solution
+  # agrees with Float64 to Float32 accuracy. The tolerances must be above the
+  # precision of Float32, eps(Float32) ≈ 1.2e-7
+  n, p = 60, 25
+  X, Y = randn(n, p), randn(n)
+  A, b = X'X / n, -X'Y / n
+  for (f32, f64) in ((QuadraticFunction(Float32.(A), Float32.(b)), QuadraticFunction(A, b)),
+                     (LeastSquaresLoss(Float32.(Y), Float32.(X)), LeastSquaresLoss(Y, X)))
+    x32, x64 = zeros(Float32, p), zeros(p)
+    res = solve!(x32, f32, ProxL1(0.05f0), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-6, xtol = 1e-6, gradtol = 1e-5))
+    solve!(x64, f64, ProxL1(0.05), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10))
+    @test eltype(x32) == Float32
+    @test res.minimum isa Float32
+    @test ProximalOPT.converged(res)
+    @test x32 ≈ x64 atol = 1e-2
+  end
+end
+
 end

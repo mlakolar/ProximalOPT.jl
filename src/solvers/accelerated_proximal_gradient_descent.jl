@@ -63,8 +63,8 @@ function initial_state(
 
     AccProxGradDescentState(
                          x0,          # Maintain current state in state.x
-                         value(f, x0),
-                         value(g, x0),
+                         f(x0),
+                         g(x0),
                          copy(x0),    # x_previous = x0, so the first step has no momentum
                          T(NaN),
                          T(NaN),
@@ -122,14 +122,14 @@ end
 # x = prox_{g/L}(y - ∇f(y)/L), increasing L until
 # f(x) <= f(y) + <∇f(y), x - y> + L/2 ‖x - y‖²
 function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccProxGradDescent) where T
-    state.f_y = value_and_gradient!(f, state.grad_f_y, state.y)
+    state.f_y = value_and_gradient!(state.grad_f_y, f, state.y)
     state.f_calls += 1
     state.grad_calls += 1
     while true
       @. state.xhat = state.y - state.grad_f_y / state.L
-      prox!(g, state.x, state.xhat, one(T) / state.L)
+      state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)
       _drop!(state.x)
-      state.f_x = value(f, state.x)
+      state.f_x = f(state.x)
       state.prox_calls += 1
       state.f_calls += 1
 
@@ -140,5 +140,5 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
       state.f_x <= upper + 10 * eps(T) * max(abs(state.f_y), one(T)) && break
       state.L /= method.β
     end
-    state.g_x = value(g, state.x)
+    state
 end

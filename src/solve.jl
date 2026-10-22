@@ -2,7 +2,7 @@
 # remove the zero entries or groups from the stored ones of a sparse iterate, so
 # that products by it touch only its support; nothing to do for an Array
 _drop!(x::AbstractArray) = x
-_drop!(x::Union{SparseIterate, AtomIterate}) = dropzeros!(x)
+_drop!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = dropzeros!(x)
 
 """
     solve!(x, f, g, method::ProximalSolver, options = ProximalOptions())
@@ -10,35 +10,37 @@ _drop!(x::Union{SparseIterate, AtomIterate}) = dropzeros!(x)
 Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
 
 For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
-a smooth `DifferentiableFunction` and `g` a `ProximableFunction`, both from
-ProximalBase, and `x` is an array of any shape that they accept, such as the
-`p × k` coefficient matrix of a `LeastSquaresLoss` with `k` responses and a
-`ProxNuclear` penalty; the result is an [`OptimizationResults`](@ref). There
-`x` may also be a `SparseIterate`, or for the group lasso `ProxGroupL2` an
-`AtomIterate` that shares the groups of `g` (`AtomIterate(x, g)`): the iterates
-keep its type, zeros are dropped after each step, and products by the iterates
-touch only their stored entries or active groups. For
+a smooth function of ProximalBase (`issmooth(f)`) and `g` a proximable one
+(`isproximable(g)`), and `x` is an array of any shape that they accept, such as
+the `p × k` coefficient matrix of a `LeastSquaresLoss` with `k` responses and a
+`NuclearNorm` penalty; the result is an [`OptimizationResults`](@ref). There `x`
+may also be a `SparseIterate`, or for the group lasso `GroupNormL2` an
+`AtomIterate` that shares the groups of `g` (`AtomIterate(x, g.groups)`): the
+iterates keep its type, zeros are dropped after each step, and products by the
+iterates touch only their stored entries or active groups. For
 [`ActiveAccProxGradDescent`](@ref), `x` is a vector, a `SparseIterate` or an
 `AtomIterate`, and the result is an `ActiveSetResults`. For
-[`ADMMSolver`](@ref), both `f` and `g` are `ProximableFunction`s and the result
-is an `ADMMResults`.
+[`ADMMSolver`](@ref), both `f` and `g` are proximable and the result is an
+`ADMMResults`.
 
 # Example
 ```julia
 using ProximalBase, ProximalOPT
 A, b = [2. 0.; 0. 1.], [-1., -1.]
 x = zeros(2)
-res = solve!(x, QuadraticFunction(A, b), ProxL1(0.1), AccProxGradDescent())
+res = solve!(x, QuadraticFunction(A, b), NormL1(0.1), AccProxGradDescent())
 ```
 """
 function solve!(
     initial_x::AbstractArray,
-    f::D,
-    g::P,
-    method::M,
+    f::AbstractFunction,
+    g::AbstractFunction,
+    method::ProximalSolver,
     options::ProximalOptions = ProximalOptions()
-    ) where {D<:DifferentiableFunction, P<:ProximableFunction, M<:ProximalSolver}
+    )
 
+  issmooth(f) || throw(ArgumentError("$(summary(method)) needs a smooth f (issmooth(f)), but f is a $(typeof(f))."))
+  isproximable(g) || throw(ArgumentError("$(summary(method)) needs a proximable g (isproximable(g)), but g is a $(typeof(g))."))
   t0 = time()
   state = initial_state(method, options, f, g, initial_x)
 

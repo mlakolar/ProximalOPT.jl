@@ -22,8 +22,8 @@ A, b = X'X / n, -X'Y / n
                         store_trace = true, extended_trace = true)
 
   x1, x2 = zeros(p), zeros(p)
-  res1 = solve!(x1, f, ProxZero(), solver, opt)
-  res2 = solve!(x2, f, ProxZero(), solver, opt)
+  res1 = solve!(x1, f, ZeroFunction(), solver, opt)
+  res2 = solve!(x2, f, ZeroFunction(), solver, opt)
   @test x1 == x2
   @test res1.iterations == res2.iterations
   @test res1.backtrack_steps == res2.backtrack_steps
@@ -34,7 +34,7 @@ A, b = X'X / n, -X'Y / n
 end
 
 @testset "TFOCS backtracking switches to gradients near convergence" begin
-  f, g = QuadraticFunction(A, b), ProxL1(λ)
+  f, g = QuadraticFunction(A, b), NormL1(λ)
   method = ProximalGradientDescent()
   state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, zeros(p))
 
@@ -45,7 +45,7 @@ end
     ProximalOPT.update_state!(f, g, state, method)
     push!(simple, state.backtrack_simple)
     push!(rel, abs(state.f_x - state.f_x_previous) / max(abs(state.f_x), abs(state.f_x_previous)))
-    value_and_gradient!(f, grad_f_x, state.x)
+    value_and_gradient!(grad_f_x, f, state.x)
     fresh_gradient &= grad_f_x == state.grad_f_x
   end
 
@@ -65,7 +65,7 @@ end
   # f(x) = x²/2 - x, so ∇f(x) = x - 1. In the gradient mode, the first trial step
   # from x' = 1 + eps() rounds to x = 1 and evaluates ∇f there; it is rejected,
   # and the retry with a larger L rounds back to x'
-  f, g = QuadraticFunction(ones(1, 1), [-1.]), ProxZero()
+  f, g = QuadraticFunction(ones(1, 1), [-1.]), ZeroFunction()
   method = ProximalGradientDescent()
   state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
   state.backtrack_simple = false

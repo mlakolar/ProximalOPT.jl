@@ -16,19 +16,19 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     x = randn(5)
     y = randn(5)
 
-    solve!(x, L2Loss(), ProxZero(), solver, opt)
+    solve!(x, SqrNormL2(), ZeroFunction(), solver, opt)
     @test norm(x) ≈ 0. atol = 1e-5
 
-    solve!(x, L2Loss(y), ProxZero(), solver, opt)
+    solve!(x, SqrNormL2(1, y), ZeroFunction(), solver, opt)
     @test x ≈ y atol = 1e-5
   end
 
   @testset "L2Loss + l1 penalty" begin
     x = randn(5)
     y = randn(5) .+ 1.
-    g = ProxL1(0.1)
+    g = NormL1(0.1)
 
-    solve!(x, L2Loss(y), g, solver, opt)
+    solve!(x, SqrNormL2(1, y), g, solver, opt)
     @test x ≈ prox(g, y) atol = 1e-5
   end
 
@@ -41,7 +41,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     S = max.(S .- 0.1, 0.)
     tx = U * Diagonal(S) * V'
 
-    solve!(x, L2Loss(y), ProxNuclear(0.1), solver, opt)
+    solve!(x, SqrNormL2(1, y), NuclearNorm(0.1), solver, opt)
     @test x ≈ tx atol = 1e-3
   end
 
@@ -52,7 +52,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     f = QuadraticFunction(A, b, 1.)
 
     x = randn(10)
-    solve!(x, f, ProxZero(), solver, opt)
+    solve!(x, f, ZeroFunction(), solver, opt)
     @test x ≈ -(A \ b) atol = 1e-4
   end
 
@@ -62,10 +62,10 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     Y = X * ones(p) + 0.1 * randn(n)
     f = QuadraticFunction(X'X / n, -X'Y / n)
 
-    # ProxL2Sq(λ) is λ‖x‖², so the minimizer solves (X'X/n + 2λI) x = X'Y/n
+    # SqrNormL2(2λ) is λ‖x‖², so the minimizer solves (X'X/n + 2λI) x = X'Y/n
     for λ in (0., 1.)
       hat_beta = zeros(p)
-      solve!(hat_beta, f, ProxL2Sq(λ), solver, opt)
+      solve!(hat_beta, f, SqrNormL2(2λ), solver, opt)
       @test hat_beta ≈ (X'X / n + 2λ * I) \ (X'Y / n) atol = 1e-4
     end
   end
@@ -79,7 +79,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     λ = 0.1 * norm(b, Inf)
 
     x = zeros(p)
-    res = solve!(x, QuadraticFunction(A, b), ProxL1(λ), solver, opt)
+    res = solve!(x, QuadraticFunction(A, b), NormL1(λ), solver, opt)
     @test res.iterations < opt.maxiter
 
     # KKT conditions: ∇f(x) = -λ sign(x) on the support, |∇f(x)| ≤ λ off it
@@ -103,7 +103,7 @@ end
 
   x = zeros(p)
   opt = ProximalOptions(; ftol = 1e-300, xtol = 1e-300, gradtol = 1e-6, maxiter = 5000)
-  res = solve!(x, QuadraticFunction(A, b), ProxL1(λ), solver, opt)
+  res = solve!(x, QuadraticFunction(A, b), NormL1(λ), solver, opt)
   @test res.grad_converged
   @test res.iterations < opt.maxiter
   @test res.g_residual < 1e-5
@@ -122,7 +122,7 @@ end
   X = randn(n, p)
   Y = X * vcat(randn(5), zeros(p - 5)) + 0.1 * randn(n)
   A, b = X'X / n, -X'Y / n
-  g = ProxL1(0.1 * norm(b, Inf))
+  g = NormL1(0.1 * norm(b, Inf))
   for f in (QuadraticFunction(A, b), LeastSquaresLoss(Y / sqrt(n), X / sqrt(n)))
     xd, x = zeros(p), SparseIterate(p)
     solve!(xd, f, g, solver, opt)
@@ -131,7 +131,7 @@ end
     @test ProximalOPT.converged(res)
     @test 0 < nnz(x) == count(!iszero, Vector(x)) < p
     @test Vector(x) ≈ xd atol = 1e-5
-    @test res.minimum ≈ value(f, xd) + value(g, xd)
+    @test res.minimum ≈ f(xd) + g(xd)
   end
 end
 
@@ -145,8 +145,8 @@ end
   for (f32, f64) in ((QuadraticFunction(Float32.(A), Float32.(b)), QuadraticFunction(A, b)),
                      (LeastSquaresLoss(Float32.(Y), Float32.(X)), LeastSquaresLoss(Y, X)))
     x32, x64 = zeros(Float32, p), zeros(p)
-    res = solve!(x32, f32, ProxL1(0.05f0), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-6, xtol = 1e-6, gradtol = 1e-5))
-    solve!(x64, f64, ProxL1(0.05), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10))
+    res = solve!(x32, f32, NormL1(0.05f0), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-6, xtol = 1e-6, gradtol = 1e-5))
+    solve!(x64, f64, NormL1(0.05), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10))
     @test eltype(x32) == Float32
     @test res.minimum isa Float32
     @test ProximalOPT.converged(res)

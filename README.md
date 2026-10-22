@@ -13,7 +13,7 @@ minimize  f(x) + g(x)
 where `f` is smooth and `g` has an easy proximal operator (lasso, group lasso,
 nuclear-norm and graphical-lasso penalties, ...). The loss functions and
 proximal operators come from
-[ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl); ProximalOPT
+[ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) (0.5); ProximalOPT
 provides the solvers that put them together.
 
 ## Installation
@@ -40,7 +40,7 @@ X = randn(n, p)
 Y = X * β_true + 0.1 * randn(n)
 
 f = LeastSquaresLoss(Y, X)   # f(β) = ‖Y - Xβ‖² / 2
-g = ProxL1(10.0)             # g(β) = 10 ‖β‖₁
+g = NormL1(10.0)             # g(β) = 10 ‖β‖₁
 
 β = zeros(p)                 # starting point, overwritten with the solution
 res = solve!(β, f, g, AccProxGradDescent())
@@ -75,7 +75,7 @@ X = randn(n, 15)
 Y = X * β_true + 0.1 * randn(n)
 
 f = LeastSquaresLoss(Y, X)
-g = ProxGroupL2(10.0, groups)    # weights √|Gₖ| by default
+g = GroupNormL2(10.0, groups)    # weights √|Gₖ| by default
 
 β = zeros(15)
 res = solve!(β, f, g, AccProxGradDescent())
@@ -84,9 +84,9 @@ res = solve!(β, f, g, AccProxGradDescent())
 ```
 
 The first and third groups are selected, and the other four are exactly zero.
-`ProxGroupL2(λ, groups, w)` takes other weights, and coordinates in no group
+`GroupNormL2(λ, groups, w)` takes other weights, and coordinates in no group
 are not penalized. When the groups cover all coefficients, as here,
-`AtomIterate(β, g)` is a vector whose coordinates are the groups: the solvers
+`AtomIterate(β, g.groups)` is a vector whose coordinates are the groups: the solvers
 take it as a starting point and multiply by it over the nonzero groups only,
 and `ActiveAccProxGradDescent()` adds and removes whole groups, as it also does
 from a dense starting point.
@@ -112,7 +112,7 @@ Y = X * B_true + 0.5 * randn(n, k)
 λ = σ * opnorm(X) * (sqrt(p) + sqrt(k))
 
 f = LeastSquaresLoss(Y, X)            # f(B) = ‖Y - XB‖²_F / 2
-g = ProxNuclear(λ)                    # g(B) = λ ‖B‖_*
+g = NuclearNorm(λ)                    # g(B) = λ ‖B‖_*
 
 B = zeros(p, k)                       # starting point, overwritten with the solution
 res = solve!(B, f, g, AccProxGradDescent())
@@ -147,7 +147,7 @@ Z = randn(200, 10)
 S = Symmetric(Z' * Z / 200)          # sample covariance
 
 Θ = Matrix(1.0I, 10, 10)             # starting point
-res = solve!(Θ, ProxGaussLikelihood(S), ProxL1(0.1), ADMMSolver(; ρ = 1.0))
+res = solve!(Θ, LogDetLoss(S), NormL1(0.1), ADMMSolver(; ρ = 1.0))
 
 res.converged, res.iterations
 ```
@@ -158,8 +158,8 @@ res.converged, res.iterations
 |---|---|---|
 | `ProximalGradientDescent()` | `f` smooth, `g` proximable | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2) |
 | `AccProxGradDescent(; β = 0.5)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking and adaptive restart |
-| `ActiveAccProxGradDescent(; β, max_add, growth, max_outer)` | `f` smooth, `g` = `ProxL1`, `ProxGroupL2` or `ProxZero`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
-| `ADMMSolver(; ρ, α, abstol, reltol)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011) |
+| `ActiveAccProxGradDescent(; β, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
+| `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
 
 All solvers are called the same way:
 

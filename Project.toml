@@ -1,7 +1,7 @@
 name = "ProximalOPT"
 uuid = "7b454996-d86a-11e8-189a-bd4064dc21e3"
 authors = ["Mladen Kolar <mkolar@chicagobooth.edu>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -13,7 +13,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Aqua = "0.8"
 LinearAlgebra = "1"
 Printf = "1"
-ProximalBase = "0.4.1"
+ProximalBase = "0.5"
 Random = "1"
 SparseArrays = "1"
 Test = "1"

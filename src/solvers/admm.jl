@@ -1,12 +1,12 @@
-
-
 # minimizes f(x) + g(x), where both f and g are proximable, using the
 # over-relaxed scaled ADMM of sections 3.1.1, 3.3 and 3.4.3 of
 # Boyd et al. (2011), Distributed Optimization and Statistical Learning
-# via the Alternating Direction Method of Multipliers
+# via the Alternating Direction Method of Multipliers, with the residual
+# balancing of section 3.4.1
 
 """
-    ADMMSolver(; ρ = 1.0, α = 1.0, abstol = 1e-6, reltol = 1e-4)
+    ADMMSolver(; ρ = 1.0, α = 1.0, abstol = 1e-6, reltol = 1e-4, adaptive = false,
+                 abstol_dual = abstol)
 
 The alternating direction method of multipliers for `f(x) + g(x)` when both
 `f` and `g` have easy proximal operators (Boyd et al., *Distributed
@@ -18,26 +18,38 @@ Multipliers*, 2011). It splits `x = z` and iterates
     u ← u + α x + (1 - α) z_previous - z
 
 `ρ > 0` is the augmented Lagrangian parameter and `α ∈ (0, 2)` the
-over-relaxation (`α = 1` is plain ADMM). It stops when the primal residual
-`‖x - z‖` and dual residual `ρ‖z - z_previous‖` are below
-`√n abstol + reltol * scale` (§3.3 of the paper). Of the
-[`ProximalOptions`](@ref), only `maxiter`, `time_limit`, `prox_calls_limit`,
-`show_trace` and `printEvery` are used. Use with [`solve!`](@ref).
+over-relaxation (`α = 1` is plain ADMM; 1.5 to 1.8 usually converges faster).
+It stops when the primal residual `‖x - z‖` is below `√n abstol + reltol ⋅
+max(‖x‖, ‖z‖)` and the dual residual `ρ‖z - z_previous‖` below `√n abstol_dual
++ reltol ⋅ ρ‖u‖` (§3.3 of the paper). With `adaptive`, `ρ` balances the two
+residuals (§3.4.1): it doubles when the primal residual, relative to its
+tolerance, is more than ten times the dual one, halves in the opposite case,
+and stays fixed after 50 changes, which keeps the convergence guarantee of a
+fixed `ρ`.
+
+Of the [`ProximalOptions`](@ref), only `maxiter`, `time_limit`,
+`prox_calls_limit`, `show_trace` and `printEvery` are used. Use with
+[`solve!`](@ref); to warm start from a previous result `res`, pass its scaled
+dual variable and final penalty parameter:
+`solve!(x, f, g, ADMMSolver(; ρ = res.ρ), options; u = res.u)`.
 """
 struct ADMMSolver{T<:AbstractFloat} <: ProximalSolver
-  ρ::T          # augmented Lagrangian parameter
+  ρ::T          # augmented Lagrangian parameter, or its starting value
   α::T          # over-relaxation parameter, α ∈ (0, 2); α = 1 is plain ADMM
   abstol::T
   reltol::T
+  adaptive::Bool
+  abstol_dual::T
 end
 
 Base.summary(::ADMMSolver) = "ADMM"
 
-function ADMMSolver(; ρ::AbstractFloat = 1.0, α::AbstractFloat = 1.0,
-                    abstol::AbstractFloat = 1e-6, reltol::AbstractFloat = 1e-4)
+function ADMMSolver(; ρ::Real = 1.0, α::Real = 1.0, abstol::Real = 1e-6, reltol::Real = 1e-4,
+                    adaptive::Bool = false, abstol_dual::Real = abstol)
   ρ > 0 || error("ρ must be positive.")
   0 < α < 2 || error("α must be in (0, 2).")
-  ADMMSolver(promote(ρ, α, abstol, reltol)...)
+  T = float(promote_type(typeof(ρ), typeof(α), typeof(abstol), typeof(reltol), typeof(abstol_dual)))
+  ADMMSolver{T}(T(ρ), T(α), T(abstol), T(reltol), adaptive, T(abstol_dual))
 end
 
 """
@@ -46,10 +58,11 @@ end
 Returned by [`solve!`](@ref) with an [`ADMMSolver`](@ref): `minimizer`,
 `minimum` (`f + g` at the minimizer), `iterations`, `converged`, the final
 primal and dual residuals `r_norm`, `s_norm` with their tolerances `eps_pri`,
-`eps_dual`, and the number of evaluations: `f_calls` of the value of `f` (for
-the trace and `minimum`), `grad_calls` (always `0`) and `prox_calls` of the
-proximal operators of `f` and `g`. `call_limit_reached` is `true` when the
-solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)).
+`eps_dual`, the scaled dual variable `u` and the final penalty parameter `ρ`
+(for a warm start), and the number of evaluations: `f_calls` of the value of
+`f` (for the trace and `minimum`), `grad_calls` (always `0`) and `prox_calls`
+of the proximal operators of `f` and `g`. `call_limit_reached` is `true` when
+the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)).
 """
 struct ADMMResults{T,N}
     minimizer::Array{T,N}
@@ -60,6 +73,8 @@ struct ADMMResults{T,N}
     s_norm::T     # dual residual ρ‖z - z_previous‖
     eps_pri::T
     eps_dual::T
+    u::Array{T,N} # scaled dual variable
+    ρ::T          # final penalty parameter
     f_calls::Int
     grad_calls::Int
     prox_calls::Int
@@ -84,6 +99,7 @@ function Base.show(io::IO, r::ADMMResults)
     @printf io " * Convergence: %s\n" converged(r)
     @printf io "   * primal residual %.2e (tolerance %.2e)\n" r.r_norm r.eps_pri
     @printf io "   * dual residual   %.2e (tolerance %.2e)\n" r.s_norm r.eps_dual
+    @printf io " * Final ρ: %e\n" r.ρ
     @printf io "   * Reached a limit on the number of calls: %s\n" call_limit_reached(r)
     @printf io " * f(x) calls: %d\n" f_calls(r)
     @printf io " * ∇f(x) calls: %d\n" grad_calls(r)
@@ -91,45 +107,60 @@ function Base.show(io::IO, r::ADMMResults)
     return
 end
 
-# x is the starting point for z and is overwritten with the solution
+# residual balancing: the factor by which to multiply ρ, with each residual
+# relative to its tolerance; ρ stays fixed after _max_ρ_changes changes
+const _max_ρ_changes = 50
+
+function _ρ_factor(r_norm, eps_pri, s_norm, eps_dual, changes)
+  changes >= _max_ρ_changes && return 1
+  r, s = r_norm / eps_pri, s_norm / eps_dual
+  r > 10 * s ? 2 : s > 10 * r ? 1 // 2 : 1
+end
+
+# x is the starting point for z and is overwritten with the solution; u, when
+# given, is the starting scaled dual variable, which is overwritten too
 function solve!(
     x::Array{T},
-    f::ProximableFunction,
-    g::ProximableFunction,
+    f::AbstractFunction,
+    g::AbstractFunction,
     method::ADMMSolver,
-    options::ProximalOptions = ProximalOptions()
+    options::ProximalOptions = ProximalOptions();
+    u::Union{Nothing, Array{T}} = nothing
     ) where {T<:AbstractFloat}
 
+  isproximable(f) || throw(ArgumentError("ADMM needs a proximable f (isproximable(f)), but f is a $(typeof(f))."))
+  isproximable(g) || throw(ArgumentError("ADMM needs a proximable g (isproximable(g)), but g is a $(typeof(g))."))
+  u === nothing || size(u) == size(x) || throw(DimensionMismatch("u must have the size of x"))
   t0 = time()
   ρ, α = T(method.ρ), T(method.α)
-  γ = one(T) / ρ
   sqrt_n = sqrt(T(length(x)))
 
   z = x
   xk = copy(x)
-  u = zero(x)
+  u = u === nothing ? zero(x) : u
   z_previous = similar(x)
   tmp = similar(x)
 
   r_norm = s_norm = eps_pri = eps_dual = T(Inf)
   converged = false
   call_limit_reached = false
-  iteration = 0
+  iteration = changes = 0
   f_calls = prox_calls = 0
 
   options.show_trace && @printf "Iter     Function value   primal res.      dual res.\n"
 
   while !converged && !call_limit_reached && iteration < options.maxiter && time() - t0 <= options.time_limit
     iteration += 1
+    γ = one(T) / ρ
 
     # x-update: x = prox_{f/ρ}(z - u)
     @. tmp = z - u
-    prox!(f, xk, tmp, γ)
+    prox!(xk, f, tmp, γ)
 
     # z-update with relaxation: z = prox_{g/ρ}(α x + (1 - α) z + u)
     copyto!(z_previous, z)
     @. tmp = α * xk + (one(T) - α) * z_previous + u
-    prox!(g, z, tmp, γ)
+    prox!(z, g, tmp, γ)
 
     # u-update
     @. u = tmp - z
@@ -139,18 +170,28 @@ function solve!(
     r_norm = norm_diff(xk, z)
     s_norm = ρ * norm_diff(z, z_previous)
     eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * max(norm(xk), norm(z))
-    eps_dual = sqrt_n * T(method.abstol) + T(method.reltol) * ρ * norm(u)
+    eps_dual = sqrt_n * T(method.abstol_dual) + T(method.reltol) * ρ * norm(u)
     converged = r_norm <= eps_pri && s_norm <= eps_dual
     call_limit_reached = options.prox_calls_limit > 0 && prox_calls >= options.prox_calls_limit
 
     if options.show_trace && iteration % options.printEvery == 0
-      @printf "%6d   %14e   %14e   %14e\n" iteration value(f, z) + value(g, z) r_norm s_norm
+      @printf "%6d   %14e   %14e   %14e\n" iteration f(z) + g(z) r_norm s_norm
       f_calls += 1
+    end
+
+    # balance the residuals; the scaled dual variable u = y/ρ changes with ρ
+    if method.adaptive && !converged
+      c = _ρ_factor(r_norm, eps_pri, s_norm, eps_dual, changes)
+      if c != 1
+        ρ *= c
+        u ./= c
+        changes += 1
+      end
     end
   end
 
-  # value(f, z) for the minimum is one more call
-  ADMMResults(z, value(f, z) + value(g, z), iteration, converged,
-              r_norm, s_norm, eps_pri, eps_dual,
+  # f(z) for the minimum is one more call
+  ADMMResults(z, f(z) + g(z), iteration, converged,
+              r_norm, s_norm, eps_pri, eps_dual, u, ρ,
               f_calls + 1, 0, prox_calls, call_limit_reached)
 end

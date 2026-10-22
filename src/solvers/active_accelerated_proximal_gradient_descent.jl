@@ -36,12 +36,12 @@ and `max_add = typemax(Int)` removes the limit.
 Step 5 runs on `restrict(f, S)` and `restrict(g, S)` from ProximalBase, a
 problem in the active entries `S` only; step 2 is the only one that involves
 all coordinates. `f` and `g` need `restrict`, `g` needs `kkt_violation`, and
-`f` needs `value_and_gradient!` at the iterate: in ProximalBase these are
-`QuadraticFunction`, `L2Loss` and `LeastSquaresLoss`, with `ProxL1`,
-`ProxGroupL2` or `ProxZero`.
+`f` needs `value_and_gradient!` at the iterate: in ProximalBase these are, among
+others, `QuadraticFunction`, `SqrNormL2`, `LeastSquaresLoss` and `GLMLoss`,
+with `NormL1`, `GroupNormL2`, `ZeroFunction` and the other separable penalties.
 
-For the group lasso `ProxGroupL2`, an `AtomIterate` that shares the groups of
-`g`, `AtomIterate(x, g)`, makes the groups the coordinates: a group joins and
+For the group lasso `GroupNormL2`, an `AtomIterate` that shares the groups of
+`g`, `AtomIterate(x, g.groups)`, makes the groups the coordinates: a group joins and
 leaves the active set whole. A dense `x` takes this route when the groups of `g`
 cover all coordinates. With a `SparseIterate`, the coordinates of a group at
 zero share the violation of the group, so a group that violates the optimality
@@ -115,8 +115,8 @@ end
 # coordinates are the active set
 function solve!(
     x::Union{SparseIterate{T, 1}, AtomIterate{T}},
-    f::DifferentiableFunction,
-    g::ProximableFunction,
+    f::AbstractFunction,
+    g::AbstractFunction,
     method::ActiveAccProxGradDescent,
     options::ProximalOptions = ProximalOptions()
     ) where {T<:AbstractFloat}
@@ -136,16 +136,16 @@ function solve!(
 
   while true
     dropzeros!(x)
-    f_x = value_and_gradient!(f, grad, x)
+    f_x = value_and_gradient!(grad, f, x)
     max_violation = _kkt_violators!(violators, violations, g, grad, x)
 
     # a minimizer over the active set that no coordinate outside it can improve
     # is a minimizer; so is x = 0 if no coordinate can improve it
-    if isempty(violators) && (solved || numActive(x) == 0)
+    if isempty(violators) && (solved || nactive(x) == 0)
       kkt_converged = true
     end
     if kkt_converged || outer_iterations == method.max_outer
-      return ActiveSetResults(x, f_x + value(g, x), outer_iterations, inner_iterations,
+      return ActiveSetResults(x, f_x + g(x), outer_iterations, inner_iterations,
                               kkt_converged, inner_converged, max_violation,
                               length(_active_entries!(S, x)))
     end
@@ -192,12 +192,12 @@ function solve!(
 end
 
 # a dense x is converted to an iterate and overwritten with the solution: an
-# AtomIterate with the groups of a ProxGroupL2 that cover all coordinates, and a
+# AtomIterate with the groups of a GroupNormL2 that cover all coordinates, and a
 # SparseIterate otherwise
 function solve!(
     x::Vector{T},
-    f::DifferentiableFunction,
-    g::ProximableFunction,
+    f::AbstractFunction,
+    g::AbstractFunction,
     method::ActiveAccProxGradDescent,
     options::ProximalOptions = ProximalOptions()
     ) where {T<:AbstractFloat}
@@ -209,18 +209,18 @@ function solve!(
                    r.converged, r.inner_converged, r.max_violation, r.active_set_size)
 end
 
-_active_set_iterate(x::Vector, ::ProximableFunction) = SparseIterate(x)
+_active_set_iterate(x::Vector, ::AbstractFunction) = SparseIterate(x)
 # the groups are disjoint sets of positive indices, so they partition 1:p when
 # they hold p indices up to p
-_active_set_iterate(x::Vector, g::ProxGroupL2) =
+_active_set_iterate(x::Vector, g::GroupNormL2) =
   sum(length, g.groups; init = 0) == length(x) && all(G -> maximum(G) <= length(x), g.groups) ?
-    AtomIterate(x, g) : SparseIterate(x)
+    AtomIterate(x, g.groups) : SparseIterate(x)
 
-# kkt_violation for ProxGroupL2 on an AtomIterate takes group k of x as group k of g
+# kkt_violation for GroupNormL2 on an AtomIterate takes group k of x as group k of g
 _check_groups(x, g) = nothing
-_check_groups(x::AtomIterate, g::ProxGroupL2) =
+_check_groups(x::AtomIterate, g::GroupNormL2) =
   x.groups === g.groups || x.groups == g.groups ||
-    throw(ArgumentError("The groups of x must be the groups of g, as in AtomIterate(x, g)."))
+    throw(ArgumentError("The groups of x must be the groups of g, as in AtomIterate(x, g.groups)."))
 
 _saturated_product(a::Int, b::Int) = b > 0 && a > typemax(Int) ÷ b ? typemax(Int) : a * b
 
@@ -231,17 +231,13 @@ _num_entries(x, ks::AbstractVector{Int}) = sum(k -> _num_entries(x, k), ks; init
 
 # the entries of the active coordinates of x
 function _active_entries!(S, x::SparseIterate)
-  resize!(S, numActive(x))
-  for a in eachindex(S)
-    S[a] = activeCoordinate(x, a)
-  end
-  S
+  copyto!(resize!(S, nactive(x)), activecoordinates(x))
 end
 
 function _active_entries!(S, x::AtomIterate)
   empty!(S)
-  for a in 1:numActive(x)
-    append!(S, x.groups[activeCoordinate(x, a)])
+  for k in activecoordinates(x)
+    append!(S, x.groups[k])
   end
   S
 end
@@ -252,8 +248,8 @@ function _kkt_violators!(violators, violations, g, grad, x::Union{SparseIterate{
   empty!(violators)
   empty!(violations)
   max_violation = T(-Inf)
-  for k in 1:numCoordinates(x)
-    isActive(x, k) && continue
+  for k in 1:ncoordinates(x)
+    isactive(x, k) && continue
     v = kkt_violation(g, grad, x, k)
     max_violation = max(max_violation, v)
     if v > 0

@@ -39,6 +39,16 @@ Random.seed!(1)
     end
   end
 
+  @testset "Float32" begin
+    X32 = Matrix{Float32}(I, p, p)
+    res = solve!(X32, ProxGaussLikelihood(Symmetric(Float32.(S))), ProxL1(0.1f0), ADMMSolver(), opt)
+    X64 = Matrix(1.0I, p, p)
+    solve!(X64, ProxGaussLikelihood(S), ProxL1(0.1), ADMMSolver(), opt)
+    @test res.converged
+    @test eltype(X32) == Float32 && res.minimum isa Float32
+    @test X32 ≈ X64 atol = 1e-3
+  end
+
   @testset "argument checks" begin
     @test_throws ErrorException ADMMSolver(; ρ = 0.)
     @test_throws ErrorException ADMMSolver(; α = 2.)

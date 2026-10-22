@@ -1,4 +1,9 @@
 
+# remove the zero entries or groups from the stored ones of a sparse iterate, so
+# that products by it touch only its support; nothing to do for an Array
+_drop!(x::AbstractArray) = x
+_drop!(x::Union{SparseIterate, AtomIterate}) = dropzeros!(x)
+
 """
     solve!(x, f, g, method::ProximalSolver, options = ProximalOptions())
 
@@ -6,10 +11,14 @@ Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
 
 For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
 a smooth `DifferentiableFunction` and `g` a `ProximableFunction`, both from
-ProximalBase; the result is an [`OptimizationResults`](@ref). For
-[`ActiveAccProxGradDescent`](@ref), `x` is a vector or a `SparseIterate`, and
-the result is an `ActiveSetResults`. For [`ADMMSolver`](@ref), both `f` and
-`g` are `ProximableFunction`s and the result is an `ADMMResults`.
+ProximalBase; the result is an [`OptimizationResults`](@ref). There `x` may also
+be a `SparseIterate`, or for the group lasso `ProxGroupL2` an `AtomIterate`
+that shares the groups of `g` (`AtomIterate(x, g)`): the iterates keep its type,
+zeros are dropped after each step, and products by the iterates touch only their
+stored entries or active groups. For [`ActiveAccProxGradDescent`](@ref), `x` is
+a vector, a `SparseIterate` or an `AtomIterate`, and the result is an
+`ActiveSetResults`. For [`ADMMSolver`](@ref), both `f` and `g` are
+`ProximableFunction`s and the result is an `ADMMResults`.
 
 # Example
 ```julia
@@ -65,6 +74,7 @@ function solve!(
     end
   end # while
 
+  # the residuals are stored as Float64, like the tolerances, whatever the element type
   return OptimizationResults(
                 method,
                 state.x,
@@ -73,13 +83,13 @@ function solve!(
                 iteration == options.maxiter,
                 x_converged,
                 options.xtol,
-                norm_diff(state.x, state.x_previous, 2.),
+                Float64(norm_diff(state.x, state.x_previous, 2.)),
                 fg_converged,
                 options.ftol,
-                f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol),
+                Float64(f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol)),
                 grad_converged,
                 options.gradtol,
-                g_residual(state),
+                Float64(g_residual(state)),
                 f_increased,
                 tr,
                 state.backtrack_steps,

@@ -39,6 +39,11 @@ returns `true`.
   each iteration, which always finishes, so a count can exceed its limit by
   the evaluations of one iteration. [`ADMMSolver`](@ref) uses only
   `prox_calls_limit`.
+
+The solvers work in the element type of the starting point, `Float32` as well
+as `Float64`. Tolerances below its precision, such as `ftol = 1e-8` in
+`Float32` (`eps(Float32) ≈ 1.2e-7`), cannot be met: the solver then stops when
+rounding makes the objective increase, with `converged` false.
 """
 struct ProximalOptions{TCallback <: Union{Nothing, Function}}
   maxiter::Int64
@@ -166,11 +171,12 @@ search over all iterations (accepted steps included), and the number of
 evaluations: `f_calls` of `f` (by `value` or `value_and_gradient!`),
 `grad_calls` of its gradient and `prox_calls` of the proximal operator of `g`.
 `call_limit_reached` is `true` when the solver stopped at one of the limits in
-[`ProximalOptions`](@ref).
+[`ProximalOptions`](@ref). The minimizer is the `x` passed to `solve!`: an
+`Array`, a `SparseIterate` or an `AtomIterate`.
 """
-mutable struct OptimizationResults{O<:ProximalSolver,T,N,M}
+mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:AbstractArray{T,N}}
     method::O
-    minimizer::Array{T,N}
+    minimizer::X
     minimum::T
     iterations::Int
     iteration_converged::Bool

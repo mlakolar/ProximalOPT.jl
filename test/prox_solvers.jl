@@ -115,4 +115,43 @@ end
   @test all(abs.(grad[.!S]) .<= λ + 1e-4)
 end
 
+@testset "SparseIterate $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
+  # the iterates stay SparseIterates, without stored zeros at the end, and give
+  # the dense solution; ‖Y - Xx‖² / (2n) is the quadratic up to a constant
+  n, p = 100, 50
+  X = randn(n, p)
+  Y = X * vcat(randn(5), zeros(p - 5)) + 0.1 * randn(n)
+  A, b = X'X / n, -X'Y / n
+  g = ProxL1(0.1 * norm(b, Inf))
+  for f in (QuadraticFunction(A, b), LeastSquaresLoss(Y / sqrt(n), X / sqrt(n)))
+    xd, x = zeros(p), SparseIterate(p)
+    solve!(xd, f, g, solver, opt)
+    res = solve!(x, f, g, solver, opt)
+    @test res.minimizer === x
+    @test ProximalOPT.converged(res)
+    @test 0 < nnz(x) == count(!iszero, Vector(x)) < p
+    @test Vector(x) ≈ xd atol = 1e-5
+    @test res.minimum ≈ value(f, xd) + value(g, xd)
+  end
+end
+
+@testset "Float32 $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), ActiveAccProxGradDescent())
+  # the iterates, the minimum and the arithmetic stay in Float32; the solution
+  # agrees with Float64 to Float32 accuracy. The tolerances must be above the
+  # precision of Float32, eps(Float32) ≈ 1.2e-7
+  n, p = 60, 25
+  X, Y = randn(n, p), randn(n)
+  A, b = X'X / n, -X'Y / n
+  for (f32, f64) in ((QuadraticFunction(Float32.(A), Float32.(b)), QuadraticFunction(A, b)),
+                     (LeastSquaresLoss(Float32.(Y), Float32.(X)), LeastSquaresLoss(Y, X)))
+    x32, x64 = zeros(Float32, p), zeros(p)
+    res = solve!(x32, f32, ProxL1(0.05f0), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-6, xtol = 1e-6, gradtol = 1e-5))
+    solve!(x64, f64, ProxL1(0.05), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10))
+    @test eltype(x32) == Float32
+    @test res.minimum isa Float32
+    @test ProximalOPT.converged(res)
+    @test x32 ≈ x64 atol = 1e-2
+  end
+end
+
 end

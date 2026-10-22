@@ -30,18 +30,19 @@ function AccProxGradDescent(; β::AbstractFloat = 0.5)
   AccProxGradDescent(β)
 end
 
-mutable struct AccProxGradDescentState{T,N}
-    x::Array{T,N}
+# the iterates have the type of the starting point x0; the gradient is dense
+mutable struct AccProxGradDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}}
+    x::X
     f_x::T
     g_x::T
-    x_previous::Array{T,N}
+    x_previous::X
     f_x_previous::T
     g_x_previous::T
-    y::Array{T,N}
+    y::X
     f_y::T
-    grad_f_y::Array{T,N}
-    xhat::Array{T,N}
-    deltaX::Array{T,N}
+    grad_f_y::G
+    xhat::X
+    deltaX::X
     L::T
     maxResidual::T
     k::Int            # iterations since the last restart
@@ -58,7 +59,7 @@ function initial_state(
           options,
           f,
           g,
-          x0::Array{T}) where T
+          x0::AbstractArray{T}) where T
 
     AccProxGradDescentState(
                          x0,          # Maintain current state in state.x
@@ -69,7 +70,7 @@ function initial_state(
                          T(NaN),
                          similar(x0), # extrapolated point y
                          T(NaN),      # f(y)
-                         similar(x0), # gradient of f at y
+                         Array{T}(undef, size(x0)), # gradient of f at y
                          similar(x0), # Temporary storage
                          similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
@@ -91,6 +92,7 @@ function update_state!(
 
     ω = T(state.k / (state.k + 3))
     @. state.y = state.x + ω * (state.x - state.x_previous)
+    _drop!(state.y)
 
     # copy x --> x_previous
     copyto!(state.x_previous, state.x)
@@ -126,6 +128,7 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
     while true
       @. state.xhat = state.y - state.grad_f_y / state.L
       prox!(g, state.x, state.xhat, one(T) / state.L)
+      _drop!(state.x)
       state.f_x = value(f, state.x)
       state.prox_calls += 1
       state.f_calls += 1

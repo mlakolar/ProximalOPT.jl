@@ -19,17 +19,18 @@ Base.summary(::ProximalGradientDescent) = "Proximal Gradient Descent"
 ProximalGradientDescent(; ls = LineSearches.BackTracking()) =
   ProximalGradientDescent{typeof(ls)}(ls)
 
-mutable struct ProximalGradientDescentState{T,N}
-    x::Array{T,N}
+# the iterates have the type of the starting point x0; the gradients are dense
+mutable struct ProximalGradientDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}}
+    x::X
     f_x::T
     g_x::T
-    grad_f_x::Array{T,N}
-    x_previous::Array{T,N}
+    grad_f_x::G
+    x_previous::X
     f_x_previous::T
     g_x_previous::T
-    grad_f_x_previous::Array{T,N}
-    xhat::Array{T,N}
-    deltaX::Array{T,N}
+    grad_f_x_previous::G
+    xhat::X
+    deltaX::X
     L::T
     maxResidual::T
     backtrack_simple::Bool  # line search uses function values, not gradients
@@ -45,9 +46,9 @@ function initial_state(
           options,
           f,
           g,
-          x0::Array{T}) where T
+          x0::AbstractArray{T}) where T
 
-    grad_f_x = similar(x0)
+    grad_f_x = Array{T}(undef, size(x0))
     f_x = value_and_gradient!(f, grad_f_x, x0)
     g_x = value(g, x0)
 
@@ -59,11 +60,11 @@ function initial_state(
                          similar(x0), # Maintain previous state in state.x_previous
                          T(NaN),      # Store previous f in state.f_x_previous
                          T(NaN),      # Store previous g in state.g_x_previous
-                         similar(x0), # Maintain previous gradient of f in state.grad_f_x_previous for convergence check
+                         similar(grad_f_x), # Maintain previous gradient of f in state.grad_f_x_previous for convergence check
                          similar(x0), # Temporary storage
                          similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
-                         -Inf,
+                         T(-Inf),     # maxResidual
                          true,        # backtrack_simple
                          0,           # backtrack_steps
                          1,           # f_calls
@@ -90,6 +91,7 @@ function update_state!(
       # find next point
       @. state.xhat =  state.x_previous - state.grad_f_x_previous / state.L
       prox!(g, state.x, state.xhat, one(T) / state.L)
+      _drop!(state.x)
       state.f_x = value(f, state.x)
       state.g_x = value(g, state.x)
       state.prox_calls += 1

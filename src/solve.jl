@@ -1,4 +1,9 @@
 
+# remove the zero entries or groups from the stored ones of a sparse iterate, so
+# that products by it touch only its support; nothing to do for an Array
+_drop!(x::AbstractArray) = x
+_drop!(x::Union{SparseIterate, AtomIterate}) = dropzeros!(x)
+
 """
     solve!(x, f, g, method::ProximalSolver, options = ProximalOptions())
 
@@ -6,10 +11,14 @@ Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
 
 For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
 a smooth `DifferentiableFunction` and `g` a `ProximableFunction`, both from
-ProximalBase; the result is an [`OptimizationResults`](@ref). For
-[`ActiveAccProxGradDescent`](@ref), `x` is a vector or a `SparseIterate`, and
-the result is an `ActiveSetResults`. For [`ADMMSolver`](@ref), both `f` and
-`g` are `ProximableFunction`s and the result is an `ADMMResults`.
+ProximalBase; the result is an [`OptimizationResults`](@ref). There `x` may also
+be a `SparseIterate`, or for the group lasso `ProxGroupL2` an `AtomIterate`
+that shares the groups of `g` (`AtomIterate(x, g)`): the iterates keep its type,
+zeros are dropped after each step, and products by the iterates touch only their
+stored entries or active groups. For [`ActiveAccProxGradDescent`](@ref), `x` is
+a vector or a `SparseIterate`, and the result is an `ActiveSetResults`. For
+[`ADMMSolver`](@ref), both `f` and `g` are `ProximableFunction`s and the result
+is an `ADMMResults`.
 
 # Example
 ```julia

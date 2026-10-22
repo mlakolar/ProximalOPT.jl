@@ -115,6 +115,26 @@ end
   @test all(abs.(grad[.!S]) .<= λ + 1e-4)
 end
 
+@testset "SparseIterate $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
+  # the iterates stay SparseIterates, without stored zeros at the end, and give
+  # the dense solution; ‖Y - Xx‖² / (2n) is the quadratic up to a constant
+  n, p = 100, 50
+  X = randn(n, p)
+  Y = X * vcat(randn(5), zeros(p - 5)) + 0.1 * randn(n)
+  A, b = X'X / n, -X'Y / n
+  g = ProxL1(0.1 * norm(b, Inf))
+  for f in (QuadraticFunction(A, b), LeastSquaresLoss(Y / sqrt(n), X / sqrt(n)))
+    xd, x = zeros(p), SparseIterate(p)
+    solve!(xd, f, g, solver, opt)
+    res = solve!(x, f, g, solver, opt)
+    @test res.minimizer === x
+    @test ProximalOPT.converged(res)
+    @test 0 < nnz(x) == count(!iszero, Vector(x)) < p
+    @test Vector(x) ≈ xd atol = 1e-5
+    @test res.minimum ≈ value(f, xd) + value(g, xd)
+  end
+end
+
 @testset "Float32 $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), ActiveAccProxGradDescent())
   # the iterates, the minimum and the arithmetic stay in Float32; the solution
   # agrees with Float64 to Float32 accuracy. The tolerances must be above the

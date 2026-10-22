@@ -16,9 +16,9 @@ be a `SparseIterate`, or for the group lasso `ProxGroupL2` an `AtomIterate`
 that shares the groups of `g` (`AtomIterate(x, g)`): the iterates keep its type,
 zeros are dropped after each step, and products by the iterates touch only their
 stored entries or active groups. For [`ActiveAccProxGradDescent`](@ref), `x` is
-a vector or a `SparseIterate`, and the result is an `ActiveSetResults`. For
-[`ADMMSolver`](@ref), both `f` and `g` are `ProximableFunction`s and the result
-is an `ADMMResults`.
+a vector, a `SparseIterate` or an `AtomIterate`, and the result is an
+`ActiveSetResults`. For [`ADMMSolver`](@ref), both `f` and `g` are
+`ProximableFunction`s and the result is an `ADMMResults`.
 
 # Example
 ```julia

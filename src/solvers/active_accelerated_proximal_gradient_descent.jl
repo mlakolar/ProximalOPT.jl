@@ -1,14 +1,16 @@
 # active-set version of the accelerated proximal gradient method: the active set
-# is the set of stored entries of a SparseIterate; each outer iteration adds the
-# coordinates that violate the optimality conditions and minimizes over the
-# active set with AccProxGradDescent
+# is the set of active coordinates of a SparseIterate (its stored entries) or of
+# an AtomIterate (its active groups); each outer iteration adds the coordinates
+# that violate the optimality conditions and minimizes over the active set with
+# AccProxGradDescent
 
 """
-    ActiveAccProxGradDescent(; β = 0.5, max_add = typemax(Int), max_outer = 1000)
+    ActiveAccProxGradDescent(; β = 0.5, max_add = 100, growth = 2, max_outer = 1000)
 
 Active-set accelerated proximal gradient descent, for `f(x) + g(x)` with a
-sparse minimizer, such as the lasso. The active set is the set of stored
-entries of a `SparseIterate`. Each outer iteration
+sparse minimizer, such as the lasso or the group lasso. The active set is the
+set of stored entries of a `SparseIterate`, or the set of active groups of an
+`AtomIterate`, whose coordinates are groups. Each outer iteration
 
 1. removes the coordinates that are zero from the active set (`dropzeros!`);
 2. computes the full gradient `∇f(x)` and finds the coordinates outside the
@@ -16,20 +18,34 @@ entries of a `SparseIterate`. Each outer iteration
 3. stops if there are none and `x` minimizes `f + g` over the active set, that
    is, the last inner solve converged (or `x = 0`); an inner solve stopped by
    `maxiter` is thus repeated;
-4. adds the violators to the active set (`activate!`), only the `max_add`
-   largest violations if there are more;
+4. adds the violators to the active set (`activate!`), the largest violations
+   first, until they hold `max(max_add, (growth - 1) s)` entries, where `s` is
+   the number of entries left in the active set by step 1, and with them the
+   violators whose violation equals the last one;
 5. minimizes `f + g` over the active set with [`AccProxGradDescent`](@ref)`(; β)`,
    warm-started from the current values.
 
+The limit in step 4 keeps the active set from filling up with the many
+coordinates that violate the optimality conditions at a poor starting point,
+such as zero for a small penalty: at each outer iteration the active set grows
+by a factor of at most `growth` over the nonzero entries of `x`, or by `max_add`
+entries if that is more. So it reaches a large support in a few outer iterations,
+but stays close to the support. `growth = 1` adds `max_add` entries at a time,
+and `max_add = typemax(Int)` removes the limit.
+
 Step 5 runs on `restrict(f, S)` and `restrict(g, S)` from ProximalBase, a
-problem in the active coordinates `S` only; step 2 is the only one that involves
+problem in the active entries `S` only; step 2 is the only one that involves
 all coordinates. `f` and `g` need `restrict`, `g` needs `kkt_violation`, and
-`f` needs `value_and_gradient!` at a `SparseIterate`: in ProximalBase these are
+`f` needs `value_and_gradient!` at the iterate: in ProximalBase these are
 `QuadraticFunction`, `L2Loss` and `LeastSquaresLoss`, with `ProxL1`,
-`ProxGroupL2` or `ProxZero`. For the group lasso `ProxGroupL2`, all the
-coordinates of a group at zero share the violation of the group, so a group
-that violates the optimality conditions joins the active set whole, unless
-`max_add` cuts it.
+`ProxGroupL2` or `ProxZero`.
+
+For the group lasso `ProxGroupL2`, an `AtomIterate` that shares the groups of
+`g`, `AtomIterate(x, g)`, makes the groups the coordinates: a group joins and
+leaves the active set whole. A dense `x` takes this route when the groups of `g`
+cover all coordinates. With a `SparseIterate`, the coordinates of a group at
+zero share the violation of the group, so a group that violates the optimality
+conditions joins the active set whole too.
 
 `max_outer` limits the number of outer iterations. The
 [`ProximalOptions`](@ref) apply to each inner solve. Use with
@@ -37,18 +53,20 @@ that violates the optimality conditions joins the active set whole, unless
 """
 struct ActiveAccProxGradDescent{T<:AbstractFloat} <: ProximalSolver
   β::T            # backtracking factor of the inner AccProxGradDescent
-  max_add::Int    # most violators added per outer iteration
+  max_add::Int    # entries that an outer iteration may always add
+  growth::Int     # factor by which an outer iteration may grow the nonzero entries
   max_outer::Int  # outer iteration limit
 end
 
 Base.summary(::ActiveAccProxGradDescent) = "Active-Set Accelerated Proximal Gradient Descent"
 
-function ActiveAccProxGradDescent(; β::AbstractFloat = 0.5, max_add::Integer = typemax(Int),
-                                  max_outer::Integer = 1000)
+function ActiveAccProxGradDescent(; β::AbstractFloat = 0.5, max_add::Integer = 100,
+                                  growth::Integer = 2, max_outer::Integer = 1000)
   0 < β < 1 || error("β must be in (0, 1).")
   max_add > 0 || error("max_add must be positive.")
+  growth > 0 || error("growth must be positive.")
   max_outer > 0 || error("max_outer must be positive.")
-  ActiveAccProxGradDescent(β, Int(max_add), Int(max_outer))
+  ActiveAccProxGradDescent(β, Int(max_add), Int(growth), Int(max_outer))
 end
 
 """
@@ -61,7 +79,8 @@ solves), `converged` (no coordinate outside the active set violates the
 optimality conditions, and the last inner solve converged), `inner_converged`
 (every inner solve converged), `max_violation` (the largest `kkt_violation`
 outside the active set at the minimizer, `-Inf` if there is no such
-coordinate) and `active_set_size`.
+coordinate) and `active_set_size` (the number of entries in the active set,
+those of its groups for an `AtomIterate`).
 """
 struct ActiveSetResults{X,T}
     minimizer::X
@@ -92,22 +111,24 @@ function Base.show(io::IO, r::ActiveSetResults)
     return
 end
 
-# x is the starting point and is overwritten with the solution; its stored
-# entries are the active set
+# x is the starting point and is overwritten with the solution; its active
+# coordinates are the active set
 function solve!(
-    x::SparseIterate{T, 1},
+    x::Union{SparseIterate{T, 1}, AtomIterate{T}},
     f::DifferentiableFunction,
     g::ProximableFunction,
     method::ActiveAccProxGradDescent,
     options::ProximalOptions = ProximalOptions()
     ) where {T<:AbstractFloat}
 
+  _check_groups(x, g)
   inner_method = AccProxGradDescent(; β = T(method.β))
   grad = Vector{T}(undef, length(x))
   violators, violations = Int[], T[]
+  S = Int[]                   # the active entries
 
   outer_iterations, inner_iterations = 0, 0
-  solved = false              # x minimizes f + g over its stored entries
+  solved = false              # x minimizes f + g over its active set
   inner_converged = true
   kkt_converged = false
 
@@ -120,33 +141,49 @@ function solve!(
 
     # a minimizer over the active set that no coordinate outside it can improve
     # is a minimizer; so is x = 0 if no coordinate can improve it
-    if isempty(violators) && (solved || nnz(x) == 0)
+    if isempty(violators) && (solved || numActive(x) == 0)
       kkt_converged = true
     end
     if kkt_converged || outer_iterations == method.max_outer
       return ActiveSetResults(x, f_x + value(g, x), outer_iterations, inner_iterations,
-                              kkt_converged, inner_converged, max_violation, nnz(x))
+                              kkt_converged, inner_converged, max_violation,
+                              length(_active_entries!(S, x)))
     end
     outer_iterations += 1
 
-    if length(violators) > method.max_add
-      keep = partialsortperm(violations, 1:method.max_add; rev = true)
-      violators = violators[keep]
+    # the largest violations join the s nonzero entries first, until they hold
+    # limit entries, which are among the limit largest; the limit does not
+    # split violations that are equal, as those of the coordinates of a group at
+    # zero are: alone, a coordinate of the group could stay at zero, be dropped
+    # and be added again
+    s = length(_active_entries!(S, x))
+    limit = max(method.max_add, _saturated_product(method.growth - 1, s))
+    if _num_entries(x, violators) > limit
+      order = partialsortperm(violations, 1:min(limit, length(violations)); rev = true)
+      vmin, added = violations[order[end]], 0
+      for o in order
+        added += _num_entries(x, violators[o])
+        if added >= limit
+          vmin = violations[o]
+          break
+        end
+      end
+      violators = violators[violations .>= vmin]
     end
-    for i in violators
-      activate!(x, i)
+    for k in violators
+      activate!(x, k)
     end
 
+    # minimize over the active entries
+    _active_entries!(S, x)
     if options.show_trace
-      @printf "%5d   %6d   %6d   %14e\n" outer_iterations nnz(x) length(violators) max_violation
+      @printf "%5d   %6d   %6d   %14e\n" outer_iterations length(S) _num_entries(x, violators) max_violation
     end
-
-    # minimize over the active set; the order of S matches the stored values
-    k = nnz(x)
-    S = x.nzval2ind[1:k]
-    xS = x.nzval[1:k]
+    xS = T[x[i] for i in S]
     res = solve!(xS, restrict(f, S), restrict(g, S), inner_method, options)
-    copyto!(x.nzval, 1, xS, 1, k)
+    for (j, i) in enumerate(S)
+      x[i] = xS[j]
+    end
 
     inner_iterations += res.iterations
     solved = converged(res)
@@ -154,7 +191,9 @@ function solve!(
   end
 end
 
-# a dense x is converted to a SparseIterate and overwritten with the solution
+# a dense x is converted to an iterate and overwritten with the solution: an
+# AtomIterate with the groups of a ProxGroupL2 that cover all coordinates, and a
+# SparseIterate otherwise
 function solve!(
     x::Vector{T},
     f::DifferentiableFunction,
@@ -163,25 +202,62 @@ function solve!(
     options::ProximalOptions = ProximalOptions()
     ) where {T<:AbstractFloat}
 
-  xs = SparseIterate(x)
+  xs = _active_set_iterate(x, g)
   r = solve!(xs, f, g, method, options)
   copyto!(x, xs)
   ActiveSetResults(x, r.minimum, r.outer_iterations, r.inner_iterations,
                    r.converged, r.inner_converged, r.max_violation, r.active_set_size)
 end
 
-# Collect the coordinates outside the active set of x with a positive
+_active_set_iterate(x::Vector, ::ProximableFunction) = SparseIterate(x)
+# the groups are disjoint sets of positive indices, so they partition 1:p when
+# they hold p indices up to p
+_active_set_iterate(x::Vector, g::ProxGroupL2) =
+  sum(length, g.groups; init = 0) == length(x) && all(G -> maximum(G) <= length(x), g.groups) ?
+    AtomIterate(x, g) : SparseIterate(x)
+
+# kkt_violation for ProxGroupL2 on an AtomIterate takes group k of x as group k of g
+_check_groups(x, g) = nothing
+_check_groups(x::AtomIterate, g::ProxGroupL2) =
+  x.groups === g.groups || x.groups == g.groups ||
+    throw(ArgumentError("The groups of x must be the groups of g, as in AtomIterate(x, g)."))
+
+_saturated_product(a::Int, b::Int) = b > 0 && a > typemax(Int) ÷ b ? typemax(Int) : a * b
+
+# the number of entries of coordinate k of x, and of the coordinates in ks
+_num_entries(::SparseIterate, k::Int) = 1
+_num_entries(x::AtomIterate, k::Int) = length(x.groups[k])
+_num_entries(x, ks::AbstractVector{Int}) = sum(k -> _num_entries(x, k), ks; init = 0)
+
+# the entries of the active coordinates of x
+function _active_entries!(S, x::SparseIterate)
+  resize!(S, numActive(x))
+  for a in eachindex(S)
+    S[a] = activeCoordinate(x, a)
+  end
+  S
+end
+
+function _active_entries!(S, x::AtomIterate)
+  empty!(S)
+  for a in 1:numActive(x)
+    append!(S, x.groups[activeCoordinate(x, a)])
+  end
+  S
+end
+
+# Collect the coordinates of x outside its active set with a positive
 # kkt_violation, and their violations; return the largest violation.
-function _kkt_violators!(violators, violations, g, grad, x::SparseIterate{T}) where T
+function _kkt_violators!(violators, violations, g, grad, x::Union{SparseIterate{T}, AtomIterate{T}}) where T
   empty!(violators)
   empty!(violations)
   max_violation = T(-Inf)
-  for i in eachindex(grad)
-    x.ind2nzval[i] == 0 || continue
-    v = kkt_violation(g, grad, x, i)
+  for k in 1:numCoordinates(x)
+    isActive(x, k) && continue
+    v = kkt_violation(g, grad, x, k)
     max_violation = max(max_violation, v)
     if v > 0
-      push!(violators, i)
+      push!(violators, k)
       push!(violations, v)
     end
   end

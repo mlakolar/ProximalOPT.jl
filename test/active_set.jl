@@ -57,7 +57,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
 
     # adding one violator per outer iteration reaches the same solution
     x1 = SparseIterate(p)
-    res1 = solve!(x1, f, g, ActiveAccProxGradDescent(; max_add = 1), opt)
+    res1 = solve!(x1, f, g, ActiveAccProxGradDescent(; max_add = 1, growth = 1), opt)
     @test res1.converged
     @test res1.outer_iterations >= nnz(x1)
     @test res1.outer_iterations > res.outer_iterations
@@ -152,11 +152,35 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
 
   @testset "outer iteration limit" begin
     x = SparseIterate(p)
-    res = solve!(x, f, g, ActiveAccProxGradDescent(; max_add = 1, max_outer = 3), opt)
+    res = solve!(x, f, g, ActiveAccProxGradDescent(; max_add = 1, growth = 1, max_outer = 3), opt)
     @test !res.converged
     @test res.outer_iterations == 3
     @test res.max_violation > 0
     @test nnz(x) <= 3
+  end
+
+  @testset "growth of the active set" begin
+    # at x = 0 many more coordinates than max_add violate the optimality conditions
+    @test count(abs.(b) .> λ) > 100
+
+    # an outer iteration adds at most max(max_add, (growth - 1) s) violators to
+    # s nonzero entries, so with max_add = 1, three of them leave 1 ⋅ growth²
+    # entries at most, or 3 for growth = 1
+    for (growth, bound) in ((1, 3), (2, 4), (3, 9))
+      x = SparseIterate(p)
+      res = solve!(x, f, g, ActiveAccProxGradDescent(; max_add = 1, growth, max_outer = 3), opt)
+      @test res.outer_iterations == 3
+      @test 0 < nnz(x) <= bound
+    end
+
+    # without a limit, or with one that saturates, the solution is the same
+    for method in (ActiveAccProxGradDescent(; max_add = typemax(Int)),
+                   ActiveAccProxGradDescent(; max_add = 1, growth = typemax(Int)))
+      x = SparseIterate(p)
+      res = solve!(x, f, g, method, opt)
+      @test res.converged
+      @test Vector(x) ≈ x_ref atol = 1e-4
+    end
   end
 
   @testset "show and arguments" begin
@@ -169,6 +193,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
 
     @test_throws ErrorException ActiveAccProxGradDescent(; β = 1.)
     @test_throws ErrorException ActiveAccProxGradDescent(; max_add = 0)
+    @test_throws ErrorException ActiveAccProxGradDescent(; growth = 0)
     @test_throws ErrorException ActiveAccProxGradDescent(; max_outer = 0)
   end
 

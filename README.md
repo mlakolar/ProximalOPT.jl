@@ -53,8 +53,10 @@ Replace `AccProxGradDescent()` with `ProximalGradientDescent()` to use the
 unaccelerated method. When `p` is large and the solution sparse,
 `ActiveAccProxGradDescent()` is usually much faster: it runs the accelerated
 method on an active set of coordinates, which it grows by the coordinates that
-violate the optimality conditions. Its starting point may be a vector, as here,
-or a `SparseIterate`.
+violate the optimality conditions the most: by 100 at a time, or by as many as
+are nonzero if that is more. Its starting point may be a vector, as here,
+or a `SparseIterate`. The other solvers take a `SparseIterate` too, and then
+multiply `X` by their sparse iterates over the nonzero entries only.
 
 ## Example: group lasso
 
@@ -82,8 +84,12 @@ res = solve!(β, f, g, AccProxGradDescent())
 ```
 
 The first and third groups are selected, and the other four are exactly zero.
-`ProxGroupL2(λ, groups, w)` takes other weights, coordinates in no group are
-not penalized, and `ActiveAccProxGradDescent()` accepts the group penalty too.
+`ProxGroupL2(λ, groups, w)` takes other weights, and coordinates in no group
+are not penalized. When the groups cover all coefficients, as here,
+`AtomIterate(β, g)` is a vector whose coordinates are the groups: the solvers
+take it as a starting point and multiply by it over the nonzero groups only,
+and `ActiveAccProxGradDescent()` adds and removes whole groups, as it also does
+from a dense starting point.
 
 ## Example: graphical lasso by ADMM
 
@@ -110,7 +116,7 @@ res.converged, res.iterations
 |---|---|---|
 | `ProximalGradientDescent()` | `f` smooth, `g` proximable | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2) |
 | `AccProxGradDescent(; β = 0.5)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking and adaptive restart |
-| `ActiveAccProxGradDescent(; β, max_add, max_outer)` | `f` smooth, `g` = `ProxL1`, `ProxGroupL2` or `ProxZero`, sparse solution | Active set: adds the coordinates that violate the optimality conditions and runs `AccProxGradDescent` on the active coordinates only |
+| `ActiveAccProxGradDescent(; β, max_add, growth, max_outer)` | `f` smooth, `g` = `ProxL1`, `ProxGroupL2` or `ProxZero`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011) |
 
 All solvers are called the same way:
@@ -122,7 +128,8 @@ res = solve!(x, f, g, solver, ProximalOptions(; maxiter = 1000))
 `solve!` overwrites `x` with the solution and returns a results object with
 `minimizer`, `minimum`, `iterations`, convergence information and the number
 of evaluations of `f` (`f_calls`), of its gradient (`grad_calls`) and of
-proximal operators (`prox_calls`); printing it shows a summary.
+proximal operators (`prox_calls`); printing it shows a summary. The solvers
+work in the element type of `x`, `Float64` or `Float32`.
 
 ## Options and stopping rules
 

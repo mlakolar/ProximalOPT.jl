@@ -131,6 +131,65 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     @test Vector(x) ≈ x_full atol = 1e-5
   end
 
+  @testset "AtomIterate" begin
+    active_groups(x) = sort!([activeCoordinate(x, a) for a in 1:numActive(x)])
+
+    # the gradient solvers keep the iterate an AtomIterate, whose active groups
+    # are the nonzero ones at the end
+    for solver in (ProximalGradientDescent(), AccProxGradDescent())
+      x = AtomIterate(p, g)
+      res = solve!(x, f, g, solver, opt)
+      @test res.minimizer === x
+      @test ProximalOPT.converged(res)
+      @test Vector(x) ≈ x_ref atol = 1e-5
+      @test active_groups(x) == nonzero_groups(x, groups)
+    end
+
+    # the active-set solver adds and removes whole groups
+    x = AtomIterate(p, g)
+    res = solve!(x, f, g, ActiveAccProxGradDescent(), opt)
+    @test res.minimizer === x
+    @test res.converged
+    @test res.max_violation <= 0
+    @test Vector(x) ≈ x_ref atol = 1e-5
+    @test active_groups(x) == nonzero_groups(x, groups)
+    @test res.active_set_size == sum(length, groups[active_groups(x)])
+
+    # a dense starting point takes the same path
+    xd = zeros(p)
+    resd = solve!(xd, f, g, ActiveAccProxGradDescent(), opt)
+    @test xd == Vector(x)
+    @test resd.outer_iterations == res.outer_iterations
+    @test resd.active_set_size == res.active_set_size
+
+    # one group per outer iteration; the inner solves stop at the tolerances, so
+    # the solution is as accurate as in active_set.jl
+    x1 = AtomIterate(p, g)
+    res1 = solve!(x1, f, g, ActiveAccProxGradDescent(; max_add = 1, growth = 1), opt)
+    @test res1.converged
+    @test res1.outer_iterations >= numActive(x1)
+    @test Vector(x1) ≈ x_ref atol = 1e-4
+
+    # on a SparseIterate, the coordinates of a group at zero have the same
+    # violation and join together, though max_add is smaller than the group
+    xs = SparseIterate(p)
+    ress = solve!(xs, f, g, ActiveAccProxGradDescent(; max_add = 1, growth = 1), opt)
+    @test ress.converged
+    @test ress.outer_iterations < 20
+    @test Vector(xs) ≈ x_ref atol = 1e-4
+
+    # with a separable penalty, any groups serve: a group at zero joins when one
+    # of its coordinates violates the optimality conditions
+    xl, xl_ref = AtomIterate(p, groups), zeros(p)
+    solve!(xl_ref, f, ProxL1(λ), AccProxGradDescent(), opt)
+    res = solve!(xl, f, ProxL1(λ), ActiveAccProxGradDescent(), opt)
+    @test res.converged
+    @test Vector(xl) ≈ xl_ref atol = 1e-5
+
+    # for the group lasso the groups of x must be those of g
+    @test_throws ArgumentError solve!(AtomIterate(p, 10), f, g, ActiveAccProxGradDescent(), opt)
+  end
+
   @testset "ADMM: graphical lasso with grouped entries" begin
     # grouping each off-diagonal pair {Θᵢⱼ, Θⱼᵢ} gives √2 |Θᵢⱼ| for a symmetric Θ,
     # the ℓ1 penalty with weights 1/√2 off the diagonal; the diagonal is in no group

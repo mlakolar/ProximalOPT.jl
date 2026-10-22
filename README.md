@@ -205,6 +205,11 @@ res = solve!(β, f, NormL1(0.1λmax), CDSolver())
 path = solve_path(f, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50))
 ```
 
+`CDSolver(; order = :cyclic, anderson = 5)` accelerates the passes over the
+active set by Anderson extrapolation, 1.6 to 2.6 times faster than cyclic order
+alone on the lasso at 0.02 λmax in the benchmark; a random order, the default,
+is the safer choice when the columns are strongly correlated.
+
 `solve_path` warm starts each level from the previous solution and screens it
 with the sequential strong rule, checking the optimality conditions of the
 screened coordinates afterwards; `callback(k, λ, x, m)` can compute a

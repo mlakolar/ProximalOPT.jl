@@ -191,6 +191,19 @@ end
     @test Vector(x) ≈ Vector(x64) atol = 1e-3
   end
 
+  @testset "Anderson acceleration" begin
+    x0, x5 = SparseIterate(p), SparseIterate(p)
+    r0 = solve!(x0, f, NormL1(0.2λ), CDSolver(; order = :cyclic, tol = 1e-10))
+    r5 = solve!(x5, f, NormL1(0.2λ), CDSolver(; order = :cyclic, tol = 1e-10, anderson = 5))
+    @test r5.converged && r5.passes < r0.passes
+    @test kkt_l1(lsgrad(X, y, Vector(x5)), Vector(x5), 0.2λ) < 1e-7
+    @test Vector(x5) ≈ Vector(x0) atol = 1e-6
+    # ignored with a random order
+    run(K) = (Random.seed!(3); x = SparseIterate(p); solve!(x, f, NormL1(λ), CDSolver(; anderson = K)).passes)
+    @test run(5) == run(0)
+    @test_throws ArgumentError CDSolver(; anderson = -1)
+  end
+
   @testset "maxpasses" begin
     x = SparseIterate(p)
     r = @test_logs (:warn, r"did not converge") solve!(x, f, NormL1(0.01λ), CDSolver(; maxpasses = 3))
@@ -267,6 +280,11 @@ end
       @test kkt_l1(vec(gr), vec(D), λ) < 1e-9
       @test r.minimum ≈ fs(D) + λ * sum(abs, D)
     end
+    # Anderson acceleration on a symmetric iterate
+    x = SymmetricSparseIterate(q)
+    solve!(x, fs, NormL1(λ), CDSolver(; order = :cyclic, anderson = 5, tol = 1e-12))
+    D = Matrix(x)
+    @test kkt_l1(vec((Sx * D * Sy + Sy * D * Sx) / 2 + Cs), vec(D), λ) < 1e-9
     # weights on the entries, and an unpenalized diagonal
     W = fill(1.0, q, q); W[diagind(W)] .= 0
     x = SymmetricSparseIterate(q)

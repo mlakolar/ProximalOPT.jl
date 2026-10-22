@@ -104,6 +104,11 @@ repeated runs of the same code.
   IHT with its fixed step (−47.45 against −46.20; both are local solutions of a
   nonconvex problem), in 41 instead of 453 iterations, allocating 0.2 instead of
   6.2 MB.
+- Beyond the old code: `CDSolver(; order = :cyclic, anderson = 5)` against
+  cyclic order alone, both new code, at 0.02 λmax: 2.3× faster on A
+  (224 → 96 ms), 2.2× on B, 1.6× on D and 2.6× on E (1468 → 562 ms), and 1.2×
+  on the direct difference estimator at p = 50 and 100, at the same or a lower
+  objective. It does not help a random order, which ignores it.
 - `ADMMSolver(; ρ = s², α = 1.5, adaptive = true, abstol = 1e-5/s,
   abstol_dual = 1e-5 s, reltol = 1e-3)`, with `s = tr(S)/p`, is CovSel's
   `covsel!`: the same iterations and solution. The default `ADMMSolver` takes

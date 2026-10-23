@@ -184,6 +184,45 @@ end
     @test kkt_l1(X' * (w .* (X * Vector(x) + o - y)), Vector(x), n * λ, ω) < 1e-6
   end
 
+  @testset "an intercept with weights" begin
+    w = rand(Xoshiro(8), n) .+ 0.5
+    o = randn(Xoshiro(9), n)
+    Xs = X .+ randn(Xoshiro(10), 1, p)                    # columns with nonzero means
+    for off in (nothing, o)
+      x = SparseIterate(p)
+      m = cdmodel(GLMLoss(ProximalBase.Squared(), y, Xs; weights = w, offset = off), x; intercept = true)
+      solve!(x, m, NormL1(n * λ), CDSolver(; tol = 1e-12))
+      β = Vector(x)
+      β0 = PS.intercept(m, β)
+      r = y .- (off === nothing ? 0 : off) .- β0 .- Xs * β
+      @test PS.residuals(m) ≈ r
+      @test abs(dot(w, r)) < 1e-8 * norm(y)                # the intercept is optimal
+      @test kkt_l1(-Xs' * (w .* r), β, n * λ) < 1e-6
+      # the weighted means
+      @test m.xbar ≈ Xs' * w / sum(w)
+      @test m.ybar ≈ dot(w, y .- (off === nothing ? 0 : off)) / sum(w)
+    end
+    # integer weights give the solution of the replicated rows
+    k = rand(Xoshiro(11), 1:3, n)
+    rows = reduce(vcat, [fill(i, k[i]) for i in 1:n])
+    x1, x2 = SparseIterate(p), SparseIterate(p)
+    m1 = cdmodel(GLMLoss(ProximalBase.Squared(), y, Xs; weights = float.(k)), x1; intercept = true)
+    m2 = cdmodel(LeastSquaresLoss(y[rows], Xs[rows, :]), x2; intercept = true)
+    solve!(x1, m1, NormL1(n * λ), CDSolver(; tol = 1e-12))
+    solve!(x2, m2, NormL1(n * λ), CDSolver(; tol = 1e-12))
+    @test Vector(x1) ≈ Vector(x2) atol = 1e-7
+    @test PS.intercept(m1, Vector(x1)) ≈ PS.intercept(m2, Vector(x2)) atol = 1e-7
+    # a constant column has an exact mean, and its coefficient stays at zero
+    Xc = copy(Xs); Xc[:, 3] .= 2.5
+    mc = cdmodel(GLMLoss(ProximalBase.Squared(), y, Xc; weights = w), SparseIterate(p); intercept = true)
+    @test mc.xbar[3] == 2.5
+    xc = SparseIterate(p)
+    solve!(xc, mc, NormL1(n * λ), CDSolver(; tol = 1e-10))
+    @test xc[3] == 0
+    # the weights must have a positive sum
+    @test_throws ArgumentError cdmodel(GLMLoss(ProximalBase.Squared(), y, X; weights = zeros(n)), x1; intercept = true)
+  end
+
   @testset "quadratic" begin
     A = Matrix(Symmetric(X' * X / n)) + 0.1I
     b = -X' * y / n
@@ -491,6 +530,33 @@ end
     @test kkt_l1(-X' * res / norm(res), Vector(x), λ) < 1e-7
     @test r.minimum ≈ norm(res) + λ * sum(abs, Vector(x))
   end
+  # with weights, the weighted norm, with and without an intercept; integer
+  # weights give the solution of the replicated rows
+  w = rand(Xoshiro(12), n) .+ 0.5
+  Xs = X .+ randn(Xoshiro(13), 1, p)
+  for intercept in (false, true)
+    f = SqrtLeastSquaresLoss(y, Xs; weights = w)
+    x = SparseIterate(p)
+    m = cdmodel(f, x; intercept)
+    r = solve!(x, m, NormL1(λ), CDSolver(; tol = 1e-12))
+    β = Vector(x)
+    b0 = intercept ? PS.intercept(m, β) : 0.0
+    res = y .- b0 .- Xs * β
+    nw = sqrt(sum(w .* res .^ 2))
+    @test kkt_l1(-Xs' * (w .* res) / nw, β, λ) < 1e-7
+    @test r.minimum ≈ nw + λ * sum(abs, β)
+    intercept || @test f(β) ≈ nw
+    intercept && @test abs(dot(w, res)) < 1e-8 * norm(y)
+  end
+  k = rand(Xoshiro(14), 1:3, n)
+  rows = reduce(vcat, [fill(i, k[i]) for i in 1:n])
+  x1, x2 = SparseIterate(p), SparseIterate(p)
+  solve!(x1, cdmodel(SqrtLeastSquaresLoss(y, Xs; weights = float.(k)), x1; intercept = true), NormL1(λ), CDSolver(; tol = 1e-12))
+  solve!(x2, cdmodel(SqrtLeastSquaresLoss(y[rows], Xs[rows, :]), x2; intercept = true), NormL1(λ), CDSolver(; tol = 1e-12))
+  @test Vector(x1) ≈ Vector(x2) atol = 1e-7
+  @test_throws ArgumentError SqrtLeastSquaresLoss(y, X; weights = -ones(n))
+  @test_throws DimensionMismatch SqrtLeastSquaresLoss(y, X; weights = ones(n - 1))
+
   # near a perfect fit the step stays finite
   yp = X[:, 1] * 2.0
   x = SparseIterate(p)
@@ -1038,6 +1104,12 @@ end
     @test passes_bytes(SparseIterate(q * q), cdmodel(fk, SparseIterate(q * q)), NormL1(0.05), s) == 0
     fq = SqrtQuadraticFunction(X' * X / n, -X' * y / n, dot(y, y) / n)
     @test passes_bytes(SparseIterate(p), cdmodel(fq, SparseIterate(p)), NormL1(0.02), s) == 0
+    # weights with an intercept, for least squares and the square-root lasso
+    w = rand(Xoshiro(18), n) .+ 0.5
+    fw = (1 / n) * GLMLoss(ProximalBase.Squared(), y, X; weights = w)
+    @test passes_bytes(SparseIterate(p), cdmodel(fw, SparseIterate(p); intercept = true), NormL1(0.1), s) == 0
+    fs = SqrtLeastSquaresLoss(y, X; weights = w)
+    @test passes_bytes(SparseIterate(p), cdmodel(fs, SparseIterate(p); intercept = true), NormL1(0.5), s) == 0
   end
   # block coordinate descent: initialize! clears the group curvatures, which the
   # second run computes again in the workspace that the first one allocated

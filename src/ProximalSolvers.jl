@@ -14,6 +14,8 @@ module ProximalSolvers
 include("lineSearches.jl")
 
 using LinearAlgebra
+using LinearAlgebra: BlasInt, LAPACKException, libblastrampoline
+using LinearAlgebra.BLAS: @blasfunc
 using Printf
 using ProximalBase
 import ProximalBase: gradient!, value_and_gradient!
@@ -61,6 +63,7 @@ include("solvers/admm.jl")
 
 # Coordinate descent
 include("cd/models.jl")
+include("cd/groupcurvature.jl")
 include("cd/solver.jl")
 include("cd/leastsquares.jl")
 include("cd/quadratic.jl")

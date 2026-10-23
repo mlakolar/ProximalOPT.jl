@@ -25,6 +25,7 @@ mutable struct LSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVect
   ybar::T               # mean of y - o with an intercept, otherwise zero
   L::Vector{T}          # curvatures of the groups of an AtomIterate, NaN until computed
   tmp::Vector{T}        # wᵢ rᵢ, for the gradient of a weighted loss
+  eig::_GroupEig{T}     # workspace of the group curvatures
 end
 
 function LSModel(y::AbstractVector, X::AbstractMatrix, w, offset, s::Real; intercept::Bool = false)
@@ -39,7 +40,8 @@ function LSModel(y::AbstractVector, X::AbstractMatrix, w, offset, s::Real; inter
   xbar = intercept ? _column_means(Xt) : zeros(T, p)
   ybar = intercept ? _mean_response(yt, ot) : zero(T)
   LSModel{T, typeof(Xt), typeof(yt), typeof(wt), typeof(ot)}(Xt, yt, wt, ot, T(s), zeros(T, n), fill(T(NaN), p),
-                                                             xbar, ybar, T[], wt === nothing ? T[] : zeros(T, n))
+                                                             xbar, ybar, T[], wt === nothing ? T[] : zeros(T, n),
+                                                             _GroupEig{T}())
 end
 
 _mean_response(y, ::Nothing) = sum(y) / length(y)
@@ -91,7 +93,9 @@ end
 _activeentries(x::SparseIterate) = activecoordinates(x)
 _activeentries(x::AtomIterate) = Iterators.flatten(x.groups[k] for k in activecoordinates(x))
 
-function initialize!(m::LSModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}) where {T}
+initialize!(m::LSModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}) where {T} = _initialize!(m, x, true)
+
+function _initialize!(m::LSModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}, curvatures::Bool) where {T}
   length(x) == size(m.X, 2) || throw(DimensionMismatch("x has length $(length(x)) and X has $(size(m.X, 2)) columns"))
   r, y, X = m.r, m.y, m.X
   if m.offset === nothing
@@ -105,7 +109,7 @@ function initialize!(m::LSModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}) 
     _column_axpy!(r, X, k, m.xbar[k], v)
   end
   fill!(m.a, T(NaN))          # X may have changed in place
-  x isa AtomIterate && fill!(resize!(m.L, ncoordinates(x)), T(NaN))
+  curvatures && x isa AtomIterate && fill!(resize!(m.L, ncoordinates(x)), T(NaN))
   m
 end
 
@@ -271,16 +275,34 @@ function _groupcurvature!(m::LSModel{T}, x::AtomIterate{T}, k::Int) where {T}
   L = m.L[k]
   if isnan(L)
     G = x.groups[k]
-    if length(G) == 1
-      L = m.s * _sqnorm!(m, first(G))
-    else
-      XG = m.X[:, G] .- transpose(m.xbar[G])
-      m.w === nothing || (XG .*= sqrt.(m.w))
-      L = max(m.s * eigmax(Symmetric(XG' * XG)), zero(T))
-    end
+    L = length(G) == 1 ? m.s * _sqnorm!(m, first(G)) : max(m.s * _gram_eigmax!(m, x, G), zero(T))
     m.L[k] = L
   end
   L
+end
+
+# λmax((X[:, G] - 1x̄_G')' W (X[:, G] - 1x̄_G')), for least squares
+function _gram_eigmax!(m::LSModel{T}, x::AtomIterate{T}, G) where {T<:Union{Float32, Float64}}
+  q = length(G)
+  ws = m.eig.nmax >= q ? m.eig : _reserve!(m.eig, _maxgroup(x), size(m.X, 1))
+  B = view(ws.B, :, 1:q)
+  X, w = m.X, m.w
+  for (i, j) in enumerate(G)
+    c = m.xbar[j]
+    if w === nothing
+      @views B[:, i] .= X[:, j] .- c
+    else
+      @views B[:, i] .= (X[:, j] .- c) .* sqrt.(w)
+    end
+  end
+  BLAS.syrk!('U', 'T', one(T), B, zero(T), reshape(view(ws.C, 1:q^2), q, q))
+  _eigmax!(ws, q)
+end
+
+function _gram_eigmax!(m::LSModel{T}, x::AtomIterate{T}, G) where {T}
+  XG = m.X[:, G] .- transpose(m.xbar[G])
+  m.w === nothing || (XG .*= sqrt.(m.w))
+  eigmax(Symmetric(XG' * XG))
 end
 
 # group k of x ← the proximal operator of λ0 wₖ ‖⋅‖₂ with step 1/L at

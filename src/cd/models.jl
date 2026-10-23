@@ -48,6 +48,12 @@ Make the cache of the model `m` current for the iterate `x`.
 """
 function initialize! end
 
+# initialize! that keeps the curvatures of the groups of an AtomIterate, which
+# depend only on the data, with curvatures = false: for the levels of a path,
+# where only the cache of x must be computed again. Models that cache no
+# curvatures, as those defined outside the package, compute everything again.
+_initialize!(m::CDModel, x, curvatures::Bool) = initialize!(m, x)
+
 """
     coordinate_derivatives(m::CDModel, x, k) -> (G, a)
 

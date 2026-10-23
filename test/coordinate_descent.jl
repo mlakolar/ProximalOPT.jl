@@ -983,6 +983,60 @@ end
     fq = SqrtQuadraticFunction(X' * X / n, -X' * y / n, dot(y, y) / n)
     @test passes_bytes(SparseIterate(p), cdmodel(fq, SparseIterate(p)), NormL1(0.02), s) == 0
   end
+  # block coordinate descent: initialize! clears the group curvatures, which the
+  # second run computes again in the workspace that the first one allocated
+  groups = vcat([[k] for k in 1:5], [i:min(i + 6, p) for i in 6:7:p])
+  g = GroupNormL2(0.05, groups, ones(length(groups)))
+  w = rand(Xoshiro(17), n) .+ 0.5
+  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random))
+    x = AtomIterate(Float64, p, groups)
+    @test passes_bytes(x, cdmodel(f, x), g, s) == 0
+    @test passes_bytes(x, cdmodel(f, x; intercept = true), g, s) == 0
+    @test passes_bytes(x, cdmodel(GLMLoss(ProximalBase.Squared(), y, X; weights = w), x), g, s) == 0
+    @test passes_bytes(x, cdmodel(QuadraticFunction(X' * X / n, -X' * y / n), x), g, s) == 0
+  end
+end
+
+@testset "group curvatures" begin
+  # the curvature of the loss over each group, λmax of the Gram matrix of its
+  # centered, weighted columns (of A[G, G] for a quadratic), as eigmax computes it
+  X, y = lassodata()
+  n, p = size(X)
+  groups = vcat([[1], 2:3, 4:6], [i:min(i + 9, p) for i in 7:10:p])
+  w = rand(Xoshiro(18), n) .+ 0.5
+  for T in (Float64, Float32)
+    Xt, yt, wt = T.(X), T.(y), T.(w)
+    x = AtomIterate(T, p, groups)
+    for (f, intercept) in (((one(T) / n) * LeastSquaresLoss(yt, Xt), false), (LeastSquaresLoss(yt, Xt), true),
+                           (GLMLoss(ProximalBase.Squared(), yt, Xt; weights = wt), false))
+      m = cdmodel(f, x; intercept)
+      PS.initialize!(m, x)
+      for k in reverse(eachindex(groups))      # the workspace grows to the largest group first
+        G = groups[k]
+        XG = Xt[:, G] .- transpose(m.xbar[G])
+        f isa GLMLoss && (XG .*= sqrt.(wt))
+        @test PS._groupcurvature!(m, x, k) ≈ m.s * eigmax(Symmetric(XG' * XG)) rtol = 10 * eps(T)
+      end
+    end
+    A = Xt' * Xt / n
+    m = cdmodel(QuadraticFunction(A, -Xt' * yt / n), x)
+    PS.initialize!(m, x)
+    for k in eachindex(groups)
+      G = groups[k]
+      @test PS._groupcurvature!(m, x, k) ≈ eigmax(Symmetric(A[G, G])) rtol = 10 * eps(T)
+    end
+  end
+  # the levels of a path keep the curvatures, which initialize! clears, as the
+  # data may have changed in place
+  x = AtomIterate(Float64, p, groups)
+  for m in (cdmodel((1 / n) * LeastSquaresLoss(y, X), x), cdmodel(QuadraticFunction(X' * X / n, -X' * y / n), x))
+    PS.initialize!(m, x)
+    L = PS._groupcurvature!(m, x, 2)
+    PS._initialize!(m, x, false)
+    @test m.L[2] == L
+    PS.initialize!(m, x)
+    @test isnan(m.L[2])
+  end
 end
 
 end

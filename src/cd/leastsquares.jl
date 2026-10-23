@@ -10,8 +10,8 @@
 # squared column norms, computed on the first visit to each coordinate after
 # initialize!. With an intercept, the loss is minimized over an unpenalized
 # intercept β₀ as well, whose minimizer is β₀ = ȳ - x̄'β for the column means x̄
-# and the mean ȳ of y - o; the columns and y are centered on the fly, so X is
-# not copied.
+# and the mean ȳ of y - o, both weighted by w; the columns and y are centered
+# on the fly, so X is not copied, and the residuals keep ∑ᵢ wᵢ rᵢ = 0.
 mutable struct LSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T},
                        W<:Union{Nothing, AbstractVector{T}}, O<:Union{Nothing, AbstractVector{T}}} <: CDModel{T}
   X::MX
@@ -21,8 +21,8 @@ mutable struct LSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVect
   s::T
   r::Vector{T}
   a::Vector{T}          # ∑ᵢ wᵢ (Xᵢₖ - x̄ₖ)², NaN until computed
-  xbar::Vector{T}       # column means with an intercept, otherwise zeros
-  ybar::T               # mean of y - o with an intercept, otherwise zero
+  xbar::Vector{T}       # (weighted) column means with an intercept, otherwise zeros
+  ybar::T               # (weighted) mean of y - o with an intercept, otherwise zero
   L::Vector{T}          # curvatures of the groups of an AtomIterate, NaN until computed
   tmp::Vector{T}        # wᵢ rᵢ, for the gradient of a weighted loss
   eig::_GroupEig{T}     # workspace of the group curvatures
@@ -32,13 +32,14 @@ function LSModel(y::AbstractVector, X::AbstractMatrix, w, offset, s::Real; inter
   T = float(promote_type(eltype(y), eltype(X)))
   n, p = size(X)
   length(y) == n || throw(DimensionMismatch("X has $n rows and y has length $(length(y))"))
-  (intercept && w !== nothing) && throw(ArgumentError("an intercept is not supported with weights"))
   Xt, yt = convert(AbstractMatrix{T}, X), convert(AbstractVector{T}, y)
   wt = w === nothing ? nothing : convert(AbstractVector{T}, w)
   ot = offset === nothing ? nothing : convert(AbstractVector{T}, offset)
   _check_finite(yt, "y"); _check_finite(Xt, "X")
-  xbar = intercept ? _column_means(Xt) : zeros(T, p)
-  ybar = intercept ? _mean_response(yt, ot) : zero(T)
+  intercept && wt !== nothing && !(sum(wt) > 0) &&
+    throw(ArgumentError("an intercept needs weights with a positive sum"))
+  xbar = intercept ? _column_means(Xt, wt) : zeros(T, p)
+  ybar = intercept ? _mean_response(yt, ot, wt) : zero(T)
   LSModel{T, typeof(Xt), typeof(yt), typeof(wt), typeof(ot)}(Xt, yt, wt, ot, T(s), zeros(T, n), fill(T(NaN), p),
                                                              xbar, ybar, T[], wt === nothing ? T[] : zeros(T, n),
                                                              _GroupEig{T}())
@@ -46,6 +47,9 @@ end
 
 _mean_response(y, ::Nothing) = sum(y) / length(y)
 _mean_response(y, o) = (sum(y) - sum(o)) / length(y)
+_mean_response(y, o, ::Nothing) = _mean_response(y, o)
+_mean_response(y, ::Nothing, w::AbstractVector) = dot(w, y) / sum(w)
+_mean_response(y, o, w::AbstractVector) = (dot(w, y) - dot(w, o)) / sum(w)
 
 cdmodel(f::LeastSquaresLoss{T, <:AbstractVector}, x; intercept::Bool = false) where {T} =
   LSModel(f.Y, f.X, nothing, nothing, one(T); intercept)
@@ -75,11 +79,12 @@ residuals(m::LSModel) = m.r
 _check_finite(A::AbstractArray, name::AbstractString) =
   all(isfinite, A) || throw(ArgumentError("$name contains NaN or Inf."))
 
-# the column means of X; a constant column gets its value exactly, so that it is
-# exactly zero once centered (the computed mean can differ in the last bits)
-function _column_means(X::AbstractMatrix{T}) where {T}
+# the column means of X, weighted by w if given; a constant column gets its value
+# exactly, so that it is exactly zero once centered (the computed mean can
+# differ in the last bits)
+function _column_means(X::AbstractMatrix{T}, w::Union{Nothing, AbstractVector} = nothing) where {T}
   n = size(X, 1)
-  xbar = Vector{T}(vec(sum(X; dims = 1)) ./ n)
+  xbar = w === nothing ? Vector{T}(vec(sum(X; dims = 1)) ./ n) : Vector{T}((transpose(X) * w) ./ sum(w))
   n > 0 || return xbar
   for k in axes(X, 2)
     c = X[1, k]
@@ -146,18 +151,31 @@ end
   a, b
 end
 
-# the same with weights: b = ∑ᵢ wᵢ Xᵢₖ rᵢ and a = ∑ᵢ wᵢ Xᵢₖ²
-@inline function _column_dot(X::AbstractMatrix{T}, r::AbstractVector{T}, w::AbstractVector{T}, k::Int, a::T) where {T}
+# the same with weights: b = ∑ᵢ wᵢ (Xᵢₖ - c) rᵢ and a = ∑ᵢ wᵢ (Xᵢₖ - c)²
+@inline function _column_dot(X::AbstractMatrix{T}, r::AbstractVector{T}, w::AbstractVector{T}, k::Int, c::T,
+                             a::T) where {T}
   b = zero(T)
   if isnan(a)
     a = zero(T)
+    if iszero(c)
+      @inbounds @simd for i in eachindex(r)
+        a += X[i, k] * X[i, k] * w[i]
+        b += r[i] * X[i, k] * w[i]
+      end
+    else
+      @inbounds @simd for i in eachindex(r)
+        d = X[i, k] - c
+        a += d * d * w[i]
+        b += r[i] * d * w[i]
+      end
+    end
+  elseif iszero(c)
     @inbounds @simd for i in eachindex(r)
-      a += X[i, k] * X[i, k] * w[i]
       b += r[i] * X[i, k] * w[i]
     end
   else
     @inbounds @simd for i in eachindex(r)
-      b += r[i] * X[i, k] * w[i]
+      b += r[i] * (X[i, k] - c) * w[i]
     end
   end
   a, b
@@ -179,7 +197,7 @@ end
 
 @inline _column_dot(m::LSModel, k::Int) = _column_dot(m, m.w, k)
 @inline _column_dot(m::LSModel, ::Nothing, k::Int) = _column_dot(m.X, m.r, k, m.xbar[k], m.a[k])
-@inline _column_dot(m::LSModel, w::AbstractVector, k::Int) = _column_dot(m.X, m.r, w, k, m.a[k])
+@inline _column_dot(m::LSModel, w::AbstractVector, k::Int) = _column_dot(m.X, m.r, w, k, m.xbar[k], m.a[k])
 
 # ∑ᵢ wᵢ (Xᵢₖ - x̄ₖ)², from the cache, computed and cached if needed
 function _sqnorm!(m::LSModel{T}, k::Int) where {T}
@@ -194,7 +212,7 @@ function _sqnorm!(m::LSModel{T}, k::Int) where {T}
     else
       w = m.w
       @inbounds @simd for i in axes(X, 1)
-        a += X[i, k] * X[i, k] * w[i]
+        a += (X[i, k] - c) * (X[i, k] - c) * w[i]
       end
     end
     m.a[k] = a
@@ -264,7 +282,8 @@ function gradient!(G::AbstractVector{T}, m::LSModel{T}, x) where {T}
   else
     m.tmp .= m.w .* m.r
     mul!(G, transpose(m.X), m.tmp)
-    G .*= -m.s
+    swr = sum(m.tmp)
+    G .= m.s .* (m.xbar .* swr .- G)
   end
   G
 end

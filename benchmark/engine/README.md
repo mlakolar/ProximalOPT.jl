@@ -66,8 +66,8 @@ the same pass.
 The old run also times cases with no counterpart yet, such as DiffPrecTest's
 whole estimators.
 
-`new/Project.toml` takes ProximalBase 0.5 from its pull request branch through
-`[sources]` until 0.5 is registered.
+`new/` takes ProximalBase 0.5 from the registry and ProximalOPT from this
+checkout.
 
 ## Results
 

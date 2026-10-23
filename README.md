@@ -346,6 +346,22 @@ replaces in CoordinateDescent,
 - T. Sun and C.-H. Zhang. Sparse Matrix Inversion with Scaled Lasso. *Journal
   of Machine Learning Research*, 14, 2013.
 
+## Related packages
+
+- [ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl): the functions,
+  proximal operators and sparse iterates these solvers work with, with
+  [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) of the closed
+  forms.
+- [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl): the
+  lasso, group lasso, square-root and scaled lasso, and varying-coefficient
+  models.
+- [CovSel.jl](https://github.com/mlakolar/CovSel.jl): high-dimensional Gaussian
+  graphical models: the graphical lasso, CLIME, sparse precision matrices by the
+  scaled lasso, the fused graphical lasso, and the direct estimation of the
+  difference of two precision matrices.
+- [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): confidence
+  intervals and tests for the difference of two precision matrices.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

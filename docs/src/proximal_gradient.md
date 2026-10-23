@@ -80,6 +80,15 @@ so ``\hat L \le L`` implies the upper bound ``f(x^+) \le Q_L(x^+; x)``. The
 second estimate costs a gradient at the trial point, which the next iteration
 needs anyway.
 
+**Points off the domain.** A loss can be infinite on part of the space, as
+``\operatorname{tr}(S\Theta) - \log\det\Theta`` is off the positive definite
+cone. A trial point where ``f`` is not finite gives no estimate and is never
+accepted: the search sets ``L \leftarrow L/\beta`` and tries again, past
+``L_{\text{exact}}`` if need be. A small enough step from a point of the domain
+stays in it, so the search ends. The starting point must be in the domain:
+both methods throw an `ArgumentError` when ``f(x_0)`` is not finite, and the
+identity is a valid start for the log-determinant loss.
+
 ## Accelerated proximal gradient descent
 
 [`AccProxGradDescent`](@ref) takes the proximal gradient step from an
@@ -113,7 +122,10 @@ overshoots. Following the function-value scheme of O'Donoghue and Candès
 (2015), when ``F(x_{k+1}) > F(x_k)`` the iteration is repeated with
 ``\omega = 0`` from ``y = x_k``, and ``k`` starts again at zero. A step from
 ``x_k`` itself cannot increase ``F``, so this happens at most once per
-iteration, and the objective is nonincreasing.
+iteration, and the objective is nonincreasing. An extrapolated point off the
+domain of ``f``, where no step from it exists, restarts the iteration in the
+same way; a trial point off the domain fails the upper bound, so backtracking
+shortens the step.
 
 ## Stopping rules
 

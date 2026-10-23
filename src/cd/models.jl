@@ -154,11 +154,12 @@ end
   h
 end
 
-# the change of coordinate k in the stopping rule; for the groups of an
-# AtomIterate, _groupstep! returns the largest scaled change of an entry
+# the change of coordinate k in the stopping rule, scaled only when the
+# coordinate moved, which most coordinates of a full pass do not; for the groups
+# of an AtomIterate, _groupstep! returns the largest scaled change of an entry
 @inline function _visit!(m::CDModel, g, x, k::Int, scaled::Bool)
   h = abs(coordinate_step!(m, g, x, k))
-  scaled ? h * coordinate_scale(m, x, k) : h
+  scaled && !iszero(h) ? h * coordinate_scale(m, x, k) : h
 end
 
 @inline _visit!(m::CDModel, g, x::AtomIterate, k::Int, scaled::Bool) = _groupstep!(m, g, x, k, scaled)

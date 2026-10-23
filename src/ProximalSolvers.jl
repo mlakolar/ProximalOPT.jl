@@ -76,4 +76,6 @@ include("cd/drivers.jl")
 
 include("utils.jl")
 
+include("precompile.jl")
+
 end

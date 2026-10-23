@@ -31,7 +31,7 @@ export
   solve!,
 
   # coordinate descent: losses, models, penalty levels, drivers
-  SqrtLeastSquaresLoss,
+  SqrtLeastSquaresLoss, SqrtQuadraticFunction,
   CDModel, cdmodel,
   lambda_max, solve_path,
   reweight!, refit!,
@@ -66,6 +66,7 @@ include("cd/leastsquares.jl")
 include("cd/quadratic.jl")
 include("cd/kron.jl")
 include("cd/sqrtlasso.jl")
+include("cd/sqrtquadratic.jl")
 include("cd/glm.jl")
 include("cd/path.jl")
 include("cd/drivers.jl")

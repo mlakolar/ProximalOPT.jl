@@ -119,7 +119,8 @@ check_penalty(m::CDModel, g) = nothing
 The [`CDModel`](@ref) of the loss `f` for iterates like `x`: for
 `LeastSquaresLoss`, a least-squares `GLMLoss` (with weights and an offset),
 `QuadraticFunction` and [`KronQuadratic`](@ref), each possibly scaled, as in
-`(1/n) * LeastSquaresLoss(y, X)`.
+`(1/n) * LeastSquaresLoss(y, X)`, for a logistic or Huber `GLMLoss`, and for
+[`SqrtLeastSquaresLoss`](@ref) and [`SqrtQuadraticFunction`](@ref).
 """
 function cdmodel end
 

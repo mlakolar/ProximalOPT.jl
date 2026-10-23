@@ -47,8 +47,8 @@ cache of a built-in model moves with the
 point, at the cost of a few vector operations per pass; a model of another
 loss is initialized at the extrapolated point. By default
 (`momentum = nothing`) it is used with the random order on a `SparseIterate`
-for `LeastSquaresLoss`, `GLMLoss`, `SqrtLeastSquaresLoss` and
-`QuadraticFunction`, and not otherwise. `momentum = true` asks for it with any
+for `LeastSquaresLoss`, `GLMLoss`, `SqrtLeastSquaresLoss`,
+`QuadraticFunction` and [`SqrtQuadraticFunction`](@ref), and not otherwise. `momentum = true` asks for it with any
 model on a `SparseIterate` or a `SymmetricSparseIterate`, such as
 [`KronQuadratic`](@ref); `momentum = false` turns it off. With the cyclic order
 it can stall far from the minimizer, so `order = :cyclic` refuses
@@ -274,6 +274,10 @@ end
 # point; nothing for a model that momentum initializes at the point instead
 _cache(m::CDModel) = nothing
 
+# called after momentum moved the cache with the point, for a model that derives
+# from the cache what is not affine in x (as SqrtQuadModel its value)
+_cache_moved!(m::CDModel, x) = m
+
 # whether momentum is used by default, with a random order on a SparseIterate:
 # for the models whose cache moves with the point, where it pays off
 _momentum_default(m::CDModel) = _cache(m) !== nothing
@@ -355,6 +359,7 @@ function _momentum_step!(s::_Momentum{T}, x, m) where {T}
     @inbounds @simd for i in eachindex(c)
       c[i] = s.ccur[i] + β * (s.ccur[i] - s.cprev[i])
     end
+    _cache_moved!(m, x)
     s.moved = true
   end
   s

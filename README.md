@@ -105,6 +105,7 @@ The losses it knows:
 | `QuadraticFunction(A, b)` | O(p), `Ax` cached | the lasso on `X'X/n` when `n ≫ p` |
 | `KronQuadratic(A, B, C)`, `⟨Θ, AΘB⟩/2 + ⟨C, Θ⟩` | O(pq), `AΘB` cached | the D-trace loss of a symmetric `Θ`, inverse Hessians of Kronecker form |
 | `SqrtLeastSquaresLoss(y, X)`, `‖y - Xβ‖` | exact, O(n) | square-root lasso (with `NormL1`) |
+| `SqrtQuadraticFunction(A, b, c)`, `√(x'Ax + 2b'x + c)` | exact, O(p), `Ax` cached | square-root lasso from `X'X/n`, `X'y/n` and `y'y/n`; the scaled lasso of one variable on the others from a covariance matrix (Sun and Zhang, 2013) |
 | `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster |
 
 Any of them scaled, as `(1/n) * f`, works too. The difference of two precision
@@ -342,6 +343,8 @@ replaces in CoordinateDescent,
   *Journal of the Royal Statistical Society B*, 74(2), 2012.
 - S. D. Zhao, T. T. Cai and H. Li. Direct Estimation of Differential Networks.
   *Biometrika*, 101(2), 2014.
+- T. Sun and C.-H. Zhang. Sparse Matrix Inversion with Scaled Lasso. *Journal
+  of Machine Learning Research*, 14, 2013.
 
 ## License
 

@@ -2,6 +2,7 @@ module LineSearches
 
 using LinearAlgebra
 using ProximalBase
+using ..Blocks
 
 export
   backtrack!,has_updated_gradient,
@@ -49,8 +50,8 @@ value_and_gradient_at_x!(state, f) = value_and_gradient!(state.grad_f_x, f, stat
 function backtrack!(state, ls::BackTracking{T}, f, g) where T
 
     # Quick exit if no progress made
-    @. state.deltaX = state.x - state.x_previous
-    xy_sq = norm( state.deltaX )^2
+    _sub!(state.deltaX, state.x, state.x_previous)
+    xy_sq = _norm( state.deltaX )^2
 
     if xy_sq == zero(T)
       # in the gradient mode, update_state! expects ∇f(x), but state.grad_f_x may
@@ -76,7 +77,7 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
     localL = Inf
     # Compute Lipschitz estimate
     if state.backtrack_simple
-        q_x = state.f_x_previous + dot( state.deltaX, state.grad_f_x_previous ) + 0.5 * state.L * xy_sq
+        q_x = state.f_x_previous + _dot( state.deltaX, state.grad_f_x_previous ) + 0.5 * state.L * xy_sq
         localL = state.L + 2. * max( state.f_x - q_x, zero(T) ) / xy_sq
         # as in TFOCS, keep the function value estimate while f(x) and f(x') are far
         # enough apart to compare in floating point, then switch for good to the
@@ -91,10 +92,7 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
         value_and_gradient_at_x!(state, f)
         state.f_calls += 1
         state.grad_calls += 1
-        localL = zero(T)
-        @inbounds @simd for i in eachindex(state.grad_f_x)
-            localL += (state.grad_f_x[i] - state.grad_f_x_previous[i]) * state.deltaX[i]
-        end
+        localL = _dot_diff(T, state.grad_f_x, state.grad_f_x_previous, state.deltaX)
         localL *= 2. / xy_sq
     end
 

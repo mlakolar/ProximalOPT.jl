@@ -19,10 +19,11 @@ Base.summary(::ProximalGradientDescent) = "Proximal Gradient Descent"
 ProximalGradientDescent(; ls = LineSearches.BackTracking()) =
   ProximalGradientDescent{typeof(ls)}(ls)
 
-# the iterates have the type of the starting point x0; the gradients are dense.
-# For a loss of a linear image, f(x) = F(Ax), the state keeps the image of x
-# (see image_models.jl); otherwise model and the image are nothing
-mutable struct ProximalGradientDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}, M, Z}
+# the iterates have the type of the starting point x0, an array or a tuple of
+# arrays; the gradients are dense. For a loss of a linear image, f(x) = F(Ax),
+# the state keeps the image of x (see image_models.jl); otherwise model and the
+# image are nothing
+mutable struct ProximalGradientDescentState{T, X<:Union{AbstractArray{T}, _Blocks{T}}, G<:Union{AbstractArray{T}, _Blocks{T}}, M, Z}
     x::X
     f_x::T
     g_x::T
@@ -51,9 +52,9 @@ function initial_state(
           options,
           f,
           g,
-          x0::AbstractArray{T}) where T
+          x0::Union{AbstractArray{T}, _Blocks{T}}) where T
 
-    grad_f_x = Array{T}(undef, size(x0))
+    grad_f_x = _dense_similar(x0)
     model = _image_model(f)
     z_x = model === nothing ? nothing : _image_buffer(model)
     dz = model === nothing ? nothing : similar(z_x)
@@ -67,12 +68,12 @@ function initial_state(
                          f_x,         # Maintain current f(x) in state.f_x
                          g_x,         # Maintain current g(x) in state.g_x
                          grad_f_x,    # Maintain gradient of f at current x in state.grad_f_x
-                         similar(x0), # Maintain previous state in state.x_previous
+                         _similar(x0), # Maintain previous state in state.x_previous
                          T(NaN),      # Store previous f in state.f_x_previous
                          T(NaN),      # Store previous g in state.g_x_previous
-                         similar(grad_f_x), # Maintain previous gradient of f in state.grad_f_x_previous for convergence check
-                         similar(x0), # Temporary storage
-                         similar(x0), # Temporary storage for x1 - x0
+                         _similar(grad_f_x), # Maintain previous gradient of f in state.grad_f_x_previous for convergence check
+                         _similar(x0), # Temporary storage
+                         _similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
                          T(-Inf),     # maxResidual
                          true,        # backtrack_simple
@@ -93,16 +94,16 @@ function update_state!(
     ) where T
 
     # copy x --> x_previous
-    copy!(state.x_previous, state.x)
+    _copy!(state.x_previous, state.x)
     state.f_x_previous = state.f_x
     state.g_x_previous = state.g_x
-    copy!(state.grad_f_x_previous, state.grad_f_x)
+    _copy!(state.grad_f_x_previous, state.grad_f_x)
     state.L *= method.ls.α
 
     # backtracking loop
     while true
       # find next point
-      @. state.xhat =  state.x_previous - state.grad_f_x_previous / state.L
+      _step!(state.xhat, state.x_previous, state.grad_f_x_previous, state.L)
       state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)
       _drop!(state.x)
       state.f_x = _value!(f, state.x, state.model, state.z_x)

@@ -172,9 +172,10 @@ evaluations: `f_calls` of `f` (by `value` or `value_and_gradient!`),
 `grad_calls` of its gradient and `prox_calls` of the proximal operator of `g`.
 `call_limit_reached` is `true` when the solver stopped at one of the limits in
 [`ProximalOptions`](@ref). The minimizer is the `x` passed to `solve!`: an
-`Array`, a `SparseIterate` or an `AtomIterate`.
+`Array`, a `SparseIterate`, an `AtomIterate`, or a tuple of arrays (`N` is 1
+for a tuple).
 """
-mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:AbstractArray{T,N}}
+mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:Union{AbstractArray{T,N}, _Blocks{T}}}
     method::O
     minimizer::X
     minimum::T
@@ -196,6 +197,10 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:AbstractArray{T,N}
     grad_calls::Int
     prox_calls::Int
     call_limit_reached::Bool
+
+    # N appears only in the bound of X, which a tuple leaves free, so solve!
+    # gives all the parameters
+    OptimizationResults{O,T,N,M,X}(fields...) where {O,T,N,M,X} = new{O,T,N,M,X}(fields...)
 end
 
 Base.summary(r::OptimizationResults) = summary(r.method)
@@ -222,6 +227,16 @@ prox_calls(r::OptimizationResults) = r.prox_calls
 call_limit_reached(r::OptimizationResults) = r.call_limit_reached
 
 
+function _show_minimizer(io::IO, x::AbstractArray)
+    if length(join(x, ",")) < 40
+        @printf io " * Minimizer: [%s]\n" join(x, ",")
+    else
+        @printf io " * Minimizer: [%s, ...]\n" join(x[1:2], ",")
+    end
+end
+_show_minimizer(io::IO, x::Tuple) =
+    @printf io " * Minimizer: %d blocks of sizes %s\n" length(x) join(map(b -> join(size(b), "×"), x), ", ")
+
 function Base.show(io::IO, r::OptimizationResults)
     @printf io "Results of Optimization Algorithm\n"
     @printf io " * Algorithm: %s\n" summary(r)
@@ -230,11 +245,7 @@ function Base.show(io::IO, r::OptimizationResults)
     # else
     #     @printf io " * Starting Point: [%s, ...]\n" join(initial_state(r)[1:2], ",")
     # end
-    if length(join(minimizer(r), ",")) < 40
-        @printf io " * Minimizer: [%s]\n" join(minimizer(r), ",")
-    else
-        @printf io " * Minimizer: [%s, ...]\n" join(minimizer(r)[1:2], ",")
-    end
+    _show_minimizer(io, minimizer(r))
     @printf io " * Minimum: %e\n" minimum(r)
     @printf io " * Iterations: %d\n" iterations(r)
     @printf io " * Convergence: %s\n" converged(r)

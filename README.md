@@ -15,14 +15,7 @@ coordinates or groups of coordinates (lasso, elastic net, MCP, SCAD, group
 lasso, box constraints) and a loss `f` whose coordinates are cheap to update
 (least squares, quadratics, Kronecker-structured quadratics of matrices,
 generalized linear losses). On top of it come paths of penalty levels with
-screening, reweighting and exact refits. ProximalSolvers is the solver layer of
-these packages, whose next releases run on it:
-
-| Package | |
-|---|---|
-| [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl) | the lasso and its paths; the group, square-root, scaled and heteroscedastic lasso; varying-coefficient models by the local polynomial lasso |
-| [CovSel.jl](https://github.com/mlakolar/CovSel.jl) | high-dimensional Gaussian graphical models: the graphical lasso, CLIME, and the difference of two precision matrices |
-| [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) | inference for the difference of two precision matrices |
+screening, reweighting and exact refits.
 
 It also has the other proximal solvers, for a smooth `f` and a `g` with an easy
 proximal operator: proximal gradient descent (plain, accelerated, or on an
@@ -30,7 +23,23 @@ active set) and ADMM. They cover the nuclear norm, the graphical lasso and
 other problems that coordinate descent does not fit.
 
 The losses, penalties and proximal operators come from
-[ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) (0.5).
+[ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) (0.5), and the
+next releases of CoordinateDescent, CovarianceSelection and DiffPrecTest run on
+these solvers.
+
+ProximalSolvers is one of five Julia packages for high-dimensional statistics,
+three for estimation and inference and two for the optimization beneath them:
+
+| Package | |
+|---|---|
+| [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl) | the lasso and its paths; the group, square-root, scaled and heteroscedastic lasso; varying-coefficient models |
+| [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl) | Gaussian graphical models: the graphical lasso, CLIME and ACLIME, precision matrices by the scaled lasso, the fused graphical lasso, and the difference of two precision matrices |
+| [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) | confidence intervals and tests for the difference of two precision matrices |
+| **ProximalSolvers.jl** (this package) | the solvers: coordinate descent with penalty paths, screening and active sets; proximal gradient methods, proximal Newton and ADMM |
+| [ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) | the building blocks: losses, penalties and constraints with their gradients and proximal operators, and sparse iterates; [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) with the mathematics |
+
+Most users need one of the first three. To solve a problem of your own, use
+ProximalSolvers; to write your own algorithm, ProximalBase.
 
 ## Installation
 
@@ -345,22 +354,6 @@ replaces in CoordinateDescent,
   *Biometrika*, 101(2), 2014.
 - T. Sun and C.-H. Zhang. Sparse Matrix Inversion with Scaled Lasso. *Journal
   of Machine Learning Research*, 14, 2013.
-
-## Related packages
-
-- [ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl): the functions,
-  proximal operators and sparse iterates these solvers work with, with
-  [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) of the closed
-  forms.
-- [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl): the
-  lasso, group lasso, square-root and scaled lasso, and varying-coefficient
-  models.
-- [CovSel.jl](https://github.com/mlakolar/CovSel.jl): high-dimensional Gaussian
-  graphical models: the graphical lasso, CLIME, sparse precision matrices by the
-  scaled lasso, the fused graphical lasso, and the direct estimation of the
-  difference of two precision matrices.
-- [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): confidence
-  intervals and tests for the difference of two precision matrices.
 
 ## License
 

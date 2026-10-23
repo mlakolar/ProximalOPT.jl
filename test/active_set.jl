@@ -150,6 +150,24 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     @test Vector(x) ≈ x_ref atol = 1e-4
   end
 
+  @testset "within rounding of λmax" begin
+    # just below λmax the check can flag the coordinate (or group) that attains
+    # λmax while the proximal step leaves it at zero; the solver stops after
+    # that solve instead of adding it again until max_outer
+    groups = [((k - 1) * 5 + 1):(k * 5) for k in 1:(p ÷ 5)]
+    λgmax = maximum(norm(b[G]) / sqrt(5) for G in groups)
+    for k in 0:8
+      x = SparseIterate(p)
+      res = solve!(x, f, NormL1(prevfloat(λmax, k)), ActiveAccProxGradDescent(), opt)
+      @test res.converged && res.outer_iterations <= 2
+      @test norm(Vector(x)) < 1e-8
+      xg = zeros(p)
+      res = solve!(xg, f, GroupNormL2(prevfloat(λgmax, k), groups), ActiveAccProxGradDescent(), opt)
+      @test res.converged && res.outer_iterations <= 2
+      @test norm(xg) < 1e-8
+    end
+  end
+
   @testset "outer iteration limit" begin
     x = SparseIterate(p)
     res = solve!(x, f, g, ActiveAccProxGradDescent(; max_add = 1, growth = 1, max_outer = 3), opt)

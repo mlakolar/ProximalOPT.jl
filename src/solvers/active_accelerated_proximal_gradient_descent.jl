@@ -17,7 +17,10 @@ set of stored entries of a `SparseIterate`, or the set of active groups of an
    active set that violate the optimality conditions, `kkt_violation > 0`;
 3. stops if there are none and `x` minimizes `f + g` over the active set, that
    is, the last inner solve converged (or `x = 0`); an inner solve stopped by
-   `maxiter` is thus repeated;
+   `maxiter` is thus repeated. It also stops after a converged inner solve
+   that changed no entry of `x`: the next one would repeat it. This happens
+   within rounding of the smallest penalty with a zero solution, where the
+   check flags a coordinate that the proximal step leaves at zero;
 4. adds the violators to the active set (`activate!`), the largest violations
    first, until they hold `max(max_add, (growth - 1) s)` entries, where `s` is
    the number of entries left in the active set by step 1, and with them the
@@ -131,6 +134,7 @@ function solve!(
 
   outer_iterations, inner_iterations = 0, 0
   solved = false              # x minimizes f + g over its active set
+  moved = true                # the last inner solve changed an entry of x
   inner_converged = true
   kkt_converged = false
 
@@ -142,8 +146,11 @@ function solve!(
     max_violation = _kkt_violators!(violators, violations, g, grad, x)
 
     # a minimizer over the active set that no coordinate outside it can improve
-    # is a minimizer; so is x = 0 if no coordinate can improve it
+    # is a minimizer; so is x = 0 if no coordinate can improve it. A converged
+    # inner solve that changed nothing would only be repeated
     if isempty(violators) && (solved || nactive(x) == 0)
+      kkt_converged = true
+    elseif solved && !moved
       kkt_converged = true
     end
     if kkt_converged || outer_iterations == method.max_outer
@@ -183,7 +190,9 @@ function solve!(
     end
     xS = T[x[i] for i in S]
     res = solve!(xS, restrict(f, S), restrict(g, S), inner_method, options)
+    moved = false
     for (j, i) in enumerate(S)
+      moved |= x[i] != xS[j]
       x[i] = xS[j]
     end
 

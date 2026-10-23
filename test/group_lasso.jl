@@ -70,14 +70,17 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
   end
 
   @testset "zero solution" begin
-    # λ ≥ λmax: every solver stays at x = 0
+    # λ ≥ λmax: every solver stays at x = 0. Just above λmax, since at λmax
+    # itself rounding, which depends on the BLAS of the machine, decides whether
+    # the group that attains it violates the optimality condition
+    λ0 = λmax * (1 + 1e-9)
     for solver in solvers
       x = zeros(p)
-      solve!(x, f, GroupNormL2(λmax, groups), solver, opt)
+      solve!(x, f, GroupNormL2(λ0, groups), solver, opt)
       @test x == zeros(p)
     end
     x = zeros(p)
-    res = solve!(x, f, GroupNormL2(λmax, groups), ActiveAccProxGradDescent(), opt)
+    res = solve!(x, f, GroupNormL2(λ0, groups), ActiveAccProxGradDescent(), opt)
     @test res.outer_iterations == 0
 
     # just below λmax, the group that attains λmax enters

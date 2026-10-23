@@ -470,6 +470,91 @@ end
   @test_throws ArgumentError solve!(SparseIterate(p), SqrtLeastSquaresLoss(y, X), MCP(1.0, 3.0), CDSolver())
 end
 
+@testset "square root of a quadratic" begin
+  X, y = lassodata()
+  n, p = size(X)
+  A, b, c = X' * X / n, -X' * y / n, dot(y, y) / n
+  f = SqrtQuadraticFunction(A, b, c)     # ‖y - Xx‖ / √n
+  λls = 0.5 * maximum(abs, X' * y) / norm(y)
+  λ = λls / sqrt(n)
+  x = SparseIterate(p)
+  r = solve!(x, f, NormL1(λ), CDSolver(; tol = 1e-12))
+  xd = Vector(x)
+  q = dot(xd, A * xd) + 2 * dot(b, xd) + c
+  @test kkt_l1((A * xd + b) / sqrt(q), xd, λ) < 1e-7
+  @test r.minimum ≈ sqrt(q) + λ * sum(abs, xd)
+  @test f(xd) ≈ sqrt(q)
+  # the square-root lasso from the data, with the penalty scaled by √n
+  xs = SparseIterate(p)
+  solve!(xs, SqrtLeastSquaresLoss(y, X), NormL1(λls), CDSolver(; tol = 1e-12))
+  @test xd ≈ Vector(xs) atol = 1e-8
+  # without momentum, the same solution
+  x0 = SparseIterate(p)
+  solve!(x0, f, NormL1(λ), CDSolver(; tol = 1e-12, momentum = false))
+  @test Vector(x0) ≈ xd atol = 1e-8
+  # λmax, and a path from the default iterate
+  @test lambda_max(f, NormL1(1.0), SparseIterate(p)) ≈ maximum(abs, b) / sqrt(c)
+  path = solve_path(f, NormL1(1.0), [4λ, 2λ, λ], CDSolver(; tol = 1e-12))
+  @test Vector(path.solutions[3]) ≈ xd atol = 1e-6
+
+  # momentum moves the cache Ax with the point, and the value of the quadratic,
+  # which is not affine in x, is computed again from it
+  g = NormL1(λ)
+  m = cdmodel(f, SparseIterate(p))
+  xm = SparseIterate(p)
+  for k in 1:5
+    xm[k] = 0.5
+  end
+  PS.initialize!(m, xm)
+  mom = PS._momentum_start!(PS._Momentum{Float64}(), xm, m)
+  PS._momentum_reset!(mom, xm, m)
+  for k in 1:5
+    PS.coordinate_step!(m, g, xm, k)      # a pass over the active set
+  end
+  PS._momentum_update!(mom, xm, m)
+  PS._momentum_step!(mom, xm, m)          # β = 1/4
+  xv = Vector(xm)
+  @test mom.k == 2 && mom.moved             # the cache moved
+  @test m.u ≈ A * xv
+  @test m.q ≈ dot(xv, A * xv) + 2 * dot(b, xv) + c
+
+  # the scaled lasso of variable j on the others from their covariance matrix,
+  # with an infinite weight that keeps coordinate j at zero (Sun and Zhang,
+  # 2013), is the square-root lasso of X[:, j] on the other columns
+  j = 4
+  others = setdiff(1:p, j)
+  w = ones(p); w[j] = Inf
+  λjls = 0.5 * maximum(abs, X[:, others]' * X[:, j]) / norm(X[:, j])
+  fj = SqrtQuadraticFunction(A, -A[:, j], A[j, j]; check = false)
+  xj = SparseIterate(p)
+  solve!(xj, fj, NormL1(λjls / sqrt(n), w), CDSolver(; tol = 1e-12))
+  xo = SparseIterate(p - 1)
+  solve!(xo, SqrtLeastSquaresLoss(X[:, j], X[:, others]), NormL1(λjls), CDSolver(; tol = 1e-12))
+  @test xj[j] == 0
+  @test Vector(xj)[others] ≈ Vector(xo) atol = 1e-8
+  # with λ0 = 0 the weight gives NaN, which keeps the coordinate at zero too:
+  # least squares on the other columns
+  X20 = X[:, 1:20]
+  A20 = X20' * X20 / n
+  w20 = zeros(20); w20[j] = Inf
+  x20 = SparseIterate(20)
+  r20 = solve!(x20, SqrtQuadraticFunction(A20, -A20[:, j], A20[j, j]), NormL1(0.0, w20), CDSolver(; tol = 1e-12))
+  o20 = setdiff(1:20, j)
+  @test r20.converged && x20[j] == 0
+  @test Vector(x20)[o20] ≈ X20[:, o20] \ X20[:, j] atol = 1e-6
+
+  # A is used as it is, and checked only when asked
+  @test cdmodel(f, SparseIterate(p)).A === A
+  @test_throws DimensionMismatch SqrtQuadraticFunction(randn(3, 4), zeros(3), 1.0)
+  @test_throws DimensionMismatch SqrtQuadraticFunction(A, zeros(p + 1), c)
+  An = copy(A); An[1, 2] += 1
+  @test_throws ArgumentError SqrtQuadraticFunction(An, b, c)
+  @test SqrtQuadraticFunction(An, b, c; check = false) isa SqrtQuadraticFunction
+  @test_throws ArgumentError SqrtQuadraticFunction(A, fill(NaN, p), c)
+  @test_throws ArgumentError SqrtQuadraticFunction(A, b, Inf)
+  @test_throws ArgumentError solve!(SparseIterate(p), f, ElasticNet(λ, 0.1), CDSolver())
+end
+
 @testset "reweighting" begin
   X, y = lassodata()
   n, p = size(X)
@@ -828,6 +913,8 @@ end
   @test passes(f, NormL1(λ), SparseIterate(p), auto) != passes(f, NormL1(λ), SparseIterate(p), plain)
   mq = MyQuadratic(A, b, zeros(p))
   @test passes(mq, NormL1(λ), SparseIterate(p), auto) == passes(mq, NormL1(λ), SparseIterate(p), plain)
+  fsq = SqrtQuadraticFunction(A, b, dot(y, y) / n)
+  @test passes(fsq, NormL1(λs / sqrt(n)), SparseIterate(p), auto) == passes(fsq, NormL1(λs / sqrt(n)), SparseIterate(p), mom)
   @test passes(fl, NormL1(λl), SparseIterate(100), auto) == passes(fl, NormL1(λl), SparseIterate(100), mom)
   @test passes(fk, NormL1(λk), SymmetricSparseIterate(q), auto) ==
         passes(fk, NormL1(λk), SymmetricSparseIterate(q), plain)
@@ -893,6 +980,8 @@ end
     fk = KronQuadratic(Sx, Sy, Sx - Sy)
     @test passes_bytes(SymmetricSparseIterate(q), cdmodel(fk, SymmetricSparseIterate(q)), NormL1(0.05), s) == 0
     @test passes_bytes(SparseIterate(q * q), cdmodel(fk, SparseIterate(q * q)), NormL1(0.05), s) == 0
+    fq = SqrtQuadraticFunction(X' * X / n, -X' * y / n, dot(y, y) / n)
+    @test passes_bytes(SparseIterate(p), cdmodel(fq, SparseIterate(p)), NormL1(0.02), s) == 0
   end
 end
 

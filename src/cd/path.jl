@@ -234,4 +234,5 @@ _default_iterate(f::LeastSquaresLoss{T, <:AbstractVector}) where {T} = SparseIte
 _default_iterate(f::Scaled) = _default_iterate(f.f)
 _default_iterate(f::GLMLoss{L, T}) where {L, T} = SparseIterate(T, size(f.X, 2))
 _default_iterate(f::QuadraticFunction{T}) where {T} = SparseIterate(T, size(f.A, 2))
+_default_iterate(f::SqrtQuadraticFunction{T}) where {T} = SparseIterate(T, length(f.b))
 _default_iterate(f) = throw(ArgumentError("give the starting iterate x of the path"))

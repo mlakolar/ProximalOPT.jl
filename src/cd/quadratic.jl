@@ -17,6 +17,7 @@ mutable struct QuadModel{T<:AbstractFloat, B<:Union{Nothing, AbstractVector{T}}}
   u::Vector{T}          # A x
   L::Vector{T}          # curvatures of the groups of an AtomIterate, NaN until computed
   tmp::Vector{T}
+  eig::_GroupEig{T}     # workspace of the group curvatures
 end
 
 function QuadModel(A::AbstractMatrix, b, c, s)
@@ -27,7 +28,7 @@ function QuadModel(A::AbstractMatrix, b, c, s)
   _check_finite(Ad, "A")
   bt = b === nothing ? nothing : convert(AbstractVector{T}, b)
   bt === nothing || _check_finite(bt, "b")
-  QuadModel{T, typeof(bt)}(Ad, bt, T(c), T(s), zeros(T, n), T[], T[])
+  QuadModel{T, typeof(bt)}(Ad, bt, T(c), T(s), zeros(T, n), T[], T[], _GroupEig{T}())
 end
 
 cdmodel(f::QuadraticFunction, x) = QuadModel(f.A, f.b, f.c, 1)
@@ -36,7 +37,9 @@ cdmodel(f::Scaled{<:QuadraticFunction}, x) = QuadModel(f.f.A, f.f.b, f.f.c, f.α
 @inline _linear(b::Nothing, k::Int, ::Type{T}) where {T} = zero(T)
 @inline _linear(b::AbstractVector, k::Int, ::Type{T}) where {T} = @inbounds b[k]
 
-function initialize!(m::QuadModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}) where {T}
+initialize!(m::QuadModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}) where {T} = _initialize!(m, x, true)
+
+function _initialize!(m::QuadModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}, curvatures::Bool) where {T}
   length(x) == size(m.A, 2) || throw(DimensionMismatch("x has length $(length(x)) and A has $(size(m.A, 2)) columns"))
   u, A = m.u, m.A
   fill!(u, zero(T))
@@ -47,7 +50,7 @@ function initialize!(m::QuadModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}
       u[i] += A[i, k] * v
     end
   end
-  x isa AtomIterate && fill!(resize!(m.L, ncoordinates(x)), T(NaN))
+  curvatures && x isa AtomIterate && fill!(resize!(m.L, ncoordinates(x)), T(NaN))
   m
 end
 
@@ -111,12 +114,25 @@ function _groupcurvature!(m::QuadModel{T}, x::AtomIterate{T}, k::Int) where {T}
   L = m.L[k]
   if isnan(L)
     G = x.groups[k]
-    L = length(G) == 1 ? m.A[first(G), first(G)] : eigmax(Symmetric(m.A[G, G]))
+    L = length(G) == 1 ? m.A[first(G), first(G)] : _gram_eigmax!(m, x, G)
     L = max(m.s * L, zero(T))
     m.L[k] = L
   end
   L
 end
+
+# λmax(A[G, G]), for a quadratic
+function _gram_eigmax!(m::QuadModel{T}, x::AtomIterate{T}, G) where {T<:Union{Float32, Float64}}
+  q = length(G)
+  ws = m.eig.nmax >= q ? m.eig : _reserve!(m.eig, _maxgroup(x), 0)
+  C, A = ws.C, m.A
+  for (j, l) in enumerate(G), (i, k) in enumerate(G)
+    i <= j && (@inbounds C[(j - 1) * q + i] = A[k, l])
+  end
+  _eigmax!(ws, q)
+end
+
+_gram_eigmax!(m::QuadModel{T}, x::AtomIterate{T}, G) where {T} = eigmax(Symmetric(m.A[G, G]))
 
 # group k of x ← the proximal operator of λ0 wₖ ‖⋅‖₂ with step 1/L at
 # x[G] - ∇_G f(x) / L, as for least squares

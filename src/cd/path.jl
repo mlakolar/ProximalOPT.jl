@@ -213,7 +213,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   for (k, λ) in enumerate(λs)
     gk = _with_level(g, T(λ))
     if screening
-      initialize!(m, x)       # no drift of the cache along the path
+      _initialize!(m, x, false)   # no drift of the cache along the path; the data are the same
       checks = _screened!(x, m, gk, λprev, grad, st, method, inS)
       λprev = T(λ)
     else

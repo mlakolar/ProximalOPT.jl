@@ -196,10 +196,12 @@ end
 # The decision after a pass: (stop, converged, tol, ok), where converged says
 # whether the changes were below tol (so the next pass is a full one) and ok
 # whether the stopping rule was met. Without a gap, the run stops after a full
-# pass with changes below tol. With one, after each full pass the gap is
-# computed and the coordinates screened; with gaptol the run stops when the gap
-# is small enough, and tol is tightened tenfold when the changes are below it
-# first.
+# pass with changes below tol. With gaptol, the gap is computed where that rule
+# would stop, a full pass with changes below tol: the run stops if the gap is
+# small enough, and tol is tightened tenfold otherwise. A gap costs a full
+# gradient, which can cost much more than a pass over the candidates of the
+# strong rule, so it is not computed after the other full passes, except for
+# the screening of gapsafe, which pays only if it comes early.
 @inline function _afterpass!(::Nothing, x, m, g, st, s::CDSolver, full::Bool, maxh, tol, tolmin)
   converged = maxh < tol
   full && converged, converged, tol, true
@@ -208,7 +210,7 @@ end
 function _afterpass!(gs::_GapState{T}, x, m, g, st::_CDState{T}, s::CDSolver, full::Bool, maxh::T, tol::T,
                      tolmin::T) where {T}
   converged = maxh < tol
-  full || return false, converged, tol, true
+  (full && (converged || s.gapsafe)) || return false, converged, tol, true
   available, certified, moved = _gapcheck!(gs, x, m, g, st, s)
   certified && return true, converged, tol, true
   moved && return false, false, tol, true        # screening changed x: pass again

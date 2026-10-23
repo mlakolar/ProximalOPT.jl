@@ -58,9 +58,9 @@ With `gaptol > 0`, the method stops when the relative duality gap
 `(P - D) / |P|` at `x` is at most `gaptol`, where `P = f + g` and `D` is the
 dual objective at a dual point built from the gradient (see
 [`duality_gap`](@ref)): a certificate that `P(x)` is within `gaptol ⋅ |P|` of
-the optimum. The gap is computed after each full pass, at the cost of one more
-gradient. When the changes fall below `tol` before the gap is small enough,
-`tol` is tightened tenfold. This needs a loss of a linear map with a known
+the optimum. The gap is computed, at the cost of one full gradient, where the
+rule on the changes would stop; when it is not yet small enough, `tol` is
+tightened tenfold and the passes go on. This needs a loss of a linear map with a known
 conjugate (`LeastSquaresLoss`, a `GLMLoss` with the squared, logistic or Huber
 loss, possibly scaled, with or without an intercept) and a convex penalty with
 a known conjugate (`NormL1`, `NormL1Nonneg` and `ElasticNet` with positive
@@ -68,9 +68,11 @@ weights, and `GroupNormL2` on an `AtomIterate` with positive weights); with
 other losses and penalties the rule on the changes applies, and `gaptol` is
 ignored. With `gapsafe = true` and such a loss and penalty, each gap
 evaluation also screens the coordinates by the gap-safe rule of Fercoq,
-Gramfort and Salmon (*Mind the duality gap: safer rules for the lasso*, 2015):
-a coordinate it proves zero at the solution is set to zero and left out of the
-full passes for the rest of the run. The relative gap at the end is the `gap`
+Gramfort and Salmon (*Mind the duality gap: safer rules for the lasso*, 2015),
+after every full pass: a coordinate it proves zero at the solution is set to
+zero and left out of the full passes for the rest of the run. On the lasso
+designs of `benchmark/gap` it removes most coordinates but saves less time than
+its gaps cost, so it is off by default. The relative gap at the end is the `gap`
 of the [`CDResults`](@ref), `NaN` when it was not computed.
 """
 struct CDSolver <: ProximalSolver

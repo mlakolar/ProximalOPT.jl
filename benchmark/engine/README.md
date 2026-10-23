@@ -86,6 +86,12 @@ finished `proximalbase-0.5` branch, `247a352`). Ratios are new over old times.
 All 81 cases: 0.83. No case is more than 4% slower, which is within the noise of
 repeated runs of the same code.
 
+A rerun after `KronQuadratic` moved into ProximalBase (`e73054d`) gives the
+same picture, 0.83 over all cases. The direct difference IHT case drops to 0.20,
+in 33 iterations, since ProximalBase evaluates `KronQuadratic` with BLAS. The
+one case above 1.10 there, the lasso on E at 0.1 λmax in random order (1.13,
+1.8 ms), measures 0.99 on a rerun of four interleaved rounds.
+
 - The lasso, path, group, square-root, scaled and feasible lasso take the same
   steps as CoordinateDescent: the same passes, and solutions that agree to
   rounding.

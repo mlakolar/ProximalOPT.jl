@@ -79,22 +79,33 @@ function _screened!(x, m::CDModel{T}, g, λprev, grad::AbstractArray, st::_CDSta
 end
 
 """
-    solve!(x, f, g, method::CDSolver; continuation)
+    solve!(x, f, g, method::CDSolver; continuation, continuation_tol, screening)
 
 With `continuation = n > 0`, `x` is set to zero and `f + g` is minimized along
 `n` penalty levels spaced geometrically from [`lambda_max`](@ref) down to the
 level of `g`, then at `g` itself, each warm started from the previous solution.
-With `screening`, each level is screened with the strong rule (see
-[`solve_path`](@ref)); the default screens except on a `SymmetricSparseIterate`,
-whose coordinate steps update the gradient everywhere, so that the optimality
-checks of screening cost more passes than they save. When the level of `g` is
-zero or at least `lambda_max`, `f + g` is minimized from zero directly, and so
-it is for a penalty without a level (`ZeroFunction`, `IndBox`, …), which has
-no path.
+The levels before `g` only give warm starts, so they are solved to the looser
+tolerance `continuation_tol` (`√tol` for the tolerance `tol` of `method`, by
+default), and only `g` to `tol`; `continuation_tol = method.tol` solves every
+level to `tol`. With `screening`, each level is screened with the strong rule
+(see [`solve_path`](@ref)); the default screens except on a
+`SymmetricSparseIterate`, whose coordinate steps update the gradient
+everywhere, so that the optimality checks of screening cost more passes than
+they save. When the level of `g` is zero or at least `lambda_max`, `f + g` is
+minimized from zero directly, and so it is for a penalty without a level
+(`ZeroFunction`, `IndBox`, …), which has no path.
 """
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f::Union{AbstractFunction, CDModel},
                 g::AbstractFunction, method::CDSolver; continuation::Integer,
-                screening::Bool = !(x isa SymmetricSparseIterate))
+                continuation_tol::Real = sqrt(method.tol), screening::Bool = !(x isa SymmetricSparseIterate))
+  continuation_tol >= 0 || throw(ArgumentError("continuation_tol must be nonnegative, but it is $continuation_tol."))
+  tol = max(Float64(continuation_tol), method.tol)
+  _continuation!(x, f, g, method, continuation, screening, k -> tol)
+end
+
+# continuation along n levels, solving level k < n to the tolerance tolk(k)
+# and the last one, g, to method.tol
+function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screening::Bool, tolk)
   continuation >= 0 || throw(ArgumentError("continuation must be nonnegative, but it is $continuation."))
   continuation == 0 && return solve!(x, f, g, method)
   m = f isa CDModel ? f : cdmodel(f, x)
@@ -119,10 +130,11 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
     λprev = λmax
     for k in 0:continuation
       gk = k == continuation ? g : _with_level(g, exp(l1 + k * (l2 - l1) / continuation))
+      sk = k == continuation ? method : _with_tol(method, tolk(k))
       if screening
-        checks += _screened!(x, m, gk, λprev, grad, st, method, inS)
+        checks += _screened!(x, m, gk, λprev, grad, st, sk, inS)
       else
-        _cd!(x, m, gk, st, method)
+        _cd!(x, m, gk, st, sk)
       end
       passes += st.passes
       λprev = _level(gk)
@@ -134,6 +146,9 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
   _warn_not_converged(st, method)
   CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks)
 end
+
+# the solver with another tolerance
+_with_tol(s::CDSolver, tol::Real) = CDSolver(s.maxpasses, Float64(tol), s.random, s.relative, s.anderson, s.momentum)
 
 Base.eltype(::CDModel{T}) where {T} = T
 

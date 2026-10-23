@@ -1,4 +1,5 @@
-# Compare runs of old/run.jl and new/run.jl, case by case:
+# Compare runs of old-cd/run.jl and old/run.jl with runs of new/run.jl, case by
+# case:
 #
 #     julia benchmark/engine/compare.jl first.csv second.csv [--all]
 #     julia benchmark/engine/compare.jl old1.csv,old2.csv new1.csv,new2.csv
@@ -41,18 +42,28 @@ function read_rows(csv)
   rows, order
 end
 
-# the rows of several runs, each case with its minimum time over the runs
+# the rows of several runs, each case with its minimum time over the runs and
+# the rest from its first run; the runs may hold different cases, as those of
+# old-cd/run.jl and old/run.jl
 function read_side(spec)
   files = split(spec, ',')
-  rows, order = read_rows(files[1])
-  for f in files[2:end]
-    more, _ = read_rows(f)
-    for (key, r) in more
-      haskey(rows, key) && r.time < rows[key].time &&
-        (rows[key] = Row(key, r.group, r.time, rows[key].passes, rows[key].converged, rows[key].objective, rows[key].nnz))
+  rows, order = Dict{String, Row}(), String[]
+  solutions = Dict{String, Vector{Float64}}()
+  for f in files
+    more, morder = read_rows(f)
+    sols = deserialize(replace(String(f), r"\.csv$" => ".jls"))
+    for key in morder
+      r = more[key]
+      if !haskey(rows, key)
+        rows[key] = r
+        push!(order, key)
+        haskey(sols, key) && (solutions[key] = sols[key])
+      elseif r.time < rows[key].time
+        rows[key] = Row(key, r.group, r.time, rows[key].passes, rows[key].converged, rows[key].objective, rows[key].nnz)
+      end
     end
   end
-  rows, order, deserialize(replace(String(files[1]), r"\.csv$" => ".jls")), files
+  rows, order, solutions, files
 end
 
 function main(args)

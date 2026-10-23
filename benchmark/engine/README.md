@@ -7,8 +7,13 @@ case by case: the time, the passes, and the solutions.
 
 - `problems.jl`: the problems, from standard libraries only, so that both
   environments draw the same data.
-- `old/`: CoordinateDescent 0.5.4, CovSel, DiffPrecTest and ProximalOPT 0.1 on
-  ProximalBase 0.4, pinned to their commits of 23 October 2026 (`run.jl`).
+- `old-cd/`: CoordinateDescent 0.6.0, its last release, which uses momentum by
+  default with the random order, on ProximalBase 0.4 (`run.jl`): the cases of
+  CoordinateDescent's own estimators.
+- `old/`: CovSel, DiffPrecTest and ProximalOPT 0.1 on CoordinateDescent 0.5.4
+  and ProximalBase 0.4, pinned to their commits of 23 October 2026 (`run.jl`).
+  At those commits CovSel and DiffPrecTest allow CoordinateDescent 0.4 and 0.5
+  only.
 - `new/`: ProximalOPT from this repository on ProximalBase 0.5 (`run.jl`).
 - `compare.jl`: the comparison; `ab.sh`: interleaved runs and the comparison.
 
@@ -17,6 +22,7 @@ case by case: the time, the passes, and the solutions.
 From the root of the repository:
 
 ```
+julia --project=benchmark/engine/old-cd -e 'using Pkg; Pkg.instantiate()'
 julia --project=benchmark/engine/old -e 'using Pkg; Pkg.instantiate()'
 julia --project=benchmark/engine/new -e 'using Pkg; Pkg.instantiate()'
 benchmark/engine/ab.sh 2                      # two rounds of each, about 12 minutes
@@ -24,8 +30,9 @@ benchmark/engine/ab.sh 3 'dtrace|diffprec'    # only the cases whose key matches
 ```
 
 Each round runs the old code, then the new code, in fresh processes, and writes
-`results/old_<stamp>.csv` and `results/new_<stamp>.csv` with the solutions in
-`.jls` files. `compare.jl` takes the fastest run of each case on each side, since
+`results/old-cd_<stamp>.csv`, `results/old_<stamp>.csv` and
+`results/new_<stamp>.csv` with the solutions in `.jls` files; the runs of
+`old-cd/` and `old/` together make the old side. `compare.jl` takes the fastest run of each case on each side, since
 load on the machine only ever adds time; on a machine shared with other work,
 runs that are not interleaved can differ by 30% or more. One run of a side alone:
 
@@ -39,8 +46,9 @@ julia benchmark/engine/compare.jl results/old_<stamp>.csv results/new_<stamp>.cs
 Each case solves one problem with one solver setting, under the same key in
 both runs, from the same starting point and, for a random coordinate order, the
 same seed. The new code draws its random orders with the same calls as
-CoordinateDescent, so where the two take the same steps they visit the
-coordinates in the same order and stop after the same pass.
+CoordinateDescent, and extrapolates with the same momentum, so where the two
+take the same steps they visit the coordinates in the same order and stop after
+the same pass.
 
 | group | cases |
 |---|---|
@@ -58,10 +66,8 @@ coordinates in the same order and stop after the same pass.
 The old run also times cases with no counterpart yet, such as DiffPrecTest's
 whole estimators.
 
-`new/Project.toml` takes ProximalBase 0.5 from the registry; until 0.5 is
-released, point it at a checkout of its branch with `Pkg.develop(path = ...)`
-in that environment (which writes the path into `Project.toml`; do not commit
-that).
+`new/Project.toml` takes ProximalBase 0.5 from its pull request branch through
+`[sources]` until 0.5 is registered.
 
 ## Results
 

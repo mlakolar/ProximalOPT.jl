@@ -359,6 +359,15 @@ end
   r = solve!(x, f, NormL1(λ), CDSolver(; tol = 1e-10); continuation = 20)
   @test kkt_l1(lsgrad(X, y, Vector(x)), Vector(x), λ) < 1e-7
   @test r.kkt_checks >= 21
+  # the levels before λ are solved to √tol by default, and λ itself to tol
+  for ctol in (1e-10, 1e-3, 0.0)
+    xc = SparseIterate(p)
+    rc = solve!(xc, f, NormL1(λ), CDSolver(; tol = 1e-10); continuation = 20, continuation_tol = ctol)
+    @test rc.converged && rc.tolerance == r.tolerance
+    @test kkt_l1(lsgrad(X, y, Vector(xc)), Vector(xc), λ) < 1e-7
+    @test Vector(xc) ≈ Vector(x) atol = 1e-7
+  end
+  @test_throws ArgumentError solve!(SparseIterate(p), f, NormL1(λ), CDSolver(); continuation = 5, continuation_tol = -1)
 
   λs = λmax .* 10 .^ range(0, -2; length = 15)
   for screening in (true, false)

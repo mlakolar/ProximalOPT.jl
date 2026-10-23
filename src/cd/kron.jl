@@ -1,124 +1,8 @@
 ####################################
 #
-#  Kronecker quadratic  ⟨Θ, A Θ B⟩ / 2 + ⟨C, Θ⟩
+#  Kronecker quadratic  ⟨Θ, A Θ B⟩ / 2 + ⟨C, Θ⟩ (KronQuadratic of ProximalBase)
 #
 ####################################
-
-"""
-    KronQuadratic(A, B, C = nothing)
-
-The quadratic `f(Θ) = ⟨Θ, A Θ B⟩ / 2 + ⟨C, Θ⟩` of a `p × q` matrix `Θ`, for
-symmetric positive semidefinite `A` (`p × p`) and `B` (`q × q`); in vectorized
-form `vec(Θ)'(B ⊗ A) vec(Θ) / 2 + vec(C)' vec(Θ)`, without forming the
-`pq × pq` matrix `B ⊗ A`. Smooth, with gradient `AΘB + C`.
-
-`Θ` may be a dense matrix, a vector of length `pq` (`vec(Θ)`), a
-`SparseIterate` of either shape or, when `p = q`, a `SymmetricSparseIterate`;
-for a symmetric `Θ` the gradient is that over symmetric matrices,
-`(AΘB + BΘA + C + C')/2`. Coordinate descent ([`CDSolver`](@ref)) caches
-`AΘB`, so a coordinate step costs O(pq).
-
-Examples:
-- the direct difference (D-trace) loss `tr(ΣxΔΣyΔ)/2 - tr(Δ(Σy - Σx))` of a
-  symmetric `Δ` (Zhao, Cai and Li, 2014) is `KronQuadratic(Σx, Σy, Σx - Σy)`;
-- the loss `tr(ΣxΘΣyΘ')/2 - Θ[a, b]`, whose minimizer is the row
-  `(b - 1)p + a` of `(Σy ⊗ Σx)⁻¹`, is `KronQuadratic(Σx, Σy, -E)` with `E` the
-  indicator of the entry `(a, b)`.
-"""
-struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: AbstractFunction
-  A::Matrix{T}
-  B::Matrix{T}
-  C::MC
-  tmp::Matrix{T}        # p × q buffers for values and gradients
-  tmp2::Matrix{T}
-end
-
-function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, AbstractMatrix} = nothing)
-  T = float(promote_type(eltype(A), eltype(B), C === nothing ? Bool : eltype(C)))
-  p, q = LinearAlgebra.checksquare(A), LinearAlgebra.checksquare(B)
-  C === nothing || size(C) == (p, q) || throw(DimensionMismatch("C must be $p × $q, but it is $(size(C, 1)) × $(size(C, 2))"))
-  Ad, Bd = Matrix{T}(A), Matrix{T}(B)
-  (issymmetric(Ad) && issymmetric(Bd)) || throw(ArgumentError("A and B must be symmetric"))
-  Cd = C === nothing ? nothing : Matrix{T}(C)
-  _check_finite(Ad, "A"); _check_finite(Bd, "B"); Cd === nothing || _check_finite(Cd, "C")
-  KronQuadratic{T, typeof(Cd)}(Ad, Bd, Cd, zeros(T, p, q), zeros(T, p, q))
-end
-
-ProximalBase.issmooth(::Type{<:KronQuadratic}) = true
-ProximalBase.isconvex(::Type{<:KronQuadratic}) = true
-
-Base.size(f::KronQuadratic) = (size(f.A, 1), size(f.B, 1))
-
-# Θ as a dense p × q matrix in D
-function _densify!(D::Matrix{T}, Θ::AbstractArray) where {T}
-  length(Θ) == length(D) || throw(DimensionMismatch("Θ has $(length(Θ)) entries and f takes $(size(D, 1)) × $(size(D, 2)) matrices"))
-  copyto!(D, Θ)
-end
-function _densify!(D::Matrix{T}, Θ::SparseIterate) where {T}
-  length(Θ) == length(D) || throw(DimensionMismatch("Θ has $(length(Θ)) entries and f takes $(size(D, 1)) × $(size(D, 2)) matrices"))
-  fill!(D, zero(T))
-  for k in activecoordinates(Θ)
-    @inbounds D[k] = Θ[k]
-  end
-  D
-end
-function _densify!(D::Matrix{T}, Θ::SymmetricSparseIterate) where {T}
-  size(Θ) == size(D) || throw(DimensionMismatch("Θ is $(size(Θ, 1)) × $(size(Θ, 2)) and f takes $(size(D, 1)) × $(size(D, 2)) matrices"))
-  fill!(D, zero(T))
-  cx = coordinates(Θ)
-  for k in activecoordinates(Θ)
-    r, c = tril_cartesian(Θ.p, k)
-    @inbounds D[r, c] = D[c, r] = cx[k]
-  end
-  D
-end
-
-_dotC(::Nothing, D, ::Type{T}) where {T} = zero(T)
-_dotC(C::Matrix, D, ::Type{T}) where {T} = dot(C, D)
-
-function (f::KronQuadratic{T})(Θ::AbstractArray) where {T}
-  D = _densify!(f.tmp2, Θ)
-  mul!(f.tmp, f.A, D)
-  v = zero(T)
-  # ⟨D, (A D) B⟩ without forming the product: column j of (A D) B is (A D) B[:, j]
-  AD, B = f.tmp, f.B
-  @inbounds for j in axes(D, 2), l in axes(D, 2)
-    blj = B[l, j]
-    iszero(blj) && continue
-    s = zero(T)
-    @simd for i in axes(D, 1)
-      s += D[i, j] * AD[i, l]
-    end
-    v += blj * s
-  end
-  v / 2 + _dotC(f.C, D, T)
-end
-
-# AΘB + C into G (any array with pq entries), symmetrized for a symmetric Θ
-function value_and_gradient!(G::AbstractArray, f::KronQuadratic{T}, Θ::AbstractArray) where {T}
-  length(G) == length(f.tmp) || throw(DimensionMismatch("G has $(length(G)) entries and f takes $(size(f.tmp, 1)) × $(size(f.tmp, 2)) matrices"))
-  D = _densify!(f.tmp2, Θ)
-  mul!(f.tmp, f.A, D)
-  Gm = reshape(G, size(f.tmp))
-  mul!(Gm, f.tmp, f.B)
-  v = dot(D, Gm) / 2
-  if f.C !== nothing
-    v += dot(f.C, D)
-    Gm .+= f.C
-  end
-  Θ isa SymmetricSparseIterate && _symmetrize!(Gm)
-  v
-end
-
-gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) = (value_and_gradient!(G, f, Θ); G)
-
-function _symmetrize!(G::AbstractMatrix)
-  p = size(G, 1)
-  @inbounds for c in 1:p, r in c+1:p
-    G[r, c] = G[c, r] = (G[r, c] + G[c, r]) / 2
-  end
-  G
-end
 
 ####################################
 #  the coordinate descent model
@@ -200,7 +84,7 @@ end
   ainv = inv(m.s * (@inbounds(A[r, r]) * @inbounds(B[c, c])))
   G = m.s * (@inbounds(M[r, c]) + _C(m.C, r, c, T))
   old = x[k]
-  new = isinf(ainv) ? cdprox(g, zero(T), k, floatmax(T)) : cdprox(g, old - G * ainv, k, ainv)
+  new = isinf(ainv) ? prox_entry(g, zero(T), k, floatmax(T)) : prox_entry(g, old - G * ainv, k, ainv)
   h = new - old
   iszero(h) && return h      # nothing to update, as for most coordinates at zero
   x[k] = new
@@ -226,7 +110,7 @@ end
   cx = coordinates(x)
   old = cx[k]
   i = _entry(p, r, c)
-  new = iszero(a) ? cdprox(g, zero(T), i, floatmax(T)) : cdprox(g, old - G / a, i, _multiplicity(T, r, c) / a)
+  new = iszero(a) ? prox_entry(g, zero(T), i, floatmax(T)) : prox_entry(g, old - G / a, i, _multiplicity(T, r, c) / a)
   h = new - old
   iszero(h) && return h
   cx[k] = new

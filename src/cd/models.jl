@@ -26,7 +26,7 @@ A model `m` implements, for the iterates it supports:
 - `gradient!(G, m, x)`, the gradient at `x`, from the cache, as an array of the
   size of `x` (one entry per entry of `x`, also for a `SymmetricSparseIterate`).
 
-From these, a coordinate step goes to [`cdprox`](@ref)`(g, xₖ - G/a, i, m/a)`,
+From these, a coordinate step goes to [`prox_entry`](@ref)`(g, xₖ - G/a, i, m/a)`,
 where `i` is the index of the entry in `x` and `m` the number of entries the
 coordinate moves (2 for an off-diagonal coordinate of a
 `SymmetricSparseIterate`): exact for quadratic losses, and a majorization step
@@ -62,7 +62,7 @@ cdmodel(f::AbstractFunction, x) =
 @inline function _step!(m::CDModel{T}, g, x::SparseIterate{T}, k::Int) where {T}
   G, a = _coordinate(m, x, k)
   old = x[k]
-  new = iszero(a) ? cdprox(g, zero(T), k, floatmax(T)) : cdprox(g, old - G / a, k, inv(a))
+  new = iszero(a) ? prox_entry(g, zero(T), k, floatmax(T)) : prox_entry(g, old - G / a, k, inv(a))
   h = new - old
   iszero(h) && return h
   x[k] = new
@@ -76,7 +76,7 @@ end
   cx = coordinates(x)
   old = cx[k]
   i = _entry(x.p, r, c)
-  new = iszero(a) ? cdprox(g, zero(T), i, floatmax(T)) : cdprox(g, old - G / a, i, _multiplicity(T, r, c) / a)
+  new = iszero(a) ? prox_entry(g, zero(T), i, floatmax(T)) : prox_entry(g, old - G / a, i, _multiplicity(T, r, c) / a)
   h = new - old
   iszero(h) && return h
   cx[k] = new

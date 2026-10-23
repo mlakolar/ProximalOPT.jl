@@ -184,7 +184,7 @@ work in the element type of `x`, `Float64` or `Float32`.
 `SymmetricSparseIterate` (the lower-triangle entries of a symmetric matrix) or
 an `AtomIterate` (the groups of a `GroupNormL2`). It reads the structure of
 `f` to make each step cheap, caching the residuals of least squares or the
-product `Ax` of a quadratic, and goes through `cdprox` of ProximalBase for the
+product `Ax` of a quadratic, and goes through `prox_entry` of ProximalBase for the
 penalty, so every separable penalty works: `NormL1` (with weights), `ElasticNet`,
 `MCP`, `SCAD`, `NormL1Nonneg`, `IndBox`, ... The lasso of glmnet's scaling,
 `‖y - Xβ‖² / (2n) + λ‖β‖₁`:

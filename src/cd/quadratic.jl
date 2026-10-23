@@ -56,7 +56,7 @@ end
   ainv = inv(m.s * @inbounds(A[k, k]))
   G = m.s * (@inbounds(u[k]) + _linear(m.b, k, T))
   old = x[k]
-  new = isinf(ainv) ? cdprox(g, zero(T), k, floatmax(T)) : cdprox(g, old - G * ainv, k, ainv)
+  new = isinf(ainv) ? prox_entry(g, zero(T), k, floatmax(T)) : prox_entry(g, old - G * ainv, k, ainv)
   h = new - old
   iszero(h) && return h      # x and Ax do not change
   x[k] = new

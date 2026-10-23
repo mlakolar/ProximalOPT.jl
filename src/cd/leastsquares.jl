@@ -205,7 +205,7 @@ end
   a, b = _column_dot(m, k)
   m.a[k] = a
   old = x[k]
-  new = iszero(a) ? cdprox(g, zero(T), k, floatmax(T)) : cdprox(g, old + b / a, k, inv(m.s * a))
+  new = iszero(a) ? prox_entry(g, zero(T), k, floatmax(T)) : prox_entry(g, old + b / a, k, inv(m.s * a))
   h = new - old
   iszero(h) && return h      # x and the residuals do not change
   x[k] = new

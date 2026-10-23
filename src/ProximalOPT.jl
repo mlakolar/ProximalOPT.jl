@@ -29,7 +29,6 @@ export
   solve!,
 
   # coordinate descent: losses, models, penalty levels, drivers
-  KronQuadratic,
   SqrtLeastSquaresLoss,
   CDModel, cdmodel,
   lambda_max, solve_path,

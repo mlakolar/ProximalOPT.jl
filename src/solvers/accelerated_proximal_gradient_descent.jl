@@ -67,9 +67,11 @@ function initial_state(
           g,
           x0::AbstractArray{T}) where T
 
+    f_x = f(x0)
+    _check_start(f_x)
     AccProxGradDescentState(
                          x0,          # Maintain current state in state.x
-                         f(x0),
+                         f_x,
                          g(x0),
                          copy(x0),    # x_previous = x0, so the first step has no momentum
                          T(NaN),
@@ -110,7 +112,8 @@ function update_state!(
       _prox_grad_step!(f, g, state, method)
 
       # a step from y = x_previous cannot increase the objective,
-      # so this restarts at most once
+      # so this restarts at most once; an extrapolated y off the domain of f
+      # restarts too, through f(x) = Inf
       if ω > 0 && state.f_x + state.g_x > state.f_x_previous + state.g_x_previous
         ω = zero(T)
         state.k = 0
@@ -132,6 +135,12 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
     state.f_y = value_and_gradient!(state.grad_f_y, f, state.y)
     state.f_calls += 1
     state.grad_calls += 1
+    # off the domain of f, as a y off the positive definite cone for LogDetLoss,
+    # the gradient is NaN and no step from y exists
+    if !isfinite(state.f_y)
+      state.f_x = T(Inf)
+      return state
+    end
     while true
       @. state.xhat = state.y - state.grad_f_y / state.L
       state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)

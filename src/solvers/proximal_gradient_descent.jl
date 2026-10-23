@@ -50,6 +50,7 @@ function initial_state(
 
     grad_f_x = Array{T}(undef, size(x0))
     f_x = value_and_gradient!(grad_f_x, f, x0)
+    _check_start(f_x)
     g_x = g(x0)
 
     ProximalGradientDescentState(

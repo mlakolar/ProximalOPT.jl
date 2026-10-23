@@ -149,10 +149,8 @@ _weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
 _entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
 _entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
 _weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
-_weight(g::GroupNormL2, k::Int) = g.w[k]
 _weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, MCP, SCAD or GroupNormL2."))
 
-_haslevel(g) = applicable(_level, g)
 
 # a model that takes only some penalties says so here
 _check_model(m::CDModel, g) = nothing

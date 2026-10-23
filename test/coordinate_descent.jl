@@ -552,6 +552,143 @@ ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
   end
 end
 
+# ½‖Δ - T‖²_F of a symmetric Δ through the generic interface: along the
+# coordinate (r, c) the derivative is (Δ - T)[r, c] times the number of entries
+# the coordinate moves, and so is the curvature
+mutable struct SymmetricDistance <: CDModel{Float64}
+  T::Matrix{Float64}
+end
+PO.initialize!(m::SymmetricDistance, x) = m
+function PO._coordinate(m::SymmetricDistance, x::SymmetricSparseIterate, k::Int)
+  r, c = ProximalBase.tril_cartesian(x.p, k)
+  mult = r == c ? 1.0 : 2.0
+  (mult * (coordinates(x)[k] - m.T[r, c]), mult)
+end
+PO._update!(m::SymmetricDistance, x, k::Int, h) = m
+PO._coordscale(m::SymmetricDistance, x, k::Int) = 1.0
+PO._responsescale(m::SymmetricDistance, x) = 1.0
+PO._value(m::SymmetricDistance, x) = sum(abs2, Matrix(x) - m.T) / 2
+ProximalBase.gradient!(G, m::SymmetricDistance, x) = (G .= Matrix(x) .- m.T)
+
+@testset "more losses, iterates and drivers" begin
+  X, y = lassodata()
+  n, p = size(X)
+  λ = 0.1 * maximum(abs, X' * y) / n
+  λs = maximum(abs, X' * y) / n .* 10 .^ range(0, -1.5; length = 6)
+
+  # the generic step on a symmetric iterate: entrywise soft thresholding
+  q = 6
+  Tm = Matrix(Symmetric(randn(Xoshiro(41), q, q)))
+  xs = SymmetricSparseIterate(q)
+  solve!(xs, SymmetricDistance(Tm), NormL1(0.5), CDSolver(; tol = 1e-12))
+  @test Matrix(xs) ≈ sign.(Tm) .* max.(abs.(Tm) .- 0.5, 0) atol = 1e-12
+
+  # the generic Hessian of a refit: the quadratic through the generic interface
+  rng = Xoshiro(42)
+  B = randn(rng, 30, 20); A = B' * B / 30; b = randn(rng, 20)
+  x = SparseIterate(20)
+  refit!(x, MyQuadratic(A, b, zeros(20)); support = [2, 5, 9])
+  @test Vector(x)[[2, 5, 9]] ≈ -(A[[2, 5, 9], [2, 5, 9]] \ b[[2, 5, 9]])
+
+  # the Kronecker quadratic on vec Θ: a screened path, a refit, and its scaled form
+  Sx = cov(randn(Xoshiro(43), 60, q)); Sy = cov(randn(Xoshiro(44), 60, q))
+  C = randn(Xoshiro(45), q, q)
+  fk = KronQuadratic(Sx, Sy, C)
+  K = kron(Sy, Sx)
+  lk = lambda_max(fk, NormL1(1.0), SparseIterate(q * q))
+  @test lk ≈ maximum(abs, C)
+  pk = solve_path(fk, NormL1(1.0), lk .* [1.0, 0.5, 0.2], CDSolver(; tol = 1e-12); x = SparseIterate(q * q))
+  θ = Vector(pk.solutions[3])
+  @test kkt_l1(K * θ + vec(C), θ, 0.2lk) < 1e-9
+  xk = SparseIterate(θ)
+  refit!(xk, fk)
+  S = findall(!iszero, θ)
+  @test (K * Vector(xk) + vec(C))[S] ≈ zeros(length(S)) atol = 1e-10
+  x2 = SparseIterate(q * q)
+  solve!(x2, 2 * fk, NormL1(0.4lk), CDSolver(; tol = 1e-12))
+  @test Vector(x2) ≈ θ atol = 1e-8
+  # a matrix iterate keeps its shape along a path
+  pm = solve_path(fk, NormL1(1.0), lk .* [1.0, 0.2], CDSolver(; tol = 1e-12); x = SparseIterate(q, q))
+  @test size(pm.solutions[2]) == (q, q)
+  @test vec(Matrix(pm.solutions[2])) ≈ θ atol = 1e-8
+  @test_throws ArgumentError solve_path(fk, NormL1(1.0), [lk])        # no iterate to start from
+
+  # paths of the quadratic, the square-root lasso, a logistic loss, groups,
+  # and the nonnegative lasso
+  Aq, bq = Matrix(Symmetric(X' * X / n)), -X' * y / n
+  pq = solve_path(QuadraticFunction(Aq, bq), NormL1(1.0), λs, CDSolver(; tol = 1e-10))
+  @test kkt_l1(Aq * Vector(pq.solutions[end]) + bq, Vector(pq.solutions[end]), λs[end]) < 1e-8
+  fs = SqrtLeastSquaresLoss(y, X)
+  @test fs(ones(p)) ≈ norm(y - X * ones(p))
+  ls = maximum(abs, X' * y) / norm(y)
+  ps = solve_path(fs, NormL1(1.0), ls .* [1.0, 0.7, 0.5], CDSolver(; tol = 1e-12); x = SparseIterate(p))
+  bs = Vector(ps.solutions[3]); rs = y - X * bs
+  @test kkt_l1(-X' * rs / norm(rs), bs, 0.5ls) < 1e-7
+  m = cdmodel(fs, SparseIterate(bs)); PO.initialize!(m, SparseIterate(bs))
+  @test PO.residuals(m) ≈ rs
+  yl = Float64.(X[:, 1] .+ 0.5 .* randn(Xoshiro(46), n) .> 0)
+  w = rand(Xoshiro(47), n) .+ 0.5
+  fl = LogisticLoss(yl, X; weights = w)
+  gl(b) = X' * (w .* (1 ./ (1 .+ exp.(-X * b)) .- yl))
+  ll = maximum(abs, gl(zeros(p)))
+  pl = solve_path(fl, NormL1(1.0), ll .* [1.0, 0.5, 0.3], CDSolver(; tol = 1e-10, maxpasses = 10^6))
+  bl = Vector(pl.solutions[3])
+  @test kkt_l1(gl(bl), bl, 0.3ll) < 1e-6 * ll
+  groups = [i:i+4 for i in 1:5:p]
+  gg = GroupNormL2(1.0, groups, ones(length(groups)))
+  lg = lambda_max((1 / n) * LeastSquaresLoss(y, X), gg, AtomIterate(Float64, p, groups))
+  @test lg ≈ maximum(G -> norm(X[:, G]' * y / n), groups)
+  pg = solve_path((1 / n) * LeastSquaresLoss(y, X), gg, lg .* [1 + 1e-9, 0.5], CDSolver(; tol = 1e-10);
+                  x = AtomIterate(Float64, p, groups))
+  @test length(pg.solutions[2]) == p && nnz(pg.solutions[1]) == 0
+  pn = solve_path((1 / n) * LeastSquaresLoss(y, X), NormL1Nonneg(1.0), λs, CDSolver(; tol = 1e-10))
+  @test all(b -> all(>=(0), b), pn.solutions)
+
+  # scaled least squares with weights; an intercept with an offset
+  x3, x4 = SparseIterate(p), SparseIterate(p)
+  solve!(x3, (1 / n) * GLMLoss(ProximalBase.Squared(), y, X; weights = w), NormL1(λ), CDSolver(; tol = 1e-12))
+  solve!(x4, GLMLoss(ProximalBase.Squared(), y, X; weights = w), NormL1(n * λ), CDSolver(; tol = 1e-12))
+  @test Vector(x3) ≈ Vector(x4) atol = 1e-8
+  o = randn(Xoshiro(48), n)
+  x5 = SparseIterate(p)
+  m5 = cdmodel(GLMLoss(ProximalBase.Squared(), y, X; offset = o), x5; intercept = true)
+  solve!(x5, m5, NormL1(n * λ), CDSolver(; tol = 1e-10))
+  res5 = y .- o .- PO.intercept(m5, Vector(x5)) .- X * Vector(x5)
+  @test abs(sum(res5)) < 1e-8
+  @test kkt_l1(-X' * res5, Vector(x5), n * λ) < 1e-6
+  # a quadratic without a linear term has the minimizer 0
+  x6 = SparseIterate(p)
+  solve!(x6, QuadraticFunction(Aq), NormL1(λ), CDSolver())
+  @test nnz(x6) == 0
+
+  # a dense starting vector with a model built once
+  m7 = cdmodel((1 / n) * LeastSquaresLoss(y, X), SparseIterate(p))
+  x7 = zeros(p)
+  @test solve!(x7, m7, NormL1(λ), CDSolver(; tol = 1e-10)).minimizer === x7
+  @test kkt_l1(lsgrad(X, y, x7), x7, λ) < 1e-7
+
+  # a Kronecker quadratic without a linear term has the minimizer 0
+  x8 = SparseIterate(q * q)
+  solve!(x8, KronQuadratic(Sx, Sy), NormL1(0.1), CDSolver())
+  @test nnz(x8) == 0
+  # the derivative and curvature of a least-squares coordinate
+  m9 = cdmodel((1 / n) * LeastSquaresLoss(y, X), SparseIterate(p))
+  x9 = SparseIterate(p)
+  PO.initialize!(m9, x9)
+  @test collect(PO._coordinate(m9, x9, 3)) ≈ [-dot(X[:, 3], y) / n, sum(abs2, X[:, 3]) / n]
+  @test ProximalBase.isconvex(SqrtLeastSquaresLoss(y, X))
+
+  # results, summaries and errors
+  r = solve!(SparseIterate(p), (1 / n) * LeastSquaresLoss(y, X), NormL1(λ), CDSolver(); continuation = 5)
+  out = sprint(show, r)
+  @test occursin("Coordinate Descent", out) && occursin("Passes: $(r.passes)", out) && occursin("Optimality checks", out)
+  @test PO.minimizer(r) === r.minimizer && PO.minimum(r) == r.minimum
+  @test PO.iterations(r) == r.passes && PO.converged(r) == r.converged
+  @test summary(CDSolver()) == summary(r) == "Coordinate Descent" && summary(ProxNewton()) == "Proximal Newton"
+  @test_throws ArgumentError solve!(SparseIterate(p), LeastSquaresLoss(y, X), NormL1(1.0), ProxNewton())
+  @test_throws ArgumentError ProxNewton(; β = 1.5)
+end
+
 @testset "user-defined model" begin
   rng = Xoshiro(14)
   B = randn(rng, 30, 20); A = B' * B / 30; b = randn(rng, 20)

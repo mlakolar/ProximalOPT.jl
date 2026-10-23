@@ -50,6 +50,10 @@ gradf(b) = X' * (logistic.(X * b) .- y) / n
   x7 = SparseIterate(Vector(x2) .+ 0.1 .* randn(rng, p))
   solve!(x7, f, NormL1(λ), CDSolver(; tol = 1e-10, maxpasses = 10^6))
   @test Vector(x7) ≈ Vector(x2) atol = 1e-5
+  # an unscaled loss: the same solution at the penalty level scaled by n
+  x8 = SparseIterate(p)
+  solve!(x8, LogisticLoss(y, X), NormL1(n * λ), ProxNewton(; tol = 1e-14, inner = CDSolver(; tol = 1e-10)))
+  @test Vector(x8) ≈ Vector(x2) atol = 1e-6
   # Huber
   yh = X * β + randn(rng, n) .* 2; yh[1:10] .+= 30
   fh = (1 / n) * HuberLoss(yh, X, 1.0)

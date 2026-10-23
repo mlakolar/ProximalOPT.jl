@@ -87,6 +87,26 @@ end
     @test run() == run()
   end
 
+  @testset "the random order comes from rng" begin
+    run(s) = (x = SparseIterate(p); r = solve!(x, f, NormL1(λ), s); (Vector(x), r.passes))
+    @test run(CDSolver(; rng = Xoshiro(3))) == run(CDSolver(; rng = Xoshiro(3)))
+    @test run(CDSolver(; rng = Xoshiro(3))) != run(CDSolver(; rng = Xoshiro(4)))
+    # the default is the task-local generator, which draws as the global one
+    @test CDSolver().rng === Random.default_rng()
+    @test (Random.seed!(7); run(CDSolver())) == (Random.seed!(7); run(CDSolver(; rng = Random.default_rng())))
+    # a generator of its own leaves the global stream alone
+    Random.seed!(11); u = rand()
+    Random.seed!(11); run(CDSolver(; rng = Xoshiro(1))); @test rand() == u
+    # so do paths and continuation, whose passes draw from the same generator
+    path(s) = (r = solve_path(f, NormL1(1.0), [2λ, λ, λ / 2], s); (r.solutions, r.passes))
+    @test path(CDSolver(; rng = Xoshiro(5))) == path(CDSolver(; rng = Xoshiro(5)))
+    cont(s) = (x = SparseIterate(p); r = solve!(x, f, NormL1(λ / 2), s; continuation = 5); (Vector(x), r.passes))
+    @test cont(CDSolver(; rng = Xoshiro(6))) == cont(CDSolver(; rng = Xoshiro(6)))
+    Random.seed!(11); path(CDSolver(; rng = Xoshiro(5))); cont(CDSolver(; rng = Xoshiro(6))); @test rand() == u
+    # the inner solver of ProxNewton keeps its generator
+    @test ProxNewton(; inner = CDSolver(; rng = Xoshiro(2))).inner.rng == Xoshiro(2)
+  end
+
   @testset "unpenalized coordinates" begin
     w = ones(p); w[[3, 50]] .= 0
     x = SparseIterate(p)
@@ -977,12 +997,13 @@ end
   # the passes allocate nothing once the model and the state exist
   function passes_bytes(x, m, g, s)
     PS.initialize!(m, x)
-    st = PS._CDState(Float64, x, s.random)
+    st = PS._CDState(Float64, x, s)
     PS._cd!(x, m, g, st, s)
     fill!(x, 0.0); PS.initialize!(m, x)
     @allocated PS._cd!(x, m, g, st, s)
   end
-  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random), CDSolver(; momentum = true))
+  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random), CDSolver(; momentum = true),
+            CDSolver(; rng = Xoshiro(1)))
     @test passes_bytes(SparseIterate(p), cdmodel(f, SparseIterate(p)), NormL1(0.1), s) == 0
     q = 10
     Sx = cov(randn(Xoshiro(15), 50, q)); Sy = cov(randn(Xoshiro(16), 50, q))

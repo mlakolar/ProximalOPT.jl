@@ -127,8 +127,8 @@ It stops when the objective changes by less than `tol` relative to its value,
 or after `maxiter` steps. Use with [`solve!`](@ref) on a `SparseIterate`;
 returns [`CDResults`](@ref), whose `passes` sum the inner passes.
 """
-struct ProxNewton <: ProximalSolver
-  inner::CDSolver
+struct ProxNewton{S<:CDSolver} <: ProximalSolver
+  inner::S
   maxiter::Int
   tol::Float64
   β::Float64

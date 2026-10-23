@@ -114,7 +114,7 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
   T = eltype(m)
   fill!(x, zero(T))
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   passes, checks = 0, 0
   path = false
   if _haslevel(g)
@@ -148,7 +148,7 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
 end
 
 # the solver with another tolerance
-_with_tol(s::CDSolver, tol::Real) = CDSolver(s.maxpasses, Float64(tol), s.random, s.relative, s.anderson, s.momentum)
+_with_tol(s::CDSolver, tol::Real) = CDSolver(s.maxpasses, Float64(tol), s.random, s.relative, s.anderson, s.momentum, s.rng)
 
 Base.eltype(::CDModel{T}) where {T} = T
 
@@ -216,7 +216,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   check_penalty(m, g)
   isempty(λs) || _with_level(g, T(first(λs)))      # a penalty with a level
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   if screening
     grad = _gradient_buffer(x)
     gradient!(grad, m, x)

@@ -18,6 +18,7 @@ using LinearAlgebra: BlasInt, LAPACKException, libblastrampoline
 using LinearAlgebra.BLAS: @blasfunc
 using Printf
 using ProximalBase
+using Random: AbstractRNG, default_rng
 import ProximalBase: gradient!, value_and_gradient!
 using SparseArrays: dropzeros!, sparse, sparsevec
 using .LineSearches

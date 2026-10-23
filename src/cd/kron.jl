@@ -143,7 +143,7 @@ end
 
 # M = AΘB moves with Θ, but momentum is not used by default: on vec Θ with the
 # two nonzero entries of DiffPrecTest's inverse Hessians it cost more than it
-# saved (1.1 to 1.2 times slower). With momentum = true it is up to 1.2 times
+# saved (1.1 to 1.2 times slower). With momentum = true it is up to 1.3 times
 # faster on the D-trace loss of a symmetric Θ
 _cache(m::KronModel) = m.M
 _momentum_default(::KronModel) = false

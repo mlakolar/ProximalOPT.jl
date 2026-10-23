@@ -208,11 +208,13 @@ path = solve_path(f, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50))
 With the random order, the default, the passes over the active set use
 Nesterov momentum with adaptive restarts, as in CoordinateDescent.jl 0.6, on a
 `SparseIterate` for least squares, square-root least squares, quadratics and
-GLMs. In the benchmark it makes the random order 1.0 to 4.3 times faster on the
-lasso at 0.02 λmax and along paths; on logistic lasso problems it is 1.4 to 5.6
-times faster, and `ProxNewton`, whose inner solves are weighted least squares,
-1.0 to 4.4 times. `momentum = false` turns it off, and `momentum = true` asks
-for it with the other models, such as `KronQuadratic` on a symmetric iterate.
+GLMs. In CoordinateDescent.jl's benchmark, whose passes ProximalOPT reproduces,
+it computes lasso paths 2.8 to 4.5 times faster and single solves at small
+penalties 1.3 to 2.2 times. On logistic lasso problems coordinate descent is
+1.4 to 5.6 times faster with it, and `ProxNewton`, whose inner solves are
+weighted least squares, 1.0 to 4.5 times. `momentum = false` turns it off, and
+`momentum = true` asks for it with the other models, such as `KronQuadratic` on
+a symmetric iterate.
 `CDSolver(; order = :cyclic, anderson = 5)` accelerates the cyclic order by
 Anderson extrapolation instead, 1.6 to 2.6 times faster than cyclic order
 alone on the lasso at 0.02 λmax; the random order is the safer choice when the

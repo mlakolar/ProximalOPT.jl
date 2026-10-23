@@ -56,6 +56,7 @@ include("types.jl")
 include("solve.jl")
 
 # Solvers
+include("solvers/image_models.jl")
 include("solvers/proximal_gradient_descent.jl")
 include("solvers/accelerated_proximal_gradient_descent.jl")
 include("solvers/active_accelerated_proximal_gradient_descent.jl")

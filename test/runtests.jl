@@ -8,6 +8,7 @@ tests = [
   "admm",
   "active_set",
   "group_lasso",
+  "low_rank",
   "aqua",
 ]
 

@@ -677,6 +677,32 @@ ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
     PS.initialize!(m, x)
     @test [PS.coordinate_scale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
   end
+
+  # the quadratic of least squares, x'(X'X/n)x/2 - (X'y/n)'x + y'y/(2n), has the
+  # scales of the least-squares model, so it takes the same passes
+  A, b, c = X'X / n, -X'y / n, dot(y, y) / (2n)
+  x = SparseIterate(p)
+  mq, ml = cdmodel(QuadraticFunction(A, b, c), x), cdmodel((1 / n) * LeastSquaresLoss(y, X), x)
+  PS.initialize!(mq, x); PS.initialize!(ml, x)
+  @test PS.response_scale(mq, x) ≈ PS.response_scale(ml, x)
+  @test [PS.coordinate_scale(mq, x, k) for k in 1:p] ≈ [PS.coordinate_scale(ml, x, k) for k in 1:p]
+  r1 = solve!(SparseIterate(p), QuadraticFunction(A, b, c), NormL1(0.05), CDSolver(; order = :cyclic))
+  r2 = solve!(SparseIterate(p), (1 / n) * LeastSquaresLoss(y, X), NormL1(0.05), CDSolver(; order = :cyclic))
+  @test r1.passes == r2.passes
+  @test Vector(r1.minimizer) ≈ Vector(r2.minimizer) atol = 1e-8
+  # and with the centered data of an intercept
+  yc, Xc = y .- mean(y), X .- mean(X; dims = 1)
+  mc = cdmodel(QuadraticFunction(Xc'Xc / n, -Xc'yc / n, dot(yc, yc) / (2n)), x)
+  mi = cdmodel((1 / n) * LeastSquaresLoss(y, X), x; intercept = true)
+  PS.initialize!(mc, x); PS.initialize!(mi, x)
+  @test PS.response_scale(mc, x) ≈ PS.response_scale(mi, x)
+  # without c, the lower bound maxₖ |bₖ| / √Aₖₖ, as before; a small c leaves it,
+  # and a quadratic without b and c has the absolute rule
+  m0 = cdmodel(QuadraticFunction(A, b), x)
+  @test PS.response_scale(m0, x) ≈ maximum(abs.(b) ./ sqrt.(diag(A)))
+  @test PS.response_scale(cdmodel(QuadraticFunction(A, b, 1e-12), x), x) == PS.response_scale(m0, x)
+  @test PS.response_scale(cdmodel(QuadraticFunction(A), x), x) == 0
+  @test PS.response_scale(cdmodel(2 * QuadraticFunction(A, b, c), x), x) ≈ sqrt(2) * PS.response_scale(mq, x)
 end
 
 # ½‖Δ - T‖²_F of a symmetric Δ through the generic interface: along the

@@ -1,0 +1,265 @@
+# Coordinate descent
+
+[`CDSolver`](@ref) minimizes
+
+```math
+F(x) = f(x) + \sum_k g_k(x_k)
+```
+
+one coordinate at a time, where the penalty separates over coordinates (the
+weighted ℓ1 norm, the elastic net, MCP, SCAD, the nonnegative ℓ1 norm, bounds)
+or over groups of coordinates (the group lasso). The loss ``f`` is one whose
+structure coordinate descent knows (see [Losses for coordinate descent](@ref)),
+so that each step costs ``O(n)`` or less: least squares, quadratics, Kronecker
+quadratics of matrices, square-root losses and generalized linear losses.
+
+## The coordinate step
+
+Fix every coordinate but ``x_k``. Let ``G = \nabla_k f(x)`` be the derivative
+of the loss along the coordinate and ``a_k`` its curvature, exact when ``f`` is
+quadratic and otherwise an upper bound, so that
+``f(x + t e_k) \le f(x) + G t + \frac{a_k}{2} t^2`` for all ``t``. The step
+minimizes this bound plus the penalty of the coordinate:
+
+```math
+x_k^+ = \operatorname*{argmin}_t \; G\,(t - x_k) + \frac{a_k}{2}(t - x_k)^2 + g_k(t)
+      = \operatorname{prox}_{g_k/a_k}\Big(x_k - \frac{G}{a_k}\Big).
+```
+
+The scalar proximal operator is
+[`prox_entry`](@extref ProximalBase.prox_entry)`(g, v, i, γ)` of ProximalBase,
+so every separable penalty of ProximalBase works without code in this package:
+soft thresholding for the ℓ1 norm, ``\operatorname{shrink}(v, \gamma\lambda_1)/(1 + \gamma\lambda_2)``
+for the elastic net, firm thresholding for MCP, a clamp for bounds. For a
+quadratic loss the step minimizes ``F`` exactly over the coordinate; otherwise
+it minimizes a majorizer, and in both cases ``F`` does not increase. A
+coordinate with ``a_k = 0``, which the loss does not depend on, goes to the
+minimizer of ``g_k`` nearest zero.
+
+For a convex loss and a convex separable penalty, under mild conditions,
+every limit point of coordinate descent that visits each coordinate at least
+once in every ``T`` consecutive steps is a minimizer of ``F``: for exact
+minimization over each coordinate (Tseng, 2001), and for the majorization
+steps of a loss with a bounded curvature (Tseng and Yun, 2009). The solver
+interleaves such passes over all coordinates with passes over the active ones,
+and stops only after a full pass, as described below. For MCP and SCAD, which
+are not convex, coordinate descent converges to a stationary point when the
+coordinate problems are convex, as they are for standardized columns (Breheny
+and Huang, 2011).
+
+## Coordinates of the iterates
+
+The iterate fixes what a coordinate is.
+
+- On a `SparseIterate`, a coordinate is an entry. The iterate stores the
+  entries that have been nonzero: these are the **active** coordinates.
+- On a `SymmetricSparseIterate`, the coordinates are the entries ``(r, c)``,
+  ``r \ge c``, of the lower triangle of a symmetric matrix ``\Theta``. A step on
+  an off-diagonal coordinate moves ``\Theta_{rc}`` and ``\Theta_{cr}``
+  together, along ``D = E_{rc} + E_{cr}``. Let ``G`` be the derivative of the
+  loss along ``D`` and ``a`` its curvature along ``D``. A penalty on the
+  matrix counts the entry twice, once in each triangle, so along the coordinate
+  it is ``\mu\, g_{rc}(t)`` with ``\mu = 2`` (``\mu = 1`` on the diagonal),
+  and
+
+  ```math
+  t^+ = \operatorname*{argmin}_t \; G\,(t - t_0) + \frac{a}{2}(t - t_0)^2 + \mu\, g_{rc}(t)
+      = \operatorname{prox}_{\mu g_{rc}/a}\Big(t_0 - \frac{G}{a}\Big).
+  ```
+
+  The weights of a weighted ℓ1 norm are indexed like the full matrix and must
+  be symmetric.
+- On an `AtomIterate`, a coordinate is a group of entries, for the group
+  lasso; see the next section.
+
+## Groups
+
+For the group lasso, ``g(x) = \lambda \sum_k w_k \|x_{G_k}\|_2`` with the
+groups of an `AtomIterate`, the step on group ``G = G_k`` majorizes the loss
+over the block by a quadratic with curvature ``L_k \ge \lambda_{\max}(\nabla^2_{GG} f)``
+and minimizes the majorizer plus the group's penalty (groupwise majorization
+descent, Yang and Zou, 2015):
+
+```math
+u = x_G - \frac{1}{L_k}\nabla_G f(x), \qquad
+x_G^+ = \operatorname{prox}_{(\lambda w_k / L_k)\|\cdot\|_2}(u)
+      = \max\Big\{1 - \frac{\lambda w_k}{L_k \|u\|_2},\ 0\Big\}\, u .
+```
+
+For least squares, ``L_k = s\,\lambda_{\max}(X_G^\top W X_G)``, computed on the
+first visit to the group and cached. A group at zero stays at zero exactly
+when ``\|\nabla_G f(x)\|_2 \le \lambda w_k``, its optimality condition, which is
+checked first: ``L_k`` is never computed for a group that does not move.
+
+## Passes and the active set
+
+A pass visits a set of coordinates once each, in a uniformly random order drawn
+afresh for each pass (`order = :random`, from the global random number
+generator) or in the order ``1, 2, \dots`` (`order = :cyclic`). A **full**
+pass visits every coordinate, or the candidates kept by screening (see
+[Penalty paths and screening](@ref)); an **active** pass visits the active
+coordinates only. The active set does not change during a pass: a coordinate
+that becomes zero stays stored until the end of the pass, when zeros are
+dropped.
+
+The passes follow the strategy of glmnet (Friedman, Hastie and Tibshirani,
+2010). The first pass is full. After a full pass in which some coordinate
+moved by more than the tolerance, active passes follow until one moves no
+coordinate by more than the tolerance; then a full pass checks all
+coordinates. The method stops after a full pass in which no coordinate moves
+by more than the tolerance, or after `maxpasses` passes, with a warning. Most
+coordinates of a sparse solution are zero and stay zero, and the active
+passes, which do most of the work, never visit them.
+
+## The stopping rule
+
+The change of a coordinate in a pass is measured on the scale of the data. With
+`relative = true`, the default, the change of coordinate ``k`` is
+``\delta_k = |\Delta x_k|\sqrt{a_k}`` and the tolerance is ``\mathrm{tol}\cdot\sigma``,
+where ``\sqrt{a_k}`` and ``\sigma`` come from the model
+([`coordinate_scale`](@ref ProximalSolvers.coordinate_scale) and
+[`response_scale`](@ref ProximalSolvers.response_scale)).
+
+For least squares, ``f(\beta) = \frac{s}{2}\sum_i w_i (y_i - o_i - x_i^\top\beta)^2``,
+the scales are ``\sqrt{a_k} = \sqrt{s}\,\|X_k\|_W`` and
+``\sigma = \sqrt{s}\,\|y - o\|_W`` (with the columns and the response centered
+when the model fits an intercept). Then ``\delta_k = \sqrt{s}\,\|X_k \Delta\beta_k\|_W``
+is the change of the fitted values that the step makes, and the rule reads
+
+```math
+\max_k \|X_k \Delta\beta_k\|_W < \mathrm{tol}\cdot \|y - o\|_W .
+```
+
+It does not depend on the units of the data: rescaling ``y``, a column of
+``X`` (whose coefficient then scales inversely) or the loss leaves it
+unchanged. The other models follow the same pattern:
+
+| Model | ``\sqrt{a_k}`` | ``\sigma`` |
+|:------|:---------------|:-----------|
+| least squares | ``\sqrt{s}\,\lVert X_k\rVert_W`` | ``\sqrt{s}\,\lVert y - o\rVert_W`` |
+| quadratic ``s(\tfrac12 x^\top A x + b^\top x + c)`` | ``\sqrt{s A_{kk}}`` | ``\sqrt{s}\max_k \lvert b_k\rvert/\sqrt{A_{kk}}`` |
+| Kronecker quadratic | ``\sqrt{a_k}`` | ``\max_k \lvert \partial_k f(0)\rvert/\sqrt{a_k}`` |
+| generalized linear, curvature bound ``\bar\ell`` | ``\sqrt{a_k}`` | ``\big(s \sum_i w_i \ell'(o_i, y_i)^2/\bar\ell\big)^{1/2}`` |
+| ``\lVert y - X\beta\rVert`` | ``\lVert X_k\rVert/\sqrt{n}`` | ``\lVert y\rVert/\sqrt{n}`` |
+| ``\sqrt{x^\top A x + 2b^\top x + c}`` | ``\sqrt{A_{kk}}`` | ``\sqrt{c}`` |
+
+The columns and the response are centered in the rows of least squares and of
+``\lVert y - X\beta\rVert`` when the model fits an intercept. For a quadratic
+with ``A = X^\top X/n`` and ``b = -X^\top y/n``,
+``\sqrt{A_{kk}} = \|X_k\|/\sqrt{n}`` and, by the Cauchy–Schwarz inequality,
+``|b_k|/\sqrt{A_{kk}} \le \|y\|/\sqrt{n}``: the scale is a lower bound on that
+of least squares. With `relative = false`, or when ``\sigma = 0``, the rule is
+absolute: ``\max_k |\Delta x_k| < \mathrm{tol}``.
+
+## Momentum
+
+With the random order, the passes over the active set use Nesterov momentum.
+Let ``x_1`` be the active values at a restart, and ``x_{j+1}`` those after the
+``j``-th active pass that follows. That pass starts from the extrapolated
+point
+
+```math
+z = x_j + \omega_j\,(x_j - x_{j-1}), \qquad \omega_j = \frac{j - 1}{j + 2},
+```
+
+instead of ``x_j``: the first pass after a restart has no momentum, and the
+second has ``\omega_2 = 1/4``. The cache of a built-in model, such as the
+residuals of least squares, ``Ax`` of a quadratic or the linear predictor of a
+generalized linear loss, is affine in ``x``, so it moves to ``z`` exactly by
+the same combination of its two last values, at the cost of a few vector
+operations per pass; the square root of a quadratic recomputes its value,
+which is not affine. A model of another loss is initialized at ``z``.
+
+The momentum restarts (``j \leftarrow 1``) after every full pass, when the
+active set changes, and when the step of a pass points against it,
+``(x_{j+1} - z)^\top (x_j - x_{j-1}) < 0``: the gradient restart of
+O'Donoghue and Candès (2015). Full passes are never extrapolated, and a cache
+moved by the momentum is computed afresh before the next full pass, so the
+method stops on a plain full pass, and screening checks an exact gradient.
+
+By default (`momentum = nothing`), momentum is used with the random order on a
+`SparseIterate` for least squares, generalized linear losses, quadratics and
+the two square-root losses. On CoordinateDescent.jl's benchmark it makes lasso
+paths 2.8 to 4.5 times faster and single solves at small penalties 1.3 to 2.2
+times; on logistic lasso problems coordinate descent is 1.4 to 5.6 times
+faster with it. `momentum = true` turns it on for any model on a
+`SparseIterate` or a `SymmetricSparseIterate`, such as the Kronecker quadratic
+(off by default: on vectorized matrices with two nonzero entries it was 1.1 to
+1.2 times slower, while on the D-trace loss of a symmetric matrix it is up to
+1.3 times faster). The cyclic order can stall with momentum, so it refuses
+`momentum = true`.
+
+## Anderson acceleration
+
+With the cyclic order, a pass over a fixed active set ``S`` is a fixed map
+``T``, and the passes are the fixed-point iteration ``x \leftarrow T(x)``.
+`anderson = K` extrapolates it (Bertrand and Massias, 2021). It records the
+values ``x^{(0)}, \dots, x^{(K)}`` on ``S`` after ``K + 1`` consecutive passes
+with the same active set, forms the differences
+``U = [x^{(1)} - x^{(0)}, \dots, x^{(K)} - x^{(K-1)}]``, and takes the affine
+combination of the last ``K`` iterates whose combined step ``Uc`` is smallest:
+
+```math
+c = \frac{(U^\top U + \epsilon I)^{-1}\mathbf 1}{\mathbf 1^\top (U^\top U + \epsilon I)^{-1}\mathbf 1}
+= \operatorname*{argmin}_{\mathbf 1^\top c = 1} \|Uc\|^2 \ \ (\epsilon \to 0),
+\qquad
+x_e = \sum_{i=1}^{K} c_i\, x^{(i)},
+```
+
+with ``\epsilon = 10^{-10}\operatorname{tr}(U^\top U)`` for stability. The
+extrapolated point is kept only if ``F(x_e) < F(x^{(K)})``, which needs the
+value of the loss ([`loss_value`](@ref ProximalSolvers.loss_value)). A full
+pass or a change of ``S`` starts a new history. The random order changes
+``T`` from pass to pass, so `anderson` is ignored with it, as on an
+`AtomIterate`. On the lasso designs of the benchmark,
+`CDSolver(; order = :cyclic, anderson = 5)` takes 1.6 to 2.6 times less time
+than the cyclic order alone at ``0.02\lambda_{\max}``.
+
+## An unpenalized intercept
+
+For least squares and the square-root loss, `cdmodel(f, x; intercept = true)`
+minimizes over an unpenalized intercept ``\beta_0`` as well. For a given
+``\beta``, the best intercept of ``\frac{s}{2}\|y - \beta_0\mathbf 1 - X\beta\|^2``
+is ``\beta_0 = \bar y - \bar x^\top\beta``, with the means ``\bar y`` of
+``y - o`` and ``\bar x`` of the columns of ``X``. Substituting it centers the
+problem:
+
+```math
+\min_{\beta_0} \frac{s}{2}\|y - \beta_0\mathbf 1 - X\beta\|^2
+= \frac{s}{2}\big\|(y - \bar y\mathbf 1) - (X - \mathbf 1\bar x^\top)\beta\big\|^2 .
+```
+
+The model computes the means once and centers the columns on the fly, so
+``X`` is not copied: the residuals are ``r = (y - \bar y\mathbf 1) - (X - \mathbf 1 \bar x^\top)\beta``,
+the derivative is ``-s(X_k - \bar x_k\mathbf 1)^\top r`` and the curvature
+``s\|X_k - \bar x_k\mathbf 1\|^2``. [`intercept`](@ref ProximalSolvers.intercept)`(m, x)`
+returns ``\bar y - \bar x^\top x``. A constant column is exactly zero once
+centered, and its coefficient goes to zero. The intercept is not available
+with observation weights.
+
+## Settings
+
+`CDSolver(; maxpasses = 100_000, tol = 1e-7, order = :random, relative = true,
+anderson = 0, momentum = nothing)`. The result, a [`CDResults`](@ref), reports
+the passes, whether the stopping rule was met, the largest scaled change in the
+last pass and the tolerance it was compared with.
+
+## References
+
+- P. Breheny and J. Huang. Coordinate Descent Algorithms for Nonconvex
+  Penalized Regression, with Applications to Biological Feature Selection.
+  *Annals of Applied Statistics*, 5(1), 2011.
+- Q. Bertrand and M. Massias. Anderson Acceleration of Coordinate Descent.
+  *AISTATS*, 2021.
+- J. Friedman, T. Hastie and R. Tibshirani. Regularization Paths for
+  Generalized Linear Models via Coordinate Descent. *Journal of Statistical
+  Software*, 33(1), 2010.
+- B. O'Donoghue and E. Candès. Adaptive Restart for Accelerated Gradient
+  Schemes. *Foundations of Computational Mathematics*, 15, 2015.
+- P. Tseng. Convergence of a Block Coordinate Descent Method for
+  Nondifferentiable Minimization. *Journal of Optimization Theory and
+  Applications*, 109(3), 2001.
+- P. Tseng and S. Yun. A Coordinate Gradient Descent Method for Nonsmooth
+  Separable Minimization. *Mathematical Programming*, 117, 2009.
+- Y. Yang and H. Zou. A Fast Unified Algorithm for Solving Group-Lasso
+  Penalize Learning Problems. *Statistics and Computing*, 25, 2015.

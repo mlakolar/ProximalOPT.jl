@@ -35,9 +35,13 @@ and the relative change that it makes, from the solution `x` and the
 [`ReweightResults`](@ref).
 
 This covers the iterative lasso procedures: the scaled lasso (the level
-`λσ̂` with `σ̂ = ‖r‖/√n` from the residuals), the lasso with data-driven
-penalty loadings, and two-stage estimators that recompute their weights at a
-first solution (`maxiter = 2, tol = 0`).
+`λσ̂` with `σ̂ = ‖r‖/√n` from the residuals) and the lasso with data-driven
+penalty loadings. `update` follows every solve, the last one included, which
+gives `converged` and `next`. A two-stage estimator, which recomputes its
+weights once at a first solution, can use `maxiter = 2, tol = 0` when the
+weights are cheap. When they are not, it solves twice with one model
+(`m = cdmodel(f, x)`, then `solve!(x, m, g, method)` for each penalty), which
+computes them once.
 """
 function reweight!(x, f::Union{AbstractFunction, CDModel}, g::AbstractFunction, update,
                    method::CDSolver = CDSolver(); maxiter::Integer = 20, tol::Real = 1e-2)

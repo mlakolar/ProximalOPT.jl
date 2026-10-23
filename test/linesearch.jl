@@ -77,4 +77,61 @@ end
   @test state.grad_f_x == [eps()]
 end
 
+# counts the points off the domain of f where it is evaluated, by value or with
+# the gradient
+struct OffDomain{F} <: ProximalBase.AbstractFunction
+  f::F
+  values::Base.RefValue{Int}
+  gradients::Base.RefValue{Int}
+end
+OffDomain(f) = OffDomain(f, Ref(0), Ref(0))
+ProximalBase.issmooth(::Type{<:OffDomain}) = true
+function (c::OffDomain)(X)
+  v = c.f(X)
+  isfinite(v) || (c.values[] += 1)
+  v
+end
+function ProximalBase.value_and_gradient!(G, c::OffDomain, X)
+  v = value_and_gradient!(G, c.f, X)
+  isfinite(v) || (c.gradients[] += 1)
+  v
+end
+
+@testset "the graphical lasso: trial points off the cone" begin
+  # f = Inf off the positive definite cone. ProximalGradientDescent rejects such
+  # trial points and shrinks the step; it used to set L = Inf, so that the next
+  # trial returned X0 as if converged. AccProxGradDescent restarts when the
+  # extrapolated point is off the cone, where it used to backtrack forever on a
+  # NaN gradient. Both now reach the minimum found by ADMM.
+  opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-12, maxiter = 20_000)
+  for (q, s) in ((5, 100.), (10, 10.), (20, 50.))
+    rng = Random.MersenneTwister(q)
+    A = randn(rng, 2q, q)
+    S = s * (A' * A / 2q)
+    f, g = LogDetLoss(S), NormL1(0.1, ones(q, q) - I)
+    ref = Matrix(1.0I, q, q)
+    solve!(ref, f, g, ADMMSolver(; abstol = 1e-12, reltol = 1e-12), ProximalOptions(; maxiter = 100_000))
+    Fref = f(ref) + g(ref)
+    for solver in (ProximalGradientDescent(), AccProxGradDescent())
+      c = OffDomain(f)
+      X = Matrix(1.0I, q, q)
+      res = solve!(X, c, g, solver, opt)
+      @test ProximalSolvers.converged(res)
+      @test res.iterations > 1
+      @test isposdef(X)
+      @test res.minimum ≈ Fref rtol = 1e-7
+      @test c.values[] > 0          # trial points off the cone were rejected
+      if solver isa AccProxGradDescent
+        @test c.gradients[] > 0     # extrapolated points off the cone restarted
+      end
+    end
+  end
+
+  # no step exists from a point off the domain
+  S = [2. 1.; 1. 2.]
+  for solver in (ProximalGradientDescent(), AccProxGradDescent())
+    @test_throws ArgumentError solve!([1. 2.; 2. 1.], LogDetLoss(S), NormL1(0.1), solver)
+  end
+end
+
 end

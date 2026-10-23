@@ -4,6 +4,11 @@
 _drop!(x::AbstractArray) = x
 _drop!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = dropzeros!(x)
 
+# the gradient methods step from a point where f is finite, and keep to such
+# points, rejecting the trial points off the domain of f
+_check_start(f_x) = isfinite(f_x) ||
+  throw(ArgumentError("f(x0) = $f_x: start from a point where f is finite, such as the identity for LogDetLoss."))
+
 """
     solve!(x, f, g, method::ProximalSolver, options = ProximalOptions())
 

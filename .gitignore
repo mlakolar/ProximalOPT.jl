@@ -12,3 +12,5 @@
 /benchmark/engine/results/
 /benchmark/gap/Manifest*.toml
 /benchmark/gap/*.csv
+/benchmark/quic/Manifest*.toml
+/benchmark/quic/*.csv

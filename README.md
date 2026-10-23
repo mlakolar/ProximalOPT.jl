@@ -284,6 +284,20 @@ res = solve!(Θ, LogDetLoss(S), NormL1(0.1), ADMMSolver(; ρ = 1.0))
 res.converged, res.iterations
 ```
 
+`ProxNewton` solves the same problem by QUIC (Hsieh et al., 2014): proximal
+Newton steps whose direction coordinate descent finds over the free set, a
+line search that keeps `Θ` positive definite, block screening along the
+connected components of the thresholded `S`, and the duality gap as the
+stopping rule. A Newton step costs a few Cholesky factorizations, where each
+ADMM iteration costs an eigendecomposition:
+
+```julia
+W = fill(0.1, 10, 10); W[diagind(W)] .= 0     # leave the diagonal unpenalized
+Θ = SymmetricSparseIterate(10)
+res = solve!(Θ, LogDetLoss(S), NormL1(1.0, W), ProxNewton(; tol = 1e-8))
+res.gap                                       # relative duality gap
+```
+
 ## Solvers
 
 | Solver | Problem | Method |
@@ -293,7 +307,7 @@ res.converged, res.iterations
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
 | `CDSolver(; maxpasses, tol, order, relative, anderson, momentum, gaptol, gapsafe)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
-| `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |
+| `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable; or `f` a `LogDetLoss`, `g` a `NormL1` (the graphical lasso) | Proximal Newton: for GLMs glmnet's IRLS, coordinate descent on the weighted least-squares model of `f`, then backtracking; for the graphical lasso QUIC, with the duality gap as the stopping rule |
 
 All solvers are called the same way:
 

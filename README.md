@@ -163,7 +163,7 @@ res.converged, res.iterations
 | `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking that also lets the step grow (`α`), and adaptive restart |
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
-| `CDSolver(; maxpasses, tol, order, relative)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in cyclic or random order, and a scale-free stopping rule (see below) |
+| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
 | `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |
 
 All solvers are called the same way:
@@ -205,10 +205,18 @@ res = solve!(β, f, NormL1(0.1λmax), CDSolver())
 path = solve_path(f, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50))
 ```
 
-`CDSolver(; order = :cyclic, anderson = 5)` accelerates the passes over the
-active set by Anderson extrapolation, 1.6 to 2.6 times faster than cyclic order
-alone on the lasso at 0.02 λmax in the benchmark; a random order, the default,
-is the safer choice when the columns are strongly correlated.
+With the random order, the default, the passes over the active set use
+Nesterov momentum with adaptive restarts, as in CoordinateDescent.jl 0.6, on a
+`SparseIterate` for least squares, square-root least squares, quadratics and
+GLMs. In the benchmark it makes the random order 1.0 to 4.3 times faster on the
+lasso at 0.02 λmax and along paths; on logistic lasso problems it is 1.4 to 5.6
+times faster, and `ProxNewton`, whose inner solves are weighted least squares,
+1.0 to 4.4 times. `momentum = false` turns it off, and `momentum = true` asks
+for it with the other models, such as `KronQuadratic` on a symmetric iterate.
+`CDSolver(; order = :cyclic, anderson = 5)` accelerates the cyclic order by
+Anderson extrapolation instead, 1.6 to 2.6 times faster than cyclic order
+alone on the lasso at 0.02 λmax; the random order is the safer choice when the
+columns are strongly correlated.
 
 `solve_path` warm starts each level from the previous solution and screens it
 with the sequential strong rule, checking the optimality conditions of the
@@ -245,8 +253,10 @@ refit!(Δ, f)                              # the exact minimizer on the support 
 penalty from the solution: the scaled lasso, data-driven penalty loadings,
 two-stage weights. `refit!` minimizes the loss exactly over a support, by a
 QR factorization for least squares and the Hessian on the support for the
-quadratics. A new loss needs a `CDModel` with a few methods (`initialize!`, and
-the derivative and curvature along a coordinate with a cache update); see
+quadratics. A new loss is a `CDModel` with `initialize!` and the coordinate
+step, either `coordinate_derivatives` and `update_cache!` or the whole
+`coordinate_step!`; the scales of the stopping rule, `loss_value` and
+`gradient!` are optional. These functions are public but not exported; see
 `?CDModel`.
 
 ## Options and stopping rules

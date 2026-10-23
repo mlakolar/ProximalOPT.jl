@@ -67,7 +67,7 @@ function _curvaturebound!(m::GLMModel{T}, k::Int) where {T}
   a
 end
 
-@inline function _coordinate(m::GLMModel{T}, x::SparseIterate{T}, k::Int) where {T}
+@inline function coordinate_derivatives(m::GLMModel{T}, x::SparseIterate{T}, k::Int) where {T}
   X, η, y = m.X, m.η, m.y
   G = zero(T)
   @inbounds for i in eachindex(η)
@@ -76,13 +76,16 @@ end
   m.s * G, _curvaturebound!(m, k)
 end
 
-_update!(m::GLMModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T} = (_column_axpy!(m.η, m.X, k, zero(T), -h); m)
+update_cache!(m::GLMModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T} = (_column_axpy!(m.η, m.X, k, zero(T), -h); m)
 
-_coordscale(m::GLMModel, x, k::Int) = sqrt(_curvaturebound!(m, k))
+# η = Xβ + o is affine in β, and the derivatives are computed from it
+_cache(m::GLMModel) = m.η
+
+coordinate_scale(m::GLMModel, x, k::Int) = sqrt(_curvaturebound!(m, k))
 
 # as √(s ∑ᵢ wᵢ yᵢ²) for least squares: the scale of the derivatives at the
 # offset, relative to the curvature
-function _responsescale(m::GLMModel{T}, x) where {T}
+function response_scale(m::GLMModel{T}, x) where {T}
   v = zero(T)
   @inbounds for i in eachindex(m.y)
     oi = m.offset === nothing ? zero(T) : m.offset[i]
@@ -91,7 +94,7 @@ function _responsescale(m::GLMModel{T}, x) where {T}
   sqrt(m.s * v / m.bound)
 end
 
-function _value(m::GLMModel{T}, x) where {T}
+function loss_value(m::GLMModel{T}, x) where {T}
   v = zero(T)
   @inbounds for i in eachindex(m.η)
     v += _obsweight(m.w, i, T) * T(m.loss(m.η[i], m.y[i]))

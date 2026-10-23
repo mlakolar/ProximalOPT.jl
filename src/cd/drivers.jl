@@ -86,7 +86,7 @@ function refit!(x::Union{SparseIterate, SymmetricSparseIterate}, f::Union{Abstra
     h = T(δ[j])
     iszero(h) && continue
     cx[k] += h
-    _update!(m, x, k, h)
+    update_cache!(m, x, k, h)
   end
   # coordinates outside the support stay as they are; zero them first to refit
   # on the support only
@@ -101,7 +101,7 @@ _support(x::Union{SparseIterate, SymmetricSparseIterate}) =
 # coordinates of S; exact for a quadratic loss
 function _refit_step(m::CDModel{T}, x, S::Vector{Int}) where {T}
   isempty(S) && return T[]
-  G = [_coordinate(m, x, k)[1] for k in S]
+  G = [coordinate_derivatives(m, x, k)[1] for k in S]
   H = _hessian(m, x, S)
   -(qr(Symmetric(H), ColumnNorm()) \ G)
 end
@@ -124,17 +124,17 @@ end
 # the derivatives after a unit step: exact for a quadratic, up to rounding
 function _hessian(m::CDModel{T}, x, S::Vector{Int}) where {T}
   n = length(S)
-  G0 = [_coordinate(m, x, k)[1] for k in S]
+  G0 = [coordinate_derivatives(m, x, k)[1] for k in S]
   H = zeros(T, n, n)
   cx = coordinates(x)
   for (j, k) in enumerate(S)
     cx[k] += one(T)
-    _update!(m, x, k, one(T))
+    update_cache!(m, x, k, one(T))
     for (i, l) in enumerate(S)
-      H[i, j] = _coordinate(m, x, l)[1] - G0[i]
+      H[i, j] = coordinate_derivatives(m, x, l)[1] - G0[i]
     end
     cx[k] -= one(T)
-    _update!(m, x, k, -one(T))
+    update_cache!(m, x, k, -one(T))
   end
   (H .+ H') ./ 2
 end

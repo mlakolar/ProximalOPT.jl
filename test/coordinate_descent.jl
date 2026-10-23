@@ -175,6 +175,10 @@ end
     x2 = SparseIterate(p)
     solve!(x2, 2 * QuadraticFunction(Symmetric(A), b), NormL1(2λ), CDSolver(; tol = 1e-10))
     @test Vector(x2) ≈ Vector(x) atol = 1e-8
+    # a dense Matrix{T} is used as it is, any other matrix is copied
+    @test cdmodel(QuadraticFunction(A, b), x).A === A
+    @test cdmodel(QuadraticFunction(Symmetric(A), b), x).A == A
+    @test cdmodel(QuadraticFunction(Float32.(A), Float32.(b)), x).A isa Matrix{Float32}
   end
 
   @testset "other separable penalties" begin
@@ -397,6 +401,15 @@ end
     x = SparseIterate(p)
     r = solve!(x, f, NormL1(2λmax), CDSolver(); continuation = 10)
     @test nnz(x) == 0 && r.kkt_checks == 0
+    # and so does continuation with a penalty without a level, from zero
+    f20 = (1 / n) * LeastSquaresLoss(y, X[:, 1:20])
+    for g in (ZeroFunction(), IndBox(-0.5, 0.5))
+      x1 = SparseIterate(20); x1[3] = 1.0
+      x2 = SparseIterate(20)
+      Random.seed!(5); r1 = solve!(x1, f20, g, CDSolver(; tol = 1e-10); continuation = 10)
+      Random.seed!(5); r2 = solve!(x2, f20, g, CDSolver(; tol = 1e-10))
+      @test Vector(x1) == Vector(x2) && r1.passes == r2.passes && r1.converged && r1.kkt_checks == 0
+    end
     @test_throws ArgumentError lambda_max(f, IndBox(-1, 1), SparseIterate(p))
   end
 
@@ -530,11 +543,11 @@ mutable struct MyQuadratic <: CDModel{Float64}
   u::Vector{Float64}
 end
 PO.initialize!(m::MyQuadratic, x) = (m.u .= m.A * Vector(x); m)
-PO._coordinate(m::MyQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
-PO._update!(m::MyQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
-PO._coordscale(m::MyQuadratic, x, k::Int) = sqrt(m.A[k, k])
-PO._responsescale(m::MyQuadratic, x) = 1.0
-PO._value(m::MyQuadratic, x) = dot(Vector(x), m.u) / 2 + dot(m.b, Vector(x))
+PO.coordinate_derivatives(m::MyQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
+PO.update_cache!(m::MyQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
+PO.coordinate_scale(m::MyQuadratic, x, k::Int) = sqrt(m.A[k, k])
+PO.response_scale(m::MyQuadratic, x) = 1.0
+PO.loss_value(m::MyQuadratic, x) = dot(Vector(x), m.u) / 2 + dot(m.b, Vector(x))
 ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
 
 @testset "scales of the stopping rule" begin
@@ -548,7 +561,7 @@ ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
     x = SparseIterate(p)
     m = cdmodel(f, x)
     PO.initialize!(m, x)
-    @test [PO._coordscale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
+    @test [PO.coordinate_scale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
   end
 end
 
@@ -559,16 +572,26 @@ mutable struct SymmetricDistance <: CDModel{Float64}
   T::Matrix{Float64}
 end
 PO.initialize!(m::SymmetricDistance, x) = m
-function PO._coordinate(m::SymmetricDistance, x::SymmetricSparseIterate, k::Int)
+function PO.coordinate_derivatives(m::SymmetricDistance, x::SymmetricSparseIterate, k::Int)
   r, c = ProximalBase.tril_cartesian(x.p, k)
   mult = r == c ? 1.0 : 2.0
   (mult * (coordinates(x)[k] - m.T[r, c]), mult)
 end
-PO._update!(m::SymmetricDistance, x, k::Int, h) = m
-PO._coordscale(m::SymmetricDistance, x, k::Int) = 1.0
-PO._responsescale(m::SymmetricDistance, x) = 1.0
-PO._value(m::SymmetricDistance, x) = sum(abs2, Matrix(x) - m.T) / 2
+PO.update_cache!(m::SymmetricDistance, x, k::Int, h) = m
+PO.coordinate_scale(m::SymmetricDistance, x, k::Int) = 1.0
+PO.response_scale(m::SymmetricDistance, x) = 1.0
+PO.loss_value(m::SymmetricDistance, x) = sum(abs2, Matrix(x) - m.T) / 2
 ProximalBase.gradient!(G, m::SymmetricDistance, x) = (G .= Matrix(x) .- m.T)
+
+# x'Ax/2 + b'x with only the required functions of the interface
+struct MinimalQuadratic <: CDModel{Float64}
+  A::Matrix{Float64}
+  b::Vector{Float64}
+  u::Vector{Float64}
+end
+PO.initialize!(m::MinimalQuadratic, x) = (m.u .= m.A * Vector(x); m)
+PO.coordinate_derivatives(m::MinimalQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
+PO.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
 
 @testset "more losses, iterates and drivers" begin
   X, y = lassodata()
@@ -675,7 +698,7 @@ ProximalBase.gradient!(G, m::SymmetricDistance, x) = (G .= Matrix(x) .- m.T)
   m9 = cdmodel((1 / n) * LeastSquaresLoss(y, X), SparseIterate(p))
   x9 = SparseIterate(p)
   PO.initialize!(m9, x9)
-  @test collect(PO._coordinate(m9, x9, 3)) ≈ [-dot(X[:, 3], y) / n, sum(abs2, X[:, 3]) / n]
+  @test collect(PO.coordinate_derivatives(m9, x9, 3)) ≈ [-dot(X[:, 3], y) / n, sum(abs2, X[:, 3]) / n]
   @test ProximalBase.isconvex(SqrtLeastSquaresLoss(y, X))
 
   # results, summaries and errors
@@ -698,6 +721,132 @@ end
   # and a path through it
   path = solve_path(MyQuadratic(A, b, zeros(20)), NormL1(1.0), [1.0, 0.5, 0.2]; x = SparseIterate(20))
   @test Vector(path.solutions[3]) ≈ Vector(x) atol = 1e-6
+  # the required functions alone: the absolute stopping rule, and no value
+  xm = SparseIterate(20)
+  rm = solve!(xm, MinimalQuadratic(A, b, zeros(20)), NormL1(0.2), CDSolver(; tol = 1e-12))
+  @test rm.converged && rm.tolerance == 1e-12 && isnan(rm.minimum)
+  @test Vector(xm) ≈ Vector(x) atol = 1e-9
+  # the interface is public, not exported
+  if VERSION >= v"1.11"
+    for name in (:initialize!, :coordinate_step!, :coordinate_derivatives, :update_cache!, :coordinate_scale,
+                 :response_scale, :loss_value, :check_penalty, :intercept, :residuals)
+      @test Base.ispublic(ProximalOPT, name) && !Base.isexported(ProximalOPT, name)
+    end
+  end
+end
+
+@testset "momentum" begin
+  @test CDSolver().momentum === nothing
+  @test CDSolver(; momentum = true).momentum === true
+  @test CDSolver(; momentum = false).momentum === false
+  @test CDSolver(; order = :cyclic).momentum === nothing
+  @test_throws ArgumentError CDSolver(; order = :cyclic, momentum = true)    # it can stall
+  @test_throws ArgumentError CDSolver(; order = :cyclic, anderson = 5, momentum = true)
+
+  # a common factor between the columns, where the random order is fast and
+  # the momentum makes it faster
+  rng = Xoshiro(41)
+  n, p, s = 300, 1000, 20
+  X = sqrt(0.5) * randn(rng, n) .+ sqrt(0.5) * randn(rng, n, p)
+  y = X[:, 1:s] * randn(rng, s) + randn(rng, n)
+  w = 0.5 .+ rand(rng, n)
+  λ = 0.02 * maximum(abs, X' * y) / n
+  λs = 0.2 * maximum(abs, X' * y) / norm(y)
+  f = (1 / n) * LeastSquaresLoss(y, X)
+  A, b = X' * X / n, -X' * y / n
+  plain = CDSolver(; tol = 1e-10, momentum = false)
+  mom = CDSolver(; tol = 1e-10, momentum = true)
+
+  # the same solution in fewer passes over all the losses together; MyQuadratic
+  # has a cache that ProximalOPT does not know, so it is initialized at the
+  # extrapolated points
+  passes0, passes1 = 0, 0
+  for (fm, g) in ((f, NormL1(λ)),
+                  (cdmodel(f, SparseIterate(p); intercept = true), NormL1(λ)),
+                  (GLMLoss(ProximalBase.Squared(), y, X; weights = w ./ n), NormL1(λ)),
+                  (QuadraticFunction(A, b), NormL1(λ)),
+                  (SqrtLeastSquaresLoss(y, X), NormL1(λs)),
+                  (f, NormL1(λ, rand(rng, p))),
+                  (MyQuadratic(A, b, zeros(p)), NormL1(λ)))
+    x0, x1 = SparseIterate(p), SparseIterate(p)
+    r0 = solve!(x0, fm, g, plain)
+    r1 = solve!(x1, fm, g, mom)
+    @test r1.converged
+    @test Vector(x1) ≈ Vector(x0) atol = 1e-6
+    passes0 += r0.passes
+    passes1 += r1.passes
+  end
+  @test passes1 < passes0 / 1.3
+
+  # from a path of levels, without a penalty, and along solve_path
+  xref = SparseIterate(p)
+  solve!(xref, f, NormL1(λ), plain)
+  x = SparseIterate(p)
+  @test solve!(x, f, NormL1(λ), mom; continuation = 10).converged
+  @test Vector(x) ≈ Vector(xref) atol = 1e-6
+  f100 = (1 / n) * LeastSquaresLoss(y, X[:, 1:100])
+  x0, x1 = SparseIterate(100), SparseIterate(100)
+  solve!(x0, f100, ZeroFunction(), plain)
+  solve!(x1, f100, ZeroFunction(), mom)
+  @test Vector(x1) ≈ Vector(x0) atol = 1e-6
+  λpath = [0.2, 0.1, 0.05, 0.02] .* (maximum(abs, X' * y) / n)
+  path0 = solve_path(f, NormL1(1.0), λpath, plain)
+  path1 = solve_path(f, NormL1(1.0), λpath, mom)
+  @test all(path1.converged)
+  for k in eachindex(λpath)
+    @test Vector(path1.solutions[k]) ≈ Vector(path0.solutions[k]) atol = 1e-6
+  end
+
+  # a logistic GLMLoss, and momentum = true on a symmetric iterate
+  Xl = X[:, 1:100]
+  yl = Float64.(Xl[:, 1:5] * ones(5) + randn(rng, n) .> 0)
+  fl = (1 / n) * LogisticLoss(yl, Xl)
+  λl = 0.05 * maximum(abs, Xl' * (yl .- 0.5)) / n
+  x0, x1 = SparseIterate(100), SparseIterate(100)
+  solve!(x0, fl, NormL1(λl), plain)
+  @test solve!(x1, fl, NormL1(λl), mom).converged
+  @test Vector(x1) ≈ Vector(x0) atol = 1e-5
+  q = 10
+  Sx = cov(randn(rng, 60, q)); Sy = cov(randn(rng, 60, q))
+  fk = KronQuadratic(Sx, Sy, Sx - Sy)
+  λk = 0.2 * maximum(abs, Sy - Sx)
+  xs0, xs1 = SymmetricSparseIterate(q), SymmetricSparseIterate(q)
+  solve!(xs0, fk, NormL1(λk), plain)
+  @test solve!(xs1, fk, NormL1(λk), mom).converged
+  @test Matrix(xs1) ≈ Matrix(xs0) atol = 1e-6
+  # not on the groups of an AtomIterate
+  groups = [((k - 1) * 10 + 1):(k * 10) for k in 1:100]
+  gg = GroupNormL2(λ, groups, ones(100))
+  @test_throws ArgumentError solve!(AtomIterate(Float64, p, groups), f, gg, mom)
+
+  # by default it is used with the random order, a SparseIterate and a
+  # built-in model other than that of KronQuadratic, and not otherwise: the
+  # runs of momentum = true or false
+  passes(f, g, x, s) = (Random.seed!(7); solve!(x, f, g, s).passes)
+  auto = CDSolver(; tol = 1e-10)
+  @test passes(f, NormL1(λ), SparseIterate(p), auto) == passes(f, NormL1(λ), SparseIterate(p), mom)
+  @test passes(f, NormL1(λ), SparseIterate(p), auto) != passes(f, NormL1(λ), SparseIterate(p), plain)
+  mq = MyQuadratic(A, b, zeros(p))
+  @test passes(mq, NormL1(λ), SparseIterate(p), auto) == passes(mq, NormL1(λ), SparseIterate(p), plain)
+  @test passes(fl, NormL1(λl), SparseIterate(100), auto) == passes(fl, NormL1(λl), SparseIterate(100), mom)
+  @test passes(fk, NormL1(λk), SymmetricSparseIterate(q), auto) ==
+        passes(fk, NormL1(λk), SymmetricSparseIterate(q), plain)
+  @test passes(fk, NormL1(λk), SparseIterate(q * q), auto) == passes(fk, NormL1(λk), SparseIterate(q * q), plain)
+  @test passes(f, gg, AtomIterate(Float64, p, groups), auto) == passes(f, gg, AtomIterate(Float64, p, groups), plain)
+  @test passes(f, NormL1(λ), SparseIterate(p), CDSolver(; tol = 1e-10, order = :cyclic)) ==
+        passes(f, NormL1(λ), SparseIterate(p), CDSolver(; tol = 1e-10, order = :cyclic, momentum = false))
+
+  # every run starts a new history
+  m = cdmodel(f, SparseIterate(p))
+  st = PO._CDState(Float64, SparseIterate(p), true)
+  runs = map(1:2) do _
+    x = SparseIterate(p)
+    PO.initialize!(m, x)
+    Random.seed!(9)
+    PO._cd!(x, m, NormL1(λ), st, mom)
+    (st.passes, Vector(x))
+  end
+  @test runs[1] == runs[2]
 end
 
 @testset "argument checks" begin
@@ -713,6 +862,16 @@ end
   Xn = copy(X); Xn[1, 1] = NaN
   @test_throws ArgumentError solve!(SparseIterate(p), LeastSquaresLoss(y, Xn), NormL1(1.0), CDSolver())
   @test_throws ArgumentError solve!(SparseIterate(p), f, NormL1(1.0), CDSolver(); continuation = -1)
+  # a weight or a bound for every entry of x, checked before the passes
+  for g in (NormL1(1.0, ones(p - 1)), ElasticNet(1.0, 0.1, ones(p + 1)), IndBox(zeros(p - 1), ones(p - 1)))
+    x = SparseIterate(p)
+    @test_throws DimensionMismatch solve!(x, f, g, CDSolver())
+    @test nnz(x) == 0
+  end
+  @test_throws DimensionMismatch solve!(SparseIterate(p), f, NormL1(1.0, ones(p - 1)), CDSolver(); continuation = 5)
+  @test_throws DimensionMismatch solve_path(f, NormL1(1.0, ones(p - 1)), [1.0, 0.5])
+  fk = KronQuadratic(Matrix(1.0I, 4, 4), Matrix(1.0I, 4, 4), ones(4, 4))
+  @test_throws DimensionMismatch solve!(SymmetricSparseIterate(4), fk, NormL1(1.0, ones(10)), CDSolver())
 end
 
 @testset "allocations" begin
@@ -727,7 +886,7 @@ end
     fill!(x, 0.0); PO.initialize!(m, x)
     @allocated PO._cd!(x, m, g, st, s)
   end
-  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random))
+  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random), CDSolver(; momentum = true))
     @test passes_bytes(SparseIterate(p), cdmodel(f, SparseIterate(p)), NormL1(0.1), s) == 0
     q = 10
     Sx = cov(randn(Xoshiro(15), 50, q)); Sy = cov(randn(Xoshiro(16), 50, q))

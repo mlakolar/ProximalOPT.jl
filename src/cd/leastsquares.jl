@@ -201,7 +201,7 @@ end
 # the coordinate goes to xₖ + b/a, with step 1/(s a) for the penalty; a column
 # that the loss does not depend on (a zero column, or a constant one with an
 # intercept) gets the minimizer of the penalty nearest zero
-@inline function _step!(m::LSModel{T}, g, x::SparseIterate{T}, k::Int) where {T}
+@inline function coordinate_step!(m::LSModel{T}, g, x::SparseIterate{T}, k::Int) where {T}
   a, b = _column_dot(m, k)
   m.a[k] = a
   old = x[k]
@@ -213,17 +213,20 @@ end
   h
 end
 
-function _coordinate(m::LSModel{T}, x::SparseIterate{T}, k::Int) where {T}
+function coordinate_derivatives(m::LSModel{T}, x::SparseIterate{T}, k::Int) where {T}
   a, b = _column_dot(m, k)
   m.a[k] = a
   -m.s * b, m.s * a
 end
 
-_update!(m::LSModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T} = (_column_axpy!(m.r, m.X, k, m.xbar[k], h); m)
+update_cache!(m::LSModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T} = (_column_axpy!(m.r, m.X, k, m.xbar[k], h); m)
 
-_coordscale(m::LSModel, x, k::Int) = sqrt(m.s * _sqnorm!(m, k))
+# the residuals are affine in β, also with the centering of an intercept
+_cache(m::LSModel) = m.r
 
-function _responsescale(m::LSModel{T}, x) where {T}
+coordinate_scale(m::LSModel, x, k::Int) = sqrt(m.s * _sqnorm!(m, k))
+
+function response_scale(m::LSModel{T}, x) where {T}
   y, o, w, ȳ = m.y, m.offset, m.w, m.ybar
   s = zero(T)
   @inbounds for i in eachindex(y)
@@ -233,7 +236,7 @@ function _responsescale(m::LSModel{T}, x) where {T}
   sqrt(m.s * s)
 end
 
-function _value(m::LSModel{T}, x) where {T}
+function loss_value(m::LSModel{T}, x) where {T}
   r, w = m.r, m.w
   v = zero(T)
   if w === nothing

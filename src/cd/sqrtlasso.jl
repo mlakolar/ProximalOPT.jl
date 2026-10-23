@@ -103,7 +103,7 @@ end
 
 # the exact minimizer of ‖r - X[:,k] t‖ + λ|t| over the coordinate, with the
 # columns centered at their means when the model fits an intercept
-function _step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
+function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
   T = eltype(m)
   X, r = m.X, m.r
   c = m.xbar[k]
@@ -132,7 +132,9 @@ function _step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
   new - old
 end
 
-_check_model(::SqrtLSModel, g) = g isa NormL1 ||
+_cache(m::SqrtLSModel) = m.r
+
+check_penalty(::SqrtLSModel, g) = g isa NormL1 ||
   throw(ArgumentError("coordinate descent on SqrtLeastSquaresLoss needs a NormL1 penalty, but g is a $(typeof(g))."))
 
 function _sqnorm!(m::SqrtLSModel{T}, k::Int) where {T}
@@ -148,8 +150,8 @@ function _sqnorm!(m::SqrtLSModel{T}, k::Int) where {T}
   a
 end
 
-_coordscale(m::SqrtLSModel, x, k::Int) = sqrt(_sqnorm!(m, k) / length(m.y))
-function _responsescale(m::SqrtLSModel{T}, x) where {T}
+coordinate_scale(m::SqrtLSModel, x, k::Int) = sqrt(_sqnorm!(m, k) / length(m.y))
+function response_scale(m::SqrtLSModel{T}, x) where {T}
   s = zero(T)
   @inbounds for i in eachindex(m.y)
     s += (m.y[i] - m.ybar)^2
@@ -157,7 +159,7 @@ function _responsescale(m::SqrtLSModel{T}, x) where {T}
   sqrt(s / length(m.y))
 end
 
-_value(m::SqrtLSModel, x) = norm(m.r)
+loss_value(m::SqrtLSModel, x) = norm(m.r)
 
 function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T}, x) where {T}
   mul!(G, transpose(m.X), m.r)

@@ -5,7 +5,8 @@
 ####################################
 
 """
-    CDSolver(; maxpasses = 100_000, tol = 1e-7, order = :random, relative = true, anderson = 0)
+    CDSolver(; maxpasses = 100_000, tol = 1e-7, order = :random, relative = true, anderson = 0,
+               momentum = nothing)
 
 Coordinate descent for `f(x) + g(x)`, where `g` is separable
 (`isseparable(g)`: `NormL1`, `ElasticNet`, `MCP`, `SCAD`, `IndBox`, …) or a
@@ -35,6 +36,23 @@ less time than cyclic order alone at 0.02 λmax. A random order changes the map
 of a pass from one pass to the next, which the extrapolation needs to repeat,
 so `anderson` is ignored with it, as on an `AtomIterate`. Strongly correlated
 columns still favor a random order.
+
+With `momentum`, each pass over the active set starts from the extrapolated
+point `xₖ + βₖ (xₖ - xₖ₋₁)`, with Nesterov's `βₖ = (k - 1) / (k + 2)`, as in
+CoordinateDescent.jl 0.6. The momentum restarts after a full pass, when the
+active set shrinks, and when the step of a pass points against it (O'Donoghue
+and Candès, *Adaptive restart for accelerated gradient schemes*, 2015). Full
+passes are never extrapolated, so the method stops on a plain full pass. The
+cache of a built-in model moves with the
+point, at the cost of a few vector operations per pass; a model of another
+loss is initialized at the extrapolated point. By default
+(`momentum = nothing`) it is used with the random order on a `SparseIterate`
+for `LeastSquaresLoss`, `GLMLoss`, `SqrtLeastSquaresLoss` and
+`QuadraticFunction`, and not otherwise. `momentum = true` asks for it with any
+model on a `SparseIterate` or a `SymmetricSparseIterate`, such as
+[`KronQuadratic`](@ref); `momentum = false` turns it off. With the cyclic order
+it can stall far from the minimizer, so `order = :cyclic` refuses
+`momentum = true`.
 """
 struct CDSolver <: ProximalSolver
   maxpasses::Int
@@ -42,15 +60,18 @@ struct CDSolver <: ProximalSolver
   random::Bool
   relative::Bool
   anderson::Int
+  momentum::Union{Nothing, Bool}
 end
 
 function CDSolver(; maxpasses::Integer = 100_000, tol::Real = 1e-7, order::Symbol = :random,
-                  relative::Bool = true, anderson::Integer = 0)
+                  relative::Bool = true, anderson::Integer = 0, momentum::Union{Nothing, Bool} = nothing)
   maxpasses >= 0 || throw(ArgumentError("maxpasses must be nonnegative, but it is $maxpasses."))
   tol >= 0 || throw(ArgumentError("tol must be nonnegative, but it is $tol."))
   order in (:random, :cyclic) || throw(ArgumentError("order must be :random or :cyclic, but it is :$order."))
   anderson >= 0 || throw(ArgumentError("anderson must be nonnegative, but it is $anderson."))
-  CDSolver(Int(maxpasses), Float64(tol), order === :random, relative, Int(anderson))
+  momentum === true && order === :cyclic &&
+    throw(ArgumentError("momentum needs order = :random; with the cyclic order it can stall far from the minimizer."))
+  CDSolver(Int(maxpasses), Float64(tol), order === :random, relative, Int(anderson), momentum)
 end
 
 Base.summary(::CDSolver) = "Coordinate Descent"
@@ -92,11 +113,36 @@ function Base.show(io::IO, r::CDResults)
   return
 end
 
-# the state of one run: the coordinate order and what the passes report
+# Nesterov momentum on the passes over the active set (see CDSolver), as in
+# CoordinateDescent.jl 0.6. Before a pass over the active set, the active values
+# move to y = xₖ + βₖ (xₖ - xₖ₋₁), βₖ = (k - 1) / (k + 2), and so does an affine
+# cache of the model (_cache), exactly up to rounding; another model is
+# initialized at y. After the pass, k restarts at 1 when the step of the pass
+# points against the momentum, (xₖ₊₁ - y)'(xₖ - xₖ₋₁) < 0. The history is
+# indexed by position among the stored values, x.nzval[1:m], so it starts again
+# when the active set changes: after every full pass, and when dropzeros! has
+# compacted the stored values. The buffers have room for every coordinate, so
+# that no pass allocates.
+mutable struct _Momentum{T}
+  xprev::Vector{T}      # the active values after the pass before the last
+  xcur::Vector{T}       # the active values after the last pass
+  y::Vector{T}          # the active values the last pass started from
+  cprev::Vector{T}      # the cache of the model at xprev
+  ccur::Vector{T}       # the cache of the model at xcur
+  n::Int                # number of active values in the history
+  k::Int
+  moved::Bool           # whether the cache moved since it was last computed
+end
+
+_Momentum{T}() where {T} = _Momentum{T}(T[], T[], T[], T[], T[], 0, 1, false)
+
+# the state of one run: the coordinate order, the momentum, and what the passes
+# report
 mutable struct _CDState{T}
   random::Bool
   order::Vector{Int}                     # buffer for random orders
   candidates::Union{Nothing, Vector{Int}}  # the coordinates of full passes, nothing for all
+  momentum::_Momentum{T}
   passes::Int
   converged::Bool
   maxchange::T
@@ -104,7 +150,8 @@ mutable struct _CDState{T}
 end
 
 _CDState(::Type{T}, x, random::Bool) where {T} =
-  _CDState{T}(random, Vector{Int}(undef, random ? ncoordinates(x) : 0), nothing, 0, false, T(NaN), T(NaN))
+  _CDState{T}(random, Vector{Int}(undef, random ? ncoordinates(x) : 0), nothing, _Momentum{T}(), 0, false,
+              T(NaN), T(NaN))
 
 # a uniformly random order of 1:n in order[1:n] (Fisher–Yates), drawn from the
 # global random number generator with the calls of CoordinateDescent.jl, so that
@@ -195,7 +242,8 @@ end
 # model m must be current for x.
 function _cd!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
   s.anderson > 0 && !s.random && !(x isa AtomIterate) && return _cd_anderson!(x, m, g, st, s)
-  sy = s.relative ? _responsescale(m, x) : one(T)
+  _usemomentum(s, x, m) && return _cd_momentum!(x, m, g, st, s)
+  sy = s.relative ? response_scale(m, x) : one(T)
   scaled = s.relative && sy > 0
   tol = scaled ? T(s.tol) * sy : T(s.tol)
   st.passes, st.converged, st.maxchange, st.tolerance = 0, false, T(NaN), tol
@@ -213,9 +261,135 @@ function _cd!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
   x
 end
 
+# whether the passes use momentum; see CDSolver
+function _usemomentum(s::CDSolver, x, m)
+  s.momentum === false && return false
+  s.momentum === nothing && return s.random && x isa SparseIterate && _momentum_default(m)
+  x isa Union{SparseIterate, SymmetricSparseIterate} ||
+    throw(ArgumentError("momentum needs a SparseIterate or a SymmetricSparseIterate, not a $(typeof(x))."))
+  true
+end
+
+# the cache of a model that is affine in x, which momentum moves with the
+# point; nothing for a model that momentum initializes at the point instead
+_cache(m::CDModel) = nothing
+
+# whether momentum is used by default, with a random order on a SparseIterate:
+# for the models whose cache moves with the point, where it pays off
+_momentum_default(m::CDModel) = _cache(m) !== nothing
+
+# the same passes with momentum on the passes over the active set; the cache
+# moved by the momentum is computed again before the next full pass, so that it
+# does not drift into the stopping rule or the optimality checks of screening
+function _cd_momentum!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
+  sy = s.relative ? response_scale(m, x) : one(T)
+  scaled = s.relative && sy > 0
+  tol = scaled ? T(s.tol) * sy : T(s.tol)
+  st.passes, st.converged, st.maxchange, st.tolerance = 0, false, T(NaN), tol
+  mom = _momentum_start!(st.momentum, x, m)
+  converged = true
+  for pass in 1:s.maxpasses
+    full = converged
+    full || _momentum_step!(mom, x, m)
+    maxh = _pass!(x, m, g, st, full, scaled)
+    previous = converged
+    st.passes, st.maxchange = pass, maxh
+    converged = maxh < tol
+    if previous && converged
+      st.converged = true
+      break
+    end
+    if full
+      _momentum_reset!(mom, x, m)
+    elseif converged
+      _momentum_refresh!(mom, x, m)
+    else
+      _momentum_update!(mom, x, m)
+    end
+  end
+  x
+end
+
+# a new history for a run, with buffers for every coordinate and for the cache
+function _momentum_start!(s::_Momentum, x, m)
+  n = ncoordinates(x)
+  if length(s.xcur) < n
+    resize!(s.xprev, n); resize!(s.xcur, n); resize!(s.y, n)
+  end
+  c = _cache(m)
+  if c !== nothing && length(s.ccur) != length(c)
+    resize!(s.ccur, length(c)); resize!(s.cprev, length(c))
+  end
+  s.n, s.k, s.moved = 0, 1, false
+  s
+end
+
+# starts the history at x, as after a full pass or when the active set shrank
+function _momentum_reset!(s::_Momentum, x, m)
+  n = nactive(x)
+  s.n, s.k = n, 1
+  copyto!(s.xcur, 1, x.nzval, 1, n)
+  copyto!(s.xprev, 1, s.xcur, 1, n)
+  c = _cache(m)
+  if c !== nothing
+    copyto!(s.ccur, c)
+    copyto!(s.cprev, c)
+  end
+  s
+end
+
+# moves x and the cache of m to the point the next pass over the active set
+# starts from
+function _momentum_step!(s::_Momentum{T}, x, m) where {T}
+  n = s.n
+  β = s.k > 1 ? T((s.k - 1) / (s.k + 2)) : zero(T)
+  @inbounds for j in 1:n
+    s.y[j] = s.xcur[j] + β * (s.xcur[j] - s.xprev[j])
+  end
+  iszero(β) && return s
+  copyto!(x.nzval, 1, s.y, 1, n)
+  c = _cache(m)
+  if c === nothing
+    initialize!(m, x)
+  else
+    @inbounds @simd for i in eachindex(c)
+      c[i] = s.ccur[i] + β * (s.ccur[i] - s.cprev[i])
+    end
+    s.moved = true
+  end
+  s
+end
+
+# after a pass over the active set: restarts when its step points against the
+# momentum, and records the new point
+function _momentum_update!(s::_Momentum{T}, x, m) where {T}
+  nactive(x) == s.n || return _momentum_reset!(s, x, m)
+  n = s.n
+  d = zero(T)
+  @inbounds for j in 1:n
+    d += (x.nzval[j] - s.y[j]) * (s.xcur[j] - s.xprev[j])
+  end
+  s.k = s.k > 1 && d < 0 ? 1 : s.k + 1
+  s.xprev, s.xcur = s.xcur, s.xprev
+  copyto!(s.xcur, 1, x.nzval, 1, n)
+  c = _cache(m)
+  if c !== nothing
+    s.cprev, s.ccur = s.ccur, s.cprev
+    copyto!(s.ccur, c)
+  end
+  s
+end
+
+# computes the cache again where repeated moves may have let it drift
+function _momentum_refresh!(s::_Momentum, x, m)
+  s.moved && initialize!(m, x)
+  s.moved = false
+  s
+end
+
 # the same passes with Anderson extrapolation on the active set
 function _cd_anderson!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
-  sy = s.relative ? _responsescale(m, x) : one(T)
+  sy = s.relative ? response_scale(m, x) : one(T)
   scaled = s.relative && sy > 0
   tol = scaled ? T(s.tol) * sy : T(s.tol)
   st.passes, st.converged, st.maxchange, st.tolerance = 0, false, T(NaN), tol
@@ -274,14 +448,14 @@ function _extrapolate!(a::_Anderson{T}, x, m, g, full::Bool) where {T}
   (isfinite(sc) && !iszero(sc)) || return a
   c ./= sc
   xe = view(a.hist, :, 2:a.K+1) * c
-  F = _value(m, x) + g(x)
+  F = loss_value(m, x) + g(x)
   resize!(a.saved, length(a.S))
   for (i, k) in enumerate(a.S)
     @inbounds a.saved[i] = cx[k]
     cx[k] = xe[i]
   end
   initialize!(m, x)
-  if !(_value(m, x) + g(x) < F)
+  if !(loss_value(m, x) + g(x) < F)
     for (i, k) in enumerate(a.S)
       cx[k] = a.saved[i]
     end
@@ -325,11 +499,11 @@ end
 
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, m::CDModel{T},
                 g::AbstractFunction, method::CDSolver) where {T}
-  _check_penalty(g, x)
-  _check_model(m, g)
+  _check_iterate(g, x)
+  check_penalty(m, g)
   initialize!(m, x)
   st = _CDState(T, x, method.random)
   _cd!(x, m, g, st, method)
   _warn_not_converged(st, method)
-  CDResults(x, _value(m, x) + g(x), st.passes, st.converged, st.maxchange, st.tolerance, 0)
+  CDResults(x, loss_value(m, x) + g(x), st.passes, st.converged, st.maxchange, st.tolerance, 0)
 end

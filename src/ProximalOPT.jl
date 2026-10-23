@@ -40,7 +40,12 @@ export
   OptimizationState, OptimizationTrace,
   CDResults, PathResults, ReweightResults
 
-
+# the interface of coordinate descent models (see CDModel) and the accessors of
+# the least-squares models: public, not exported
+@static if VERSION >= v"1.11.0-DEV.469"
+  eval(Expr(:public, :initialize!, :coordinate_step!, :coordinate_derivatives, :update_cache!,
+            :coordinate_scale, :response_scale, :loss_value, :check_penalty, :intercept, :residuals))
+end
 
 include("types.jl")
 

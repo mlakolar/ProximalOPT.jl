@@ -87,9 +87,10 @@ level of `g`, then at `g` itself, each warm started from the previous solution.
 With `screening`, each level is screened with the strong rule (see
 [`solve_path`](@ref)); the default screens except on a `SymmetricSparseIterate`,
 whose coordinate steps update the gradient everywhere, so that the optimality
-checks of screening cost more passes than they save. This needs a penalty with
-a level (`NormL1`, `ElasticNet`, `MCP`, `SCAD`, `GroupNormL2`); it does nothing
-more when the level of `g` is zero or at least `lambda_max`.
+checks of screening cost more passes than they save. When the level of `g` is
+zero or at least `lambda_max`, `f + g` is minimized from zero directly, and so
+it is for a penalty without a level (`ZeroFunction`, `IndBox`, …), which has
+no path.
 """
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f::Union{AbstractFunction, CDModel},
                 g::AbstractFunction, method::CDSolver; continuation::Integer,
@@ -97,18 +98,22 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
   continuation >= 0 || throw(ArgumentError("continuation must be nonnegative, but it is $continuation."))
   continuation == 0 && return solve!(x, f, g, method)
   m = f isa CDModel ? f : cdmodel(f, x)
-  _check_penalty(g, x)
-  _check_model(m, g)
+  _check_iterate(g, x)
+  check_penalty(m, g)
   T = eltype(m)
   fill!(x, zero(T))
   initialize!(m, x)
-  grad = _gradient_buffer(x)
-  gradient!(grad, m, x)
-  λmax = _lambda_max(x, grad, g)
-  λ = _level(g)
   st = _CDState(T, x, method.random)
   passes, checks = 0, 0
-  if zero(λmax) < λ < λmax
+  path = false
+  if _haslevel(g)
+    grad = _gradient_buffer(x)
+    gradient!(grad, m, x)
+    λmax = _lambda_max(x, grad, g)
+    λ = _level(g)
+    path = zero(λmax) < λ < λmax
+  end
+  if path
     l1, l2 = log(λmax), log(λ)
     inS = falses(ncoordinates(x))
     λprev = λmax
@@ -127,7 +132,7 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
     passes += st.passes
   end
   _warn_not_converged(st, method)
-  CDResults(x, _value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks)
+  CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks)
 end
 
 Base.eltype(::CDModel{T}) where {T} = T
@@ -192,8 +197,8 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   issorted(λs; rev = true) || throw(ArgumentError("The penalty levels must be decreasing."))
   m = f isa CDModel ? f : cdmodel(f, x)
   T = eltype(m)
-  _check_penalty(g, x)
-  _check_model(m, g)
+  _check_iterate(g, x)
+  check_penalty(m, g)
   isempty(λs) || _with_level(g, T(first(λs)))      # a penalty with a level
   initialize!(m, x)
   st = _CDState(T, x, method.random)
@@ -216,7 +221,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
       checks = 0
     end
     _warn_not_converged(st, method)
-    push!(out.λ, T(λ)); push!(solutions, _snapshot(x)); push!(out.values, _value(m, x) + gk(x))
+    push!(out.λ, T(λ)); push!(solutions, _snapshot(x)); push!(out.values, loss_value(m, x) + gk(x))
     push!(out.passes, st.passes); push!(out.converged, st.converged); push!(out.kkt_checks, checks)
     (callback !== nothing && callback(k, T(λ), x, m) === true) && break
     nactive(x) > maxnnz && break

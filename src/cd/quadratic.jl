@@ -6,7 +6,9 @@
 
 # The model of QuadraticFunction, possibly scaled by s. It caches Ax, so a
 # coordinate step costs O(p). A is kept as a dense matrix: indexing a Symmetric
-# branches on every access, which would dominate the updates.
+# branches on every access, which would dominate the updates. A dense Matrix{T}
+# is used as it is, so the model sees changes made to it in place, as LSModel
+# sees those of X; any other matrix is copied.
 mutable struct QuadModel{T<:AbstractFloat, B<:Union{Nothing, AbstractVector{T}}} <: CDModel{T}
   A::Matrix{T}
   b::B
@@ -21,7 +23,7 @@ function QuadModel(A::AbstractMatrix, b, c, s)
   T = float(eltype(A))
   n = LinearAlgebra.checksquare(A)
   b === nothing || length(b) == n || throw(DimensionMismatch("b has length $(length(b)) and A has $n columns"))
-  Ad = Matrix{T}(A)
+  Ad = A isa Matrix{T} ? A : Matrix{T}(A)
   _check_finite(Ad, "A")
   bt = b === nothing ? nothing : convert(AbstractVector{T}, b)
   bt === nothing || _check_finite(bt, "b")
@@ -51,7 +53,7 @@ end
 
 # a coordinate with A[k, k] = 0, which f does not depend on when A is positive
 # semidefinite, goes to the minimizer of the penalty nearest zero
-@inline function _step!(m::QuadModel{T}, g, x::SparseIterate{T}, k::Int) where {T}
+@inline function coordinate_step!(m::QuadModel{T}, g, x::SparseIterate{T}, k::Int) where {T}
   A, u = m.A, m.u
   ainv = inv(m.s * @inbounds(A[k, k]))
   G = m.s * (@inbounds(u[k]) + _linear(m.b, k, T))
@@ -66,10 +68,10 @@ end
   h
 end
 
-@inline _coordinate(m::QuadModel{T}, x::SparseIterate{T}, k::Int) where {T} =
+@inline coordinate_derivatives(m::QuadModel{T}, x::SparseIterate{T}, k::Int) where {T} =
   m.s * (@inbounds(m.u[k]) + _linear(m.b, k, T)), m.s * @inbounds(m.A[k, k])
 
-function _update!(m::QuadModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T}
+function update_cache!(m::QuadModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T}
   A, u = m.A, m.u
   @inbounds @simd for i in eachindex(u)
     u[i] += A[i, k] * h
@@ -77,11 +79,13 @@ function _update!(m::QuadModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T}
   m
 end
 
+_cache(m::QuadModel) = m.u
+
 # with A = X'X/n and b = -X'y/n, √A[k,k] = ‖X[:, k]‖ / √n, and
 # maxₖ |bₖ| / √A[k,k] is a lower bound on ‖y‖ / √n
-_coordscale(m::QuadModel, x, k::Int) = sqrt(m.s * m.A[k, k])
+coordinate_scale(m::QuadModel, x, k::Int) = sqrt(m.s * m.A[k, k])
 
-function _responsescale(m::QuadModel{T}, x) where {T}
+function response_scale(m::QuadModel{T}, x) where {T}
   m.b === nothing && return zero(T)
   s = zero(T)
   for k in eachindex(m.b)
@@ -91,7 +95,7 @@ function _responsescale(m::QuadModel{T}, x) where {T}
   sqrt(m.s) * s
 end
 
-function _value(m::QuadModel{T}, x) where {T}
+function loss_value(m::QuadModel{T}, x) where {T}
   v = zero(T)
   for k in _activeentries(x)
     xk = x[k]

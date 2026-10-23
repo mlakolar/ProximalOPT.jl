@@ -51,6 +51,15 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
+      # ProximalBase 0.5 is not registered yet (ProximalBase PR #23). Julia 1.11
+      # and later take it from [sources] in Project.toml; Julia 1.10 ignores
+      # [sources]. Remove this step and [sources] once 0.5 is registered.
+      - name: Add ProximalBase 0.5 from GitHub on Julia 1.10
+        if: matrix.version == 'lts'
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add(url="https://github.com/mlakolar/ProximalBase.jl", rev="proximalbase-0.5")
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1

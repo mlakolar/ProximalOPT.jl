@@ -10,3 +10,5 @@
 /benchmark/engine/*/Manifest*.toml
 # raw results of benchmark/engine (solutions are large)
 /benchmark/engine/results/
+/benchmark/gap/Manifest*.toml
+/benchmark/gap/*.csv

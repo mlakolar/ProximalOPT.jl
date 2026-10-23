@@ -35,7 +35,10 @@ slices, `x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`. If
 are measured with it, without forming the differences.
 
 Of the [`ProximalOptions`](@ref), only `maxiter`, `time_limit`,
-`prox_calls_limit`, `show_trace` and `printEvery` are used. Use with
+`prox_calls_limit`, `show_trace`, `printEvery`, `gaptol` and `gapevery` are
+used. With `gaptol > 0` and functions that have a duality gap (see
+[`duality_gap`](@ref); among them the graphical lasso, a `LogDetLoss` with a
+`NormL1`), the gap at `z` replaces the residual tests. Use with
 [`solve!`](@ref); to warm start from a previous result `res`, pass its scaled
 dual variable and final penalty parameter:
 `solve!(x, f, g, ADMMSolver(; ρ = res.ρ), options; u = res.u)`.
@@ -70,7 +73,9 @@ primal and dual residuals `r_norm`, `s_norm` with their tolerances `eps_pri`,
 (for a warm start), and the number of evaluations: `f_calls` of the value of
 `f` (for the trace and `minimum`), `grad_calls` (always `0`) and `prox_calls`
 of the proximal operators of `f` and `g`. `call_limit_reached` is `true` when
-the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)).
+the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)), and
+`gap` is the relative duality gap at the minimizer when `gaptol > 0`, `NaN`
+otherwise.
 """
 struct ADMMResults{T,N}
     minimizer::Array{T,N}
@@ -87,6 +92,7 @@ struct ADMMResults{T,N}
     grad_calls::Int
     prox_calls::Int
     call_limit_reached::Bool
+    gap::Float64
 end
 
 Base.summary(::ADMMResults) = "ADMM"
@@ -107,6 +113,7 @@ function Base.show(io::IO, r::ADMMResults)
     @printf io " * Convergence: %s\n" converged(r)
     @printf io "   * primal residual %.2e (tolerance %.2e)\n" r.r_norm r.eps_pri
     @printf io "   * dual residual   %.2e (tolerance %.2e)\n" r.s_norm r.eps_dual
+    isnan(r.gap) || @printf io "   * relative duality gap %.2e\n" r.gap
     @printf io " * Final ρ: %e\n" r.ρ
     @printf io "   * Reached a limit on the number of calls: %s\n" call_limit_reached(r)
     @printf io " * f(x) calls: %d\n" f_calls(r)
@@ -165,6 +172,12 @@ function solve!(
   iteration = changes = 0
   f_calls = prox_calls = 0
 
+  # with gaptol, the duality gap at z replaces the residual tests
+  gapev = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
+  options.gaptol > 0 && gapev === nothing &&
+    @warn "there is no duality gap for $(nameof(typeof(f))) with $(nameof(typeof(g))); gaptol is ignored." maxlog = 1
+  relgap, relgap_iteration = NaN, -1
+
   options.show_trace && @printf "Iter     Function value   primal res.      dual res.\n"
 
   while !converged && !call_limit_reached && iteration < options.maxiter && time() - t0 <= options.time_limit
@@ -190,6 +203,14 @@ function solve!(
     eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * nxz
     eps_dual = sqrt_n * T(method.abstol_dual) + T(method.reltol) * ρ * nu
     converged = r_norm <= eps_pri && s_norm <= eps_dual
+    if gapev !== nothing
+      if iteration % options.gapevery == 0
+        relgap, relgap_iteration = _relgap!(gapev, f, g, z), iteration
+        isnan(relgap) || (converged = relgap <= options.gaptol)
+      else
+        converged = false
+      end
+    end
     call_limit_reached = options.prox_calls_limit > 0 && prox_calls >= options.prox_calls_limit
 
     if options.show_trace && iteration % options.printEvery == 0
@@ -208,8 +229,10 @@ function solve!(
     end
   end
 
+  gapev === nothing || relgap_iteration == iteration || (relgap = _relgap!(gapev, f, g, z))
+
   # f(z) for the minimum is one more call
   ADMMResults(z, f(z) + g(z), iteration, converged,
               r_norm, s_norm, eps_pri, eps_dual, u, ρ,
-              f_calls + 1, 0, prox_calls, call_limit_reached)
+              f_calls + 1, 0, prox_calls, call_limit_reached, relgap)
 end

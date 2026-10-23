@@ -53,6 +53,25 @@ model on a `SparseIterate` or a `SymmetricSparseIterate`, such as
 [`KronQuadratic`](@ref); `momentum = false` turns it off. With the cyclic order
 it can stall far from the minimizer, so `order = :cyclic` refuses
 `momentum = true`.
+
+With `gaptol > 0`, the method stops when the relative duality gap
+`(P - D) / |P|` at `x` is at most `gaptol`, where `P = f + g` and `D` is the
+dual objective at a dual point built from the gradient (see
+[`duality_gap`](@ref)): a certificate that `P(x)` is within `gaptol ⋅ |P|` of
+the optimum. The gap is computed after each full pass, at the cost of one more
+gradient. When the changes fall below `tol` before the gap is small enough,
+`tol` is tightened tenfold. This needs a loss of a linear map with a known
+conjugate (`LeastSquaresLoss`, a `GLMLoss` with the squared, logistic or Huber
+loss, possibly scaled, with or without an intercept) and a convex penalty with
+a known conjugate (`NormL1`, `NormL1Nonneg` and `ElasticNet` with positive
+weights, and `GroupNormL2` on an `AtomIterate` with positive weights); with
+other losses and penalties the rule on the changes applies, and `gaptol` is
+ignored. With `gapsafe = true` and such a loss and penalty, each gap
+evaluation also screens the coordinates by the gap-safe rule of Fercoq,
+Gramfort and Salmon (*Mind the duality gap: safer rules for the lasso*, 2015):
+a coordinate it proves zero at the solution is set to zero and left out of the
+full passes for the rest of the run. The relative gap at the end is the `gap`
+of the [`CDResults`](@ref), `NaN` when it was not computed.
 """
 struct CDSolver <: ProximalSolver
   maxpasses::Int
@@ -61,17 +80,22 @@ struct CDSolver <: ProximalSolver
   relative::Bool
   anderson::Int
   momentum::Union{Nothing, Bool}
+  gaptol::Float64
+  gapsafe::Bool
 end
 
 function CDSolver(; maxpasses::Integer = 100_000, tol::Real = 1e-7, order::Symbol = :random,
-                  relative::Bool = true, anderson::Integer = 0, momentum::Union{Nothing, Bool} = nothing)
+                  relative::Bool = true, anderson::Integer = 0, momentum::Union{Nothing, Bool} = nothing,
+                  gaptol::Real = 0.0, gapsafe::Bool = false)
   maxpasses >= 0 || throw(ArgumentError("maxpasses must be nonnegative, but it is $maxpasses."))
   tol >= 0 || throw(ArgumentError("tol must be nonnegative, but it is $tol."))
   order in (:random, :cyclic) || throw(ArgumentError("order must be :random or :cyclic, but it is :$order."))
   anderson >= 0 || throw(ArgumentError("anderson must be nonnegative, but it is $anderson."))
   momentum === true && order === :cyclic &&
     throw(ArgumentError("momentum needs order = :random; with the cyclic order it can stall far from the minimizer."))
-  CDSolver(Int(maxpasses), Float64(tol), order === :random, relative, Int(anderson), momentum)
+  gaptol >= 0 || throw(ArgumentError("gaptol must be nonnegative, but it is $gaptol."))
+  CDSolver(Int(maxpasses), Float64(tol), order === :random, relative, Int(anderson), momentum,
+           Float64(gaptol), gapsafe)
 end
 
 Base.summary(::CDSolver) = "Coordinate Descent"
@@ -83,8 +107,10 @@ Returned by [`solve!`](@ref) for a [`CDSolver`](@ref): the `minimizer` (the
 iterate passed in), the `minimum` `f + g` at it, the number of `passes`, whether
 the stopping rule was met (`converged`), the largest scaled change of a
 coordinate in the last pass (`maxchange`) and the `tolerance` it was compared
-with, and `kkt_checks`, the number of times the optimality conditions of the
-coordinates left out by screening were checked.
+with, `kkt_checks`, the number of times the optimality conditions of the
+coordinates left out by screening were checked, and `gap`, the relative
+duality gap at the minimizer when `gaptol` or `gapsafe` computed it (see
+[`CDSolver`](@ref)), `NaN` otherwise.
 """
 struct CDResults{X, T}
   minimizer::X
@@ -94,7 +120,11 @@ struct CDResults{X, T}
   maxchange::T
   tolerance::T
   kkt_checks::Int
+  gap::T
 end
+
+CDResults(x, minimum::T, passes, converged, maxchange, tolerance, kkt_checks) where {T} =
+  CDResults(x, minimum, passes, converged, maxchange, tolerance, kkt_checks, T(NaN))
 
 Base.summary(::CDResults) = "Coordinate Descent"
 minimizer(r::CDResults) = r.minimizer
@@ -109,6 +139,7 @@ function Base.show(io::IO, r::CDResults)
   @printf io " * Passes: %d\n" r.passes
   @printf io " * Convergence: %s\n" r.converged
   @printf io "   * largest change in the last pass %.2e (tolerance %.2e)\n" r.maxchange r.tolerance
+  isnan(r.gap) || @printf io "   * relative duality gap %.2e\n" r.gap
   r.kkt_checks > 0 && @printf io " * Optimality checks after screening: %d\n" r.kkt_checks
   return
 end
@@ -136,6 +167,15 @@ end
 
 _Momentum{T}() where {T} = _Momentum{T}(T[], T[], T[], T[], T[], 0, 1, false)
 
+# the duality gap and the gap-safe screening of a run (see CDSolver's gaptol and
+# gapsafe, and src/cd/gap.jl), for a loss and a penalty that have a gap
+mutable struct _GapState{T}
+  z::Vector{T}                         # ∇f(x), one entry per entry of x
+  keep::BitVector                      # the coordinates that screening kept
+  cand::Vector{Int}                    # the coordinates of full passes after screening
+  base::Union{Nothing, Vector{Int}}    # the candidates on entry to _cd!
+end
+
 # the state of one run: the coordinate order, the momentum, and what the passes
 # report
 mutable struct _CDState{T}
@@ -147,11 +187,13 @@ mutable struct _CDState{T}
   converged::Bool
   maxchange::T
   tolerance::T
+  gap::Union{Nothing, _GapState{T}}      # created when a run first needs it
+  relgap::T                              # the last relative duality gap, NaN if none
 end
 
 _CDState(::Type{T}, x, random::Bool) where {T} =
   _CDState{T}(random, Vector{Int}(undef, random ? ncoordinates(x) : 0), nothing, _Momentum{T}(), 0, false,
-              T(NaN), T(NaN))
+              T(NaN), T(NaN), nothing, T(NaN))
 
 # a uniformly random order of 1:n in order[1:n] (Fisher–Yates), drawn from the
 # global random number generator with the calls of CoordinateDescent.jl, so that
@@ -238,26 +280,48 @@ end
 
 # Alternates full passes with passes over the active set; stops after two
 # consecutive passes below the tolerance, the first of which is a full pass, so
-# that the active set is checked against all coordinates before stopping. The
-# model m must be current for x.
+# that the active set is checked against all coordinates before stopping (with
+# gaptol, when the duality gap after a full pass is small enough; see
+# _afterpass!). The model m must be current for x.
 function _cd!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
-  s.anderson > 0 && !s.random && !(x isa AtomIterate) && return _cd_anderson!(x, m, g, st, s)
-  _usemomentum(s, x, m) && return _cd_momentum!(x, m, g, st, s)
+  gs = _gapstart!(st, m, g, x, s)
+  if s.anderson > 0 && !s.random && !(x isa AtomIterate)
+    _cd_anderson!(x, m, g, st, s, gs)
+  elseif _usemomentum(s, x, m)
+    _cd_momentum!(x, m, g, st, s, gs)
+  else
+    _cd_plain!(x, m, g, st, s, gs)
+  end
+  gs === nothing || (st.candidates = gs.base)
+  x
+end
+
+# the tolerance on the scaled changes, whether the changes are scaled, and the
+# smallest tolerance that gaptol may tighten it to, a few roundings on the
+# scale of the data: the gap of a scaled dual point shrinks only as fast as the
+# changes, so a gap near the precision needs changes near it too
+function _tolerances(m, x, s::CDSolver, ::Type{T}) where {T}
   sy = s.relative ? response_scale(m, x) : one(T)
   scaled = s.relative && sy > 0
   tol = scaled ? T(s.tol) * sy : T(s.tol)
+  tol, scaled, 8 * eps(T) * (scaled ? sy : one(T))
+end
+
+function _cd_plain!(x, m, g, st::_CDState{T}, s::CDSolver, gs) where {T}
+  tol, scaled, tolmin = _tolerances(m, x, s, T)
   st.passes, st.converged, st.maxchange, st.tolerance = 0, false, T(NaN), tol
   converged = true
   for pass in 1:s.maxpasses
-    maxh = _pass!(x, m, g, st, converged, scaled)
-    previous = converged
+    full = converged
+    maxh = _pass!(x, m, g, st, full, scaled)
     st.passes, st.maxchange = pass, maxh
-    converged = maxh < tol
-    if previous && converged
-      st.converged = true
+    stop, converged, tol, ok = _afterpass!(gs, x, m, g, st, s, full, maxh, tol, tolmin)
+    if stop
+      st.converged = ok
       break
     end
   end
+  st.tolerance = tol
   x
 end
 
@@ -284,11 +348,10 @@ _momentum_default(m::CDModel) = _cache(m) !== nothing
 
 # the same passes with momentum on the passes over the active set; the cache
 # moved by the momentum is computed again before the next full pass, so that it
-# does not drift into the stopping rule or the optimality checks of screening
-function _cd_momentum!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
-  sy = s.relative ? response_scale(m, x) : one(T)
-  scaled = s.relative && sy > 0
-  tol = scaled ? T(s.tol) * sy : T(s.tol)
+# does not drift into the stopping rule, the duality gap or the optimality
+# checks of screening
+function _cd_momentum!(x, m, g, st::_CDState{T}, s::CDSolver, gs) where {T}
+  tol, scaled, tolmin = _tolerances(m, x, s, T)
   st.passes, st.converged, st.maxchange, st.tolerance = 0, false, T(NaN), tol
   mom = _momentum_start!(st.momentum, x, m)
   converged = true
@@ -296,11 +359,10 @@ function _cd_momentum!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
     full = converged
     full || _momentum_step!(mom, x, m)
     maxh = _pass!(x, m, g, st, full, scaled)
-    previous = converged
     st.passes, st.maxchange = pass, maxh
-    converged = maxh < tol
-    if previous && converged
-      st.converged = true
+    stop, converged, tol, ok = _afterpass!(gs, x, m, g, st, s, full, maxh, tol, tolmin)
+    if stop
+      st.converged = ok
       break
     end
     if full
@@ -311,6 +373,7 @@ function _cd_momentum!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
       _momentum_update!(mom, x, m)
     end
   end
+  st.tolerance = tol
   x
 end
 
@@ -393,25 +456,23 @@ function _momentum_refresh!(s::_Momentum, x, m)
 end
 
 # the same passes with Anderson extrapolation on the active set
-function _cd_anderson!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
-  sy = s.relative ? response_scale(m, x) : one(T)
-  scaled = s.relative && sy > 0
-  tol = scaled ? T(s.tol) * sy : T(s.tol)
+function _cd_anderson!(x, m, g, st::_CDState{T}, s::CDSolver, gs) where {T}
+  tol, scaled, tolmin = _tolerances(m, x, s, T)
   st.passes, st.converged, st.maxchange, st.tolerance = 0, false, T(NaN), tol
   acc = _Anderson(T, s.anderson)
   converged = true
   for pass in 1:s.maxpasses
     full = converged
     maxh = _pass!(x, m, g, st, full, scaled)
-    previous = converged
     st.passes, st.maxchange = pass, maxh
-    converged = maxh < tol
-    if previous && converged
-      st.converged = true
+    stop, converged, tol, ok = _afterpass!(gs, x, m, g, st, s, full, maxh, tol, tolmin)
+    if stop
+      st.converged = ok
       break
     end
     _extrapolate!(acc, x, m, g, full)
   end
+  st.tolerance = tol
   x
 end
 
@@ -499,7 +560,7 @@ function _solve_dense!(x::Vector, f, g, method::CDSolver; kwargs...)
   xs = g isa GroupNormL2 ? AtomIterate(x, g.groups) : SparseIterate(x)
   r = solve!(xs, f, g, method; kwargs...)
   copyto!(x, Vector(xs))
-  CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks)
+  CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks, r.gap)
 end
 
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, m::CDModel{T},
@@ -510,5 +571,5 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, m:
   st = _CDState(T, x, method.random)
   _cd!(x, m, g, st, method)
   _warn_not_converged(st, method)
-  CDResults(x, loss_value(m, x) + g(x), st.passes, st.converged, st.maxchange, st.tolerance, 0)
+  CDResults(x, loss_value(m, x) + g(x), st.passes, st.converged, st.maxchange, st.tolerance, 0, st.relgap)
 end

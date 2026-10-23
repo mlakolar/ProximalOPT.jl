@@ -59,6 +59,12 @@ function solve!(
   converged = false
   iteration = 0
 
+  # with gaptol, the duality gap replaces the other convergence tests
+  gapev = options.gaptol > 0 ? _gapevaluator(f, g, initial_x) : nothing
+  options.gaptol > 0 && gapev === nothing &&
+    @warn "there is no duality gap for $(nameof(typeof(f))) with $(nameof(typeof(g))); gaptol is ignored." maxlog = 1
+  relgap, relgap_iteration = NaN, -1
+
   options.show_trace && print_header(method, options)
 
   while !converged && !stopped && iteration < options.maxiter
@@ -68,6 +74,15 @@ function solve!(
 
     x_converged, fg_converged,
     grad_converged, converged, f_increased = convergence_assessment(state, f, g, options)
+    if gapev !== nothing
+      if iteration % options.gapevery == 0
+        relgap, relgap_iteration = _relgap!(gapev, f, g, state.x), iteration
+        # a gap that cannot be computed here leaves the other tests in charge
+        isnan(relgap) || (converged = relgap <= options.gaptol)
+      else
+        converged = false
+      end
+    end
 
     if tracing
       # update trace; callbacks can stop routine early by returning true
@@ -79,11 +94,14 @@ function solve!(
     grad_limit_reached = options.grad_calls_limit > 0 && state.grad_calls >= options.grad_calls_limit
     prox_limit_reached = options.prox_calls_limit > 0 && state.prox_calls >= options.prox_calls_limit
 
-    if (f_increased && !options.allow_f_increases) || stopped_by_callback ||
+    # with a gap, an objective that rises by rounding near the solution does not
+    # stop the solver: the primal converges before the dual point does
+    if (f_increased && !options.allow_f_increases && gapev === nothing) || stopped_by_callback ||
         stopped_by_time_limit || f_limit_reached || grad_limit_reached || prox_limit_reached
         stopped = true
     end
   end # while
+  gapev === nothing || relgap_iteration == iteration || (relgap = _relgap!(gapev, f, g, state.x))
 
   # the residuals are stored as Float64, like the tolerances, whatever the element type
   return OptimizationResults(
@@ -107,6 +125,7 @@ function solve!(
                 state.f_calls,
                 state.grad_calls,
                 state.prox_calls,
-                f_limit_reached || grad_limit_reached || prox_limit_reached)
+                f_limit_reached || grad_limit_reached || prox_limit_reached,
+                relgap)
 
 end

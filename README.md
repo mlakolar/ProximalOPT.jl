@@ -106,6 +106,20 @@ nonzero ones, and the method stops after a full pass followed by a pass in which
 no coordinate moves by more than `tol` times a scale of the data, so that the
 tolerance does not depend on its units.
 
+A duality gap certifies the accuracy instead. `duality_gap(f, g, x)` returns
+`P(x) - D(θ)` for the dual point built from the gradient at `x`, an upper bound
+on `P(x) - min P` that is zero at the solution, for least squares and the
+logistic, Poisson and Huber losses with the ℓ1 norm (weighted or nonnegative),
+the elastic net or the group lasso, and for the graphical lasso
+(`LogDetLoss` with `NormL1`). `CDSolver(; gaptol = 1e-6)` stops when the
+relative gap `(P - D) / |P|` is below `gaptol`, a tolerance that means the same
+for every problem, and `gapsafe = true` adds the gap-safe screening of Fercoq,
+Gramfort and Salmon (2015), which removes the coordinates proven zero at the
+solution from the passes. `ProximalOptions(; gaptol)` does the same for the
+gradient solvers and ADMM. For the losses without a gap, such as the
+quadratics, `kkt_residual(f, g, x)` measures optimality on the scale of the
+stopping rule.
+
 The losses it knows:
 
 | Loss | Coordinate step | Use |
@@ -278,7 +292,7 @@ res.converged, res.iterations
 | `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking that also lets the step grow (`α`), and adaptive restart |
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
-| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
+| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum, gaptol, gapsafe)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
 | `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |
 
 All solvers are called the same way:
@@ -308,9 +322,11 @@ tracing:
 | `f_calls_limit`, `grad_calls_limit`, `prox_calls_limit` | `0`, `0`, `0` | Maximum number of evaluations of `f`, of its gradient and of proximal operators; `0` means no limit |
 | `show_trace`, `store_trace`, `extended_trace`, `printEvery` | `false`, `false`, `false`, `1` | Print or record progress |
 | `callback` | `nothing` | Called every `printEvery` iterations; return `true` to stop |
+| `gaptol`, `gapevery` | `0`, `10` | With `gaptol > 0`, stop when the relative duality gap is below `gaptol`, computed every `gapevery` iterations (see `duality_gap`) |
 
 The gradient solvers stop when any of the `ftol`, `xtol` or `gradtol` tests
-passes. `ADMMSolver` uses its own primal and dual residual tolerances
+passes, or, with `gaptol > 0` and functions that have a duality gap, when the
+gap is small enough. `ADMMSolver` uses its own primal and dual residual tolerances
 (`abstol`, `reltol`) and ignores the other three, as well as `f_calls_limit`
 and `grad_calls_limit`. The call limits are checked after each iteration, so a
 count can exceed its limit by the evaluations of one iteration;

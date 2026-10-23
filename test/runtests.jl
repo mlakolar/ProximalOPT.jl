@@ -11,6 +11,7 @@ tests = [
   "low_rank",
   "coordinate_descent",
   "glm",
+  "duality_gap",
   "aqua",
 ]
 

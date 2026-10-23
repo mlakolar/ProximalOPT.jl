@@ -13,12 +13,12 @@ Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
-# the code before ProximalOPT took over coordinate descent: master of each
+# the code before ProximalSolvers (then ProximalOPT) took over coordinate descent: master of each
 # package on 2026-10-23
 [sources]
 CovSel = {url = "https://github.com/mlakolar/CovSel.jl", rev = "abcbc388c3e7dc07f0c5ec2a4e40182e1c0aa078"}
 DiffPrecTest = {url = "https://github.com/mlakolar/DiffPrecTest.jl", rev = "27ab947a11f68cc406188ce57be876b05291ddee"}
-ProximalOPT = {url = "https://github.com/mlakolar/ProximalOPT.jl", rev = "ee75eeeba8603c347147f24bcdc666c692d30059"}
+ProximalOPT = {url = "https://github.com/mlakolar/ProximalSolvers.jl", rev = "ee75eeeba8603c347147f24bcdc666c692d30059"}
 
 [compat]
 CoordinateDescent = "=0.5.4"

@@ -186,7 +186,7 @@ for p in (50, 100)
     covsel!(Xa, Z, U, S, 0.1; info)
     (vec(Z), info.iterations, info.converged)
   end
-  run!(rec, Case("admm", "glasso p=$p λ=0.1", "ProximalOPT ADMMSolver")) do
+  run!(rec, Case("admm", "glasso p=$p λ=0.1", "ADMMSolver")) do
     Xa = Matrix(1.0I, p, p)
     r = solve!(Xa, ProxGaussLikelihood(Symmetric(S)), ProxL1(0.1), ADMMSolver(),
                ProximalOptions(; maxiter = 100_000))

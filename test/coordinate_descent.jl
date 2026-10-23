@@ -6,9 +6,9 @@ module CDTests
 
 using Test, LinearAlgebra, Random, SparseArrays, Statistics
 using ProximalBase
-using ProximalOPT
-using ProximalOPT: intercept, residuals
-const PO = ProximalOPT
+using ProximalSolvers
+using ProximalSolvers: intercept, residuals
+const PS = ProximalSolvers
 
 # largest violation of 0 ∈ ∇ + λ ∂(Σ wᵢ|xᵢ|)
 function kkt_l1(grad, x, λ, w = ones(length(x)))
@@ -457,7 +457,7 @@ end
     x = SparseIterate(p)
     m = cdmodel(SqrtLeastSquaresLoss(y, X), x; intercept)
     r = solve!(x, m, NormL1(λ), CDSolver(; tol = 1e-12))
-    b0 = intercept ? PO.intercept(m, Vector(x)) : 0.0
+    b0 = intercept ? PS.intercept(m, Vector(x)) : 0.0
     res = y .- b0 .- X * Vector(x)
     @test kkt_l1(-X' * res / norm(res), Vector(x), λ) < 1e-7
     @test r.minimum ≈ norm(res) + λ * sum(abs, Vector(x))
@@ -542,12 +542,12 @@ mutable struct MyQuadratic <: CDModel{Float64}
   b::Vector{Float64}
   u::Vector{Float64}
 end
-PO.initialize!(m::MyQuadratic, x) = (m.u .= m.A * Vector(x); m)
-PO.coordinate_derivatives(m::MyQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
-PO.update_cache!(m::MyQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
-PO.coordinate_scale(m::MyQuadratic, x, k::Int) = sqrt(m.A[k, k])
-PO.response_scale(m::MyQuadratic, x) = 1.0
-PO.loss_value(m::MyQuadratic, x) = dot(Vector(x), m.u) / 2 + dot(m.b, Vector(x))
+PS.initialize!(m::MyQuadratic, x) = (m.u .= m.A * Vector(x); m)
+PS.coordinate_derivatives(m::MyQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
+PS.update_cache!(m::MyQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
+PS.coordinate_scale(m::MyQuadratic, x, k::Int) = sqrt(m.A[k, k])
+PS.response_scale(m::MyQuadratic, x) = 1.0
+PS.loss_value(m::MyQuadratic, x) = dot(Vector(x), m.u) / 2 + dot(m.b, Vector(x))
 ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
 
 @testset "scales of the stopping rule" begin
@@ -560,8 +560,8 @@ ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
                  (SqrtLeastSquaresLoss(y, X), vec(sum(abs2, X; dims = 1)) ./ n))
     x = SparseIterate(p)
     m = cdmodel(f, x)
-    PO.initialize!(m, x)
-    @test [PO.coordinate_scale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
+    PS.initialize!(m, x)
+    @test [PS.coordinate_scale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
   end
 end
 
@@ -571,16 +571,16 @@ end
 mutable struct SymmetricDistance <: CDModel{Float64}
   T::Matrix{Float64}
 end
-PO.initialize!(m::SymmetricDistance, x) = m
-function PO.coordinate_derivatives(m::SymmetricDistance, x::SymmetricSparseIterate, k::Int)
+PS.initialize!(m::SymmetricDistance, x) = m
+function PS.coordinate_derivatives(m::SymmetricDistance, x::SymmetricSparseIterate, k::Int)
   r, c = ProximalBase.tril_cartesian(x.p, k)
   mult = r == c ? 1.0 : 2.0
   (mult * (coordinates(x)[k] - m.T[r, c]), mult)
 end
-PO.update_cache!(m::SymmetricDistance, x, k::Int, h) = m
-PO.coordinate_scale(m::SymmetricDistance, x, k::Int) = 1.0
-PO.response_scale(m::SymmetricDistance, x) = 1.0
-PO.loss_value(m::SymmetricDistance, x) = sum(abs2, Matrix(x) - m.T) / 2
+PS.update_cache!(m::SymmetricDistance, x, k::Int, h) = m
+PS.coordinate_scale(m::SymmetricDistance, x, k::Int) = 1.0
+PS.response_scale(m::SymmetricDistance, x) = 1.0
+PS.loss_value(m::SymmetricDistance, x) = sum(abs2, Matrix(x) - m.T) / 2
 ProximalBase.gradient!(G, m::SymmetricDistance, x) = (G .= Matrix(x) .- m.T)
 
 # x'Ax/2 + b'x with only the required functions of the interface
@@ -589,9 +589,9 @@ struct MinimalQuadratic <: CDModel{Float64}
   b::Vector{Float64}
   u::Vector{Float64}
 end
-PO.initialize!(m::MinimalQuadratic, x) = (m.u .= m.A * Vector(x); m)
-PO.coordinate_derivatives(m::MinimalQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
-PO.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
+PS.initialize!(m::MinimalQuadratic, x) = (m.u .= m.A * Vector(x); m)
+PS.coordinate_derivatives(m::MinimalQuadratic, x, k::Int) = (m.u[k] + m.b[k], m.A[k, k])
+PS.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :, k); m)
 
 @testset "more losses, iterates and drivers" begin
   X, y = lassodata()
@@ -647,8 +647,8 @@ PO.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :,
   ps = solve_path(fs, NormL1(1.0), ls .* [1.0, 0.7, 0.5], CDSolver(; tol = 1e-12); x = SparseIterate(p))
   bs = Vector(ps.solutions[3]); rs = y - X * bs
   @test kkt_l1(-X' * rs / norm(rs), bs, 0.5ls) < 1e-7
-  m = cdmodel(fs, SparseIterate(bs)); PO.initialize!(m, SparseIterate(bs))
-  @test PO.residuals(m) ≈ rs
+  m = cdmodel(fs, SparseIterate(bs)); PS.initialize!(m, SparseIterate(bs))
+  @test PS.residuals(m) ≈ rs
   yl = Float64.(X[:, 1] .+ 0.5 .* randn(Xoshiro(46), n) .> 0)
   w = rand(Xoshiro(47), n) .+ 0.5
   fl = LogisticLoss(yl, X; weights = w)
@@ -676,7 +676,7 @@ PO.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :,
   x5 = SparseIterate(p)
   m5 = cdmodel(GLMLoss(ProximalBase.Squared(), y, X; offset = o), x5; intercept = true)
   solve!(x5, m5, NormL1(n * λ), CDSolver(; tol = 1e-10))
-  res5 = y .- o .- PO.intercept(m5, Vector(x5)) .- X * Vector(x5)
+  res5 = y .- o .- PS.intercept(m5, Vector(x5)) .- X * Vector(x5)
   @test abs(sum(res5)) < 1e-8
   @test kkt_l1(-X' * res5, Vector(x5), n * λ) < 1e-6
   # a quadratic without a linear term has the minimizer 0
@@ -697,16 +697,16 @@ PO.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :,
   # the derivative and curvature of a least-squares coordinate
   m9 = cdmodel((1 / n) * LeastSquaresLoss(y, X), SparseIterate(p))
   x9 = SparseIterate(p)
-  PO.initialize!(m9, x9)
-  @test collect(PO.coordinate_derivatives(m9, x9, 3)) ≈ [-dot(X[:, 3], y) / n, sum(abs2, X[:, 3]) / n]
+  PS.initialize!(m9, x9)
+  @test collect(PS.coordinate_derivatives(m9, x9, 3)) ≈ [-dot(X[:, 3], y) / n, sum(abs2, X[:, 3]) / n]
   @test ProximalBase.isconvex(SqrtLeastSquaresLoss(y, X))
 
   # results, summaries and errors
   r = solve!(SparseIterate(p), (1 / n) * LeastSquaresLoss(y, X), NormL1(λ), CDSolver(); continuation = 5)
   out = sprint(show, r)
   @test occursin("Coordinate Descent", out) && occursin("Passes: $(r.passes)", out) && occursin("Optimality checks", out)
-  @test PO.minimizer(r) === r.minimizer && PO.minimum(r) == r.minimum
-  @test PO.iterations(r) == r.passes && PO.converged(r) == r.converged
+  @test PS.minimizer(r) === r.minimizer && PS.minimum(r) == r.minimum
+  @test PS.iterations(r) == r.passes && PS.converged(r) == r.converged
   @test summary(CDSolver()) == summary(r) == "Coordinate Descent" && summary(ProxNewton()) == "Proximal Newton"
   @test_throws ArgumentError solve!(SparseIterate(p), LeastSquaresLoss(y, X), NormL1(1.0), ProxNewton())
   @test_throws ArgumentError ProxNewton(; β = 1.5)
@@ -730,7 +730,7 @@ end
   if VERSION >= v"1.11"
     for name in (:initialize!, :coordinate_step!, :coordinate_derivatives, :update_cache!, :coordinate_scale,
                  :response_scale, :loss_value, :check_penalty, :intercept, :residuals)
-      @test Base.ispublic(ProximalOPT, name) && !Base.isexported(ProximalOPT, name)
+      @test Base.ispublic(ProximalSolvers, name) && !Base.isexported(ProximalSolvers, name)
     end
   end
 end
@@ -758,7 +758,7 @@ end
   mom = CDSolver(; tol = 1e-10, momentum = true)
 
   # the same solution in fewer passes over all the losses together; MyQuadratic
-  # has a cache that ProximalOPT does not know, so it is initialized at the
+  # has a cache that ProximalSolvers does not know, so it is initialized at the
   # extrapolated points
   passes0, passes1 = 0, 0
   for (fm, g) in ((f, NormL1(λ)),
@@ -838,12 +838,12 @@ end
 
   # every run starts a new history
   m = cdmodel(f, SparseIterate(p))
-  st = PO._CDState(Float64, SparseIterate(p), true)
+  st = PS._CDState(Float64, SparseIterate(p), true)
   runs = map(1:2) do _
     x = SparseIterate(p)
-    PO.initialize!(m, x)
+    PS.initialize!(m, x)
     Random.seed!(9)
-    PO._cd!(x, m, NormL1(λ), st, mom)
+    PS._cd!(x, m, NormL1(λ), st, mom)
     (st.passes, Vector(x))
   end
   @test runs[1] == runs[2]
@@ -880,11 +880,11 @@ end
   f = (1 / n) * LeastSquaresLoss(y, X)
   # the passes allocate nothing once the model and the state exist
   function passes_bytes(x, m, g, s)
-    PO.initialize!(m, x)
-    st = PO._CDState(Float64, x, s.random)
-    PO._cd!(x, m, g, st, s)
-    fill!(x, 0.0); PO.initialize!(m, x)
-    @allocated PO._cd!(x, m, g, st, s)
+    PS.initialize!(m, x)
+    st = PS._CDState(Float64, x, s.random)
+    PS._cd!(x, m, g, st, s)
+    fill!(x, 0.0); PS.initialize!(m, x)
+    @allocated PS._cd!(x, m, g, st, s)
   end
   for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random), CDSolver(; momentum = true))
     @test passes_bytes(SparseIterate(p), cdmodel(f, SparseIterate(p)), NormL1(0.1), s) == 0

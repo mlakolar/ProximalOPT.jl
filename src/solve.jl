@@ -26,7 +26,7 @@ documentation.
 
 # Example
 ```julia
-using ProximalBase, ProximalOPT
+using ProximalBase, ProximalSolvers
 A, b = [2. 0.; 0. 1.], [-1., -1.]
 x = zeros(2)
 res = solve!(x, QuadraticFunction(A, b), NormL1(0.1), AccProxGradDescent())

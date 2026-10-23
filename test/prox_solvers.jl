@@ -4,7 +4,7 @@ using Test
 using Random
 using LinearAlgebra
 using ProximalBase
-using ProximalOPT
+using ProximalSolvers
 
 Random.seed!(1)
 
@@ -128,7 +128,7 @@ end
     solve!(xd, f, g, solver, opt)
     res = solve!(x, f, g, solver, opt)
     @test res.minimizer === x
-    @test ProximalOPT.converged(res)
+    @test ProximalSolvers.converged(res)
     @test 0 < nnz(x) == count(!iszero, Vector(x)) < p
     @test Vector(x) ≈ xd atol = 1e-5
     @test res.minimum ≈ f(xd) + g(xd)
@@ -149,7 +149,7 @@ end
     solve!(x64, f64, NormL1(0.05), solver, ProximalOptions(; maxiter = 5000, ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10))
     @test eltype(x32) == Float32
     @test res.minimum isa Float32
-    @test ProximalOPT.converged(res)
+    @test ProximalSolvers.converged(res)
     @test x32 ≈ x64 atol = 1e-2
   end
 end

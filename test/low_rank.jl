@@ -4,7 +4,7 @@ using Test
 using Random
 using LinearAlgebra
 using ProximalBase
-using ProximalOPT
+using ProximalSolvers
 
 Random.seed!(1)
 
@@ -34,7 +34,7 @@ solvers = (ProximalGradientDescent(), AccProxGradDescent())
     res = solve!(B, f, g, solver, opt)
     @testset "$(summary(solver))" begin
       @test res.minimizer === B
-      @test ProximalOPT.converged(res)
+      @test ProximalSolvers.converged(res)
       @test res.minimum ≈ f(B) + g(B)
 
       # the rank of B_true is recovered

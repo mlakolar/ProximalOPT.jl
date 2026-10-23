@@ -21,7 +21,7 @@ f = LeastSquaresLoss(Y, X)
 # ∇f(B_true) = -X'E; σ is estimated from the residuals of least squares
 σ = norm(Y - X * (X \ Y)) / sqrt((n - p) * k)
 λ = σ * opnorm(X) * (sqrt(p) + sqrt(k))
-g = ProxNuclear(λ)
+g = NuclearNorm(λ)
 
 opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 10000)
 
@@ -35,7 +35,7 @@ solvers = (ProximalGradientDescent(), AccProxGradDescent())
     @testset "$(summary(solver))" begin
       @test res.minimizer === B
       @test ProximalOPT.converged(res)
-      @test res.minimum ≈ value(f, B) + value(g, B)
+      @test res.minimum ≈ f(B) + g(B)
 
       # the rank of B_true is recovered
       @test rank(B; atol = 1e-6) == r
@@ -57,11 +57,11 @@ solvers = (ProximalGradientDescent(), AccProxGradDescent())
     λmax = opnorm(X' * Y)
     for solver in solvers
       B = zeros(p, k)
-      solve!(B, f, ProxNuclear(1.01 * λmax), solver, opt)
+      solve!(B, f, NuclearNorm(1.01 * λmax), solver, opt)
       @test B == zeros(p, k)
 
       B = zeros(p, k)
-      solve!(B, f, ProxNuclear(0.99 * λmax), solver, opt)
+      solve!(B, f, NuclearNorm(0.99 * λmax), solver, opt)
       @test rank(B; atol = 1e-6) == 1
     end
   end

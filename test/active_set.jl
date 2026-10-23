@@ -22,7 +22,7 @@ f = QuadraticFunction(A, b)
 # the weighted lasso leaves two coordinates unpenalized
 w = 0.5 .+ rand(p)
 w[1:2] .= 0.
-penalties = (lasso = ProxL1(λ), weighted_lasso = ProxL1(λ, w))
+penalties = (lasso = NormL1(λ), weighted_lasso = NormL1(λ, w))
 thresholds = (lasso = fill(λ, p), weighted_lasso = λ * w)
 
 opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5000)
@@ -43,7 +43,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
     @test res.max_violation <= 0
     @test 1 <= res.outer_iterations <= res.inner_iterations
     @test nnz(x) == res.active_set_size == count(!iszero, Vector(x))    # no stored zeros
-    @test res.minimum ≈ value(f, Vector(x)) + value(g, Vector(x))
+    @test res.minimum ≈ f(Vector(x)) + g(Vector(x))
 
     xv = Vector(x)
     @test xv ≈ x_full atol = 1e-4
@@ -81,14 +81,14 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
   @testset "starting points" begin
     # from zero, with λ ≥ λmax zero is the solution and no inner problem is solved
     x = SparseIterate(p)
-    res = solve!(x, f, ProxL1(λmax), ActiveAccProxGradDescent(), opt)
+    res = solve!(x, f, NormL1(λmax), ActiveAccProxGradDescent(), opt)
     @test res.converged
     @test res.outer_iterations == res.inner_iterations == 0
     @test nnz(x) == 0
     @test res.minimum == 0.
 
     xd = zeros(p)
-    res = solve!(xd, f, ProxL1(λmax), ActiveAccProxGradDescent(), opt)
+    res = solve!(xd, f, NormL1(λmax), ActiveAccProxGradDescent(), opt)
     @test res.converged
     @test res.outer_iterations == 0
     @test xd == zeros(p)
@@ -123,19 +123,19 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
   @testset "other functions" begin
     # ‖Y - Xx‖² / 2 = n f(x) + const, so the penalty scales by n
     x = SparseIterate(p)
-    res = solve!(x, LeastSquaresLoss(Y, X), ProxL1(n * λ), ActiveAccProxGradDescent(), opt)
+    res = solve!(x, LeastSquaresLoss(Y, X), NormL1(n * λ), ActiveAccProxGradDescent(), opt)
     @test res.converged
     @test Vector(x) ≈ x_ref atol = 1e-4
 
     y = randn(50)
     x = zeros(50)
-    res = solve!(x, L2Loss(y), ProxL1(1.), ActiveAccProxGradDescent(), opt)
+    res = solve!(x, SqrNormL2(1, y), NormL1(1.), ActiveAccProxGradDescent(), opt)
     @test res.converged
     @test x ≈ shrink.(y, 1.) atol = 1e-6
-    @test res.minimum ≈ value(L2Loss(y), x) + value(ProxL1(1.), x)
+    @test res.minimum ≈ SqrNormL2(1, y)(x) + NormL1(1.)(x)
 
     x = zeros(50)
-    res = solve!(x, L2Loss(y), ProxZero(), ActiveAccProxGradDescent(), opt)
+    res = solve!(x, SqrNormL2(1, y), ZeroFunction(), ActiveAccProxGradDescent(), opt)
     @test res.converged
     @test x ≈ y atol = 1e-6
   end

@@ -1,0 +1,255 @@
+####################################
+#
+#  The losses of coordinate descent, and what it needs from iterates and penalties
+#
+####################################
+
+"""
+    CDModel{T}
+
+A loss together with the cache that makes its coordinate updates cheap, such as
+the residuals of least squares. [`cdmodel`](@ref) builds one from a loss of
+ProximalBase; [`solve!`](@ref) accepts a model in place of the loss, so that a
+model built once serves many solves (paths, reweighting).
+
+# A new model
+
+A new loss is a subtype of `CDModel{T}` with these functions for the iterates
+it supports. They are public but not exported: extend them as
+`ProximalOPT.initialize!` and so on.
+
+- [`initialize!`](@ref)`(m, x)`, which makes the cache current for `x`.
+- The coordinate step: either [`coordinate_derivatives`](@ref) and
+  [`update_cache!`](@ref), from which coordinate descent takes a proximal
+  step, or the whole step, [`coordinate_step!`](@ref).
+
+Optional:
+
+- [`coordinate_scale`](@ref) and [`response_scale`](@ref), the scales of the
+  relative stopping rule. Without them the rule is absolute.
+- [`loss_value`](@ref), the value of the loss from the cache. The results
+  report it, and Anderson acceleration needs it.
+- `gradient!(G, m, x)`, the gradient at `x` from the cache, as an array of the
+  size of `x` (one entry per entry of `x`, also for a
+  `SymmetricSparseIterate`). [`lambda_max`](@ref), screening, continuation and
+  [`solve_path`](@ref) need it.
+- [`check_penalty`](@ref), for a model that takes only some penalties.
+
+Group penalties (`GroupNormL2` on an `AtomIterate`) work with the built-in
+models only. Momentum (see [`CDSolver`](@ref)) calls `initialize!` at each
+extrapolated point of a new model.
+"""
+abstract type CDModel{T} end
+
+"""
+    initialize!(m::CDModel, x)
+
+Make the cache of the model `m` current for the iterate `x`.
+"""
+function initialize! end
+
+"""
+    coordinate_derivatives(m::CDModel, x, k) -> (G, a)
+
+The derivative `G` of the loss along coordinate `k` of `x` and its curvature
+`a`, exact for a quadratic and otherwise an upper bound, from the cache of `m`.
+The default [`coordinate_step!`](@ref) moves the coordinate to
+[`prox_entry`](@ref)`(g, xₖ - G/a, i, μ/a)`, where `i` is the index of the
+entry in `x` and `μ` the number of entries the coordinate sets (2 for an
+off-diagonal coordinate of a `SymmetricSparseIterate`). The step is exact for a
+quadratic loss, and a majorization step when `a` bounds the curvature.
+"""
+function coordinate_derivatives end
+
+"""
+    update_cache!(m::CDModel, x, k, h)
+
+Update the cache of `m` for the change `h` of coordinate `k`, which is already
+written into `x`.
+"""
+function update_cache! end
+
+"""
+    coordinate_step!(m::CDModel, g, x, k) -> h
+
+Move coordinate `k` of `x` to decrease the loss plus the penalty `g`, update the
+cache of `m`, and return the change of the coordinate. The default takes the
+proximal step from [`coordinate_derivatives`](@ref) and
+[`update_cache!`](@ref). A model can define it to fuse the computations, as
+the built-in models do.
+"""
+function coordinate_step! end
+
+"""
+    coordinate_scale(m::CDModel, x, k)
+
+The scale by which the relative stopping rule of [`CDSolver`](@ref) multiplies
+the change of coordinate `k`: the square root of the curvature along it, such
+as `‖X[:, k]‖ √s` for `s ‖y - Xβ‖² / 2`. Defaults to 1.
+"""
+coordinate_scale(m::CDModel{T}, x, k::Int) where {T} = one(T)
+
+"""
+    response_scale(m::CDModel, x)
+
+The scale by which the relative stopping rule of [`CDSolver`](@ref) multiplies
+`tol`, such as `‖y‖ √s` for `s ‖y - Xβ‖² / 2`. It defaults to zero, which
+makes the rule absolute.
+"""
+response_scale(m::CDModel{T}, x) where {T} = zero(T)
+
+"""
+    loss_value(m::CDModel, x)
+
+The value of the loss at `x`, from the cache of `m`. Defaults to `NaN`.
+"""
+loss_value(m::CDModel{T}, x) where {T} = T(NaN)
+
+"""
+    check_penalty(m::CDModel, g)
+
+Throw an `ArgumentError` when the model `m` cannot take the penalty `g`. By
+default a model takes every penalty.
+"""
+check_penalty(m::CDModel, g) = nothing
+
+"""
+    cdmodel(f, x)
+
+The [`CDModel`](@ref) of the loss `f` for iterates like `x`: for
+`LeastSquaresLoss`, a least-squares `GLMLoss` (with weights and an offset),
+`QuadraticFunction` and [`KronQuadratic`](@ref), each possibly scaled, as in
+`(1/n) * LeastSquaresLoss(y, X)`.
+"""
+function cdmodel end
+
+cdmodel(f::AbstractFunction, x) =
+  throw(ArgumentError("coordinate descent does not know the structure of $(typeof(f)); see the documentation of cdmodel."))
+
+# the coordinate step from coordinate_derivatives and update_cache!, for models
+# that do not define their own; a coordinate with zero curvature, which the loss
+# does not depend on, goes to the minimizer of the penalty nearest zero
+@inline function coordinate_step!(m::CDModel{T}, g, x::SparseIterate{T}, k::Int) where {T}
+  G, a = coordinate_derivatives(m, x, k)
+  old = x[k]
+  new = iszero(a) ? prox_entry(g, zero(T), k, floatmax(T)) : prox_entry(g, old - G / a, k, inv(a))
+  h = new - old
+  iszero(h) && return h
+  x[k] = new
+  update_cache!(m, x, k, h)
+  h
+end
+
+@inline function coordinate_step!(m::CDModel{T}, g, x::SymmetricSparseIterate{T}, k::Int) where {T}
+  G, a = coordinate_derivatives(m, x, k)
+  r, c = tril_cartesian(x.p, k)
+  cx = coordinates(x)
+  old = cx[k]
+  i = _entry(x.p, r, c)
+  new = iszero(a) ? prox_entry(g, zero(T), i, floatmax(T)) : prox_entry(g, old - G / a, i, _multiplicity(T, r, c) / a)
+  h = new - old
+  iszero(h) && return h
+  cx[k] = new
+  update_cache!(m, x, k, h)
+  h
+end
+
+# the change of coordinate k in the stopping rule, scaled only when the
+# coordinate moved, which most coordinates of a full pass do not; for the groups
+# of an AtomIterate, _groupstep! returns the largest scaled change of an entry
+@inline function _visit!(m::CDModel, g, x, k::Int, scaled::Bool)
+  h = abs(coordinate_step!(m, g, x, k))
+  scaled && !iszero(h) ? h * coordinate_scale(m, x, k) : h
+end
+
+@inline _visit!(m::CDModel, g, x::AtomIterate, k::Int, scaled::Bool) = _groupstep!(m, g, x, k, scaled)
+
+####################################
+#  coordinates of the iterates
+####################################
+
+# For a SymmetricSparseIterate, coordinate k is the lower-triangle entry (r, c),
+# r ≥ c: its index as an entry of the p × p matrix, which penalties take, and
+# the number of entries it sets, which multiplies the penalty
+@inline _entry(p::Int, r::Int, c::Int) = (c - 1) * p + r
+@inline _multiplicity(::Type{T}, r::Int, c::Int) where {T} = r == c ? one(T) : T(2)
+
+# the size of the gradient over coordinate k, and the weight of the penalty on
+# it, for screening and for λmax
+_gradnorm(grad::AbstractArray, ::SparseIterate, k::Int) = abs(grad[k])
+function _gradnorm(grad::AbstractArray, x::SymmetricSparseIterate, k::Int)
+  r, c = tril_cartesian(x.p, k)
+  abs(grad[_entry(x.p, r, c)])
+end
+_gradnorm(grad::AbstractArray, x::AtomIterate, k::Int) = norm(view(grad, x.groups[k]))
+
+_coordweight(g, ::SparseIterate, k::Int) = _weight(g, k)
+function _coordweight(g, x::SymmetricSparseIterate, k::Int)
+  r, c = tril_cartesian(x.p, k)
+  _weight(g, _entry(x.p, r, c))
+end
+_coordweight(g::GroupNormL2, ::AtomIterate, k::Int) = g.w[k]
+
+_isnonzero(x::SparseIterate, k::Int) = !iszero(x[k])
+_isnonzero(x::SymmetricSparseIterate, k::Int) = !iszero(coordinates(x)[k])
+_isnonzero(x::AtomIterate, k::Int) = isactive(x, k) && any(!iszero, atom(x, k))
+
+_gradient_buffer(x::AbstractArray{T}) where {T} = similar(Array{T}, axes(x))
+
+####################################
+#  penalties
+####################################
+
+# The penalty level λ of g, g with level λ instead, and the weight of entry i
+# (of group i for a group penalty): a coordinate at zero is optimal while the
+# gradient over it is at most λ times its weight. Paths and screening need these.
+_haslevel(g) = false
+_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD}) = true
+_level(g::Union{NormL1, NormL1Nonneg, GroupNormL2}) = g.λ0
+_level(g::ElasticNet) = g.λ1
+_level(g::Union{MCP, SCAD}) = g.λ
+
+_with_level(g::NormL1, λ) = NormL1(λ, g.w)
+_with_level(g::NormL1Nonneg, λ) = NormL1Nonneg(λ, g.w)
+_with_level(g::GroupNormL2, λ) = GroupNormL2(λ, g.groups, g.w)
+_with_level(g::ElasticNet, λ) = ElasticNet(λ, g.λ2, g.w)
+_with_level(g::MCP, λ) = MCP(λ, g.a)
+_with_level(g::SCAD, λ) = SCAD(λ, g.a)
+_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, MCP, SCAD or GroupNormL2."))
+
+_weight(g::Union{NormL1, NormL1Nonneg}, i::Int) = _entryweight(g.w, i, typeof(g.λ0))
+_weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
+_entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
+_entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
+_weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
+_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, MCP, SCAD or GroupNormL2."))
+
+
+# the penalty g goes with iterates like x: it is separable, with a weight or
+# bound for every entry of x (the coordinate steps read them unchecked), or a
+# GroupNormL2 on an AtomIterate with its groups
+function _check_iterate(g::AbstractFunction, x)
+  if isseparable(g)
+    ProximalBase._checkparams(g, x)
+    return nothing
+  end
+  if g isa GroupNormL2
+    x isa AtomIterate || throw(ArgumentError("GroupNormL2 needs an AtomIterate with its groups, as in AtomIterate(p, g.groups)."))
+    x.groups === g.groups || x.groups == g.groups ||
+      throw(ArgumentError("The groups of x must be the groups of g, as in AtomIterate(p, g.groups)."))
+    return nothing
+  end
+  throw(ArgumentError("coordinate descent needs a separable penalty (isseparable(g)) or GroupNormL2, but g is a $(typeof(g))."))
+end
+
+# the factor max(1 - c / (L ‖u‖), 0) by which the proximal operator of c‖⋅‖₂
+# with step 1/L shrinks a vector u, given nu = ‖u‖. With L = 0 the loss does not
+# depend on the group, which then goes to zero if it is penalized and keeps its
+# values otherwise
+function _groupshrink(nu::T, c::T, L::T) where {T<:AbstractFloat}
+  iszero(L) && return iszero(c) ? one(T) : zero(T)
+  nu > c / L ? one(T) - c / (L * nu) : zero(T)
+end
+
+# the change of an entry in the stopping rule, scaled as in _visit!
+_scaledchange(m, x, j::Int, h, scaled::Bool) = scaled ? abs(h) * coordinate_scale(m, x, j) : abs(h)

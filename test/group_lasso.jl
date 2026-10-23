@@ -25,7 +25,7 @@ f = QuadraticFunction(A, b)
 w = sqrt.(sizes)
 λmax = maximum(norm(b[groups[k]]) / w[k] for k in eachindex(groups))   # x = 0 is optimal for λ ≥ λmax
 λ = 0.2 * λmax
-g = ProxGroupL2(λ, groups)
+g = GroupNormL2(λ, groups)
 
 opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 10000)
 
@@ -54,7 +54,7 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     x = zeros(p)
     res = solve!(x, f, g, solver, opt)
     @test ProximalOPT.converged(res)
-    @test res.minimum ≈ value(f, x) + value(g, x)
+    @test res.minimum ≈ f(x) + g(x)
     @test kkt_residual(x, A * x + b, groups, λ * w) < 1e-5
     @test x ≈ x_ref atol = 1e-5
 
@@ -64,25 +64,28 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
 
     # ‖Y - Xx‖² / 2 = n f(x) + const, so the penalty scales by n
     x = zeros(p)
-    res = solve!(x, LeastSquaresLoss(Y, X), ProxGroupL2(n * λ, groups), solver, opt)
+    res = solve!(x, LeastSquaresLoss(Y, X), GroupNormL2(n * λ, groups), solver, opt)
     @test ProximalOPT.converged(res)
     @test x ≈ x_ref atol = 1e-5
   end
 
   @testset "zero solution" begin
-    # λ ≥ λmax: every solver stays at x = 0
+    # λ ≥ λmax: every solver stays at x = 0. Just above λmax, since at λmax
+    # itself rounding, which depends on the BLAS of the machine, decides whether
+    # the group that attains it violates the optimality condition
+    λ0 = λmax * (1 + 1e-9)
     for solver in solvers
       x = zeros(p)
-      solve!(x, f, ProxGroupL2(λmax, groups), solver, opt)
+      solve!(x, f, GroupNormL2(λ0, groups), solver, opt)
       @test x == zeros(p)
     end
     x = zeros(p)
-    res = solve!(x, f, ProxGroupL2(λmax, groups), ActiveAccProxGradDescent(), opt)
+    res = solve!(x, f, GroupNormL2(λ0, groups), ActiveAccProxGradDescent(), opt)
     @test res.outer_iterations == 0
 
     # just below λmax, the group that attains λmax enters
     x = zeros(p)
-    solve!(x, f, ProxGroupL2(0.99 * λmax, groups), AccProxGradDescent(), opt)
+    solve!(x, f, GroupNormL2(0.99 * λmax, groups), AccProxGradDescent(), opt)
     kmax = argmax([norm(b[G]) / w[k] for (k, G) in enumerate(groups)])
     @test nonzero_groups(x, groups) == [kmax]
   end
@@ -91,8 +94,8 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     singletons = [[i] for i in 1:p]
     for solver in (AccProxGradDescent(), ActiveAccProxGradDescent())
       x1, x2 = zeros(p), zeros(p)
-      solve!(x1, f, ProxGroupL2(λ, singletons), solver, opt)
-      solve!(x2, f, ProxL1(λ), solver, opt)
+      solve!(x1, f, GroupNormL2(λ, singletons), solver, opt)
+      solve!(x2, f, NormL1(λ), solver, opt)
       @test x1 ≈ x2 atol = 1e-5
     end
   end
@@ -101,7 +104,7 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     # the coordinates of the first group (a single one) and of the fifth are in no group
     free = [groups[1]; groups[5]]
     penalized = groups[[2:4; 6:end]]
-    gu = ProxGroupL2(λ, penalized)
+    gu = GroupNormL2(λ, penalized)
     xs = map(solvers) do solver
       x = zeros(p)
       solve!(x, f, gu, solver, opt)
@@ -132,12 +135,12 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
   end
 
   @testset "AtomIterate" begin
-    active_groups(x) = sort!([activeCoordinate(x, a) for a in 1:numActive(x)])
+    active_groups(x) = sort!([activecoordinates(x)[a] for a in 1:nactive(x)])
 
     # the gradient solvers keep the iterate an AtomIterate, whose active groups
     # are the nonzero ones at the end
     for solver in (ProximalGradientDescent(), AccProxGradDescent())
-      x = AtomIterate(p, g)
+      x = AtomIterate(p, g.groups)
       res = solve!(x, f, g, solver, opt)
       @test res.minimizer === x
       @test ProximalOPT.converged(res)
@@ -146,7 +149,7 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     end
 
     # the active-set solver adds and removes whole groups
-    x = AtomIterate(p, g)
+    x = AtomIterate(p, g.groups)
     res = solve!(x, f, g, ActiveAccProxGradDescent(), opt)
     @test res.minimizer === x
     @test res.converged
@@ -164,10 +167,10 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
 
     # one group per outer iteration; the inner solves stop at the tolerances, so
     # the solution is as accurate as in active_set.jl
-    x1 = AtomIterate(p, g)
+    x1 = AtomIterate(p, g.groups)
     res1 = solve!(x1, f, g, ActiveAccProxGradDescent(; max_add = 1, growth = 1), opt)
     @test res1.converged
-    @test res1.outer_iterations >= numActive(x1)
+    @test res1.outer_iterations >= nactive(x1)
     @test Vector(x1) ≈ x_ref atol = 1e-4
 
     # on a SparseIterate, the coordinates of a group at zero have the same
@@ -181,8 +184,8 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     # with a separable penalty, any groups serve: a group at zero joins when one
     # of its coordinates violates the optimality conditions
     xl, xl_ref = AtomIterate(p, groups), zeros(p)
-    solve!(xl_ref, f, ProxL1(λ), AccProxGradDescent(), opt)
-    res = solve!(xl, f, ProxL1(λ), ActiveAccProxGradDescent(), opt)
+    solve!(xl_ref, f, NormL1(λ), AccProxGradDescent(), opt)
+    res = solve!(xl, f, NormL1(λ), ActiveAccProxGradDescent(), opt)
     @test res.converged
     @test Vector(xl) ≈ xl_ref atol = 1e-5
 
@@ -199,9 +202,9 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     L = LinearIndices((q, q))
     pairs = [[L[i, j], L[j, i]] for j in 1:q for i in (j + 1):q]
     Θ1, Θ2 = Matrix(1.0I, q, q), Matrix(1.0I, q, q)
-    res1 = solve!(Θ1, ProxGaussLikelihood(S), ProxGroupL2(0.1, pairs, ones(length(pairs))),
+    res1 = solve!(Θ1, LogDetLoss(S), GroupNormL2(0.1, pairs, ones(length(pairs))),
                   ADMMSolver(), ProximalOptions(; maxiter = 5000))
-    res2 = solve!(Θ2, ProxGaussLikelihood(S), ProxL1(0.1, (ones(q, q) - I) / √2),
+    res2 = solve!(Θ2, LogDetLoss(S), NormL1(0.1, (ones(q, q) - I) / √2),
                   ADMMSolver(), ProximalOptions(; maxiter = 5000))
     @test res1.converged && res2.converged
     @test Θ1 ≈ Θ2 rtol = 1e-8

@@ -14,7 +14,8 @@ include("lineSearches.jl")
 using LinearAlgebra
 using Printf
 using ProximalBase
-using SparseArrays: dropzeros!
+import ProximalBase: gradient!, value_and_gradient!
+using SparseArrays: dropzeros!, sparse, sparsevec
 using .LineSearches
 
 export
@@ -23,14 +24,28 @@ export
   AccProxGradDescent,
   ActiveAccProxGradDescent,
   ADMMSolver,
+  CDSolver,
+  ProxNewton,
   solve!,
+
+  # coordinate descent: losses, models, penalty levels, drivers
+  SqrtLeastSquaresLoss,
+  CDModel, cdmodel,
+  lambda_max, solve_path,
+  reweight!, refit!,
 
   # types
   ProximalSolver,
   ProximalOptions,
-  OptimizationState, OptimizationTrace
+  OptimizationState, OptimizationTrace,
+  CDResults, PathResults, ReweightResults
 
-
+# the interface of coordinate descent models (see CDModel) and the accessors of
+# the least-squares models: public, not exported
+@static if VERSION >= v"1.11.0-DEV.469"
+  eval(Expr(:public, :initialize!, :coordinate_step!, :coordinate_derivatives, :update_cache!,
+            :coordinate_scale, :response_scale, :loss_value, :check_penalty, :intercept, :residuals))
+end
 
 include("types.jl")
 
@@ -41,6 +56,17 @@ include("solvers/proximal_gradient_descent.jl")
 include("solvers/accelerated_proximal_gradient_descent.jl")
 include("solvers/active_accelerated_proximal_gradient_descent.jl")
 include("solvers/admm.jl")
+
+# Coordinate descent
+include("cd/models.jl")
+include("cd/solver.jl")
+include("cd/leastsquares.jl")
+include("cd/quadratic.jl")
+include("cd/kron.jl")
+include("cd/sqrtlasso.jl")
+include("cd/glm.jl")
+include("cd/path.jl")
+include("cd/drivers.jl")
 
 include("utils.jl")
 

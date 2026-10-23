@@ -10,7 +10,7 @@ Random.seed!(1)
 
 # wrappers that count their own calls, to check the counts the solvers report
 
-mutable struct CountingFunction{F<:DifferentiableFunction} <: DifferentiableFunction
+mutable struct CountingFunction{F<:AbstractFunction} <: AbstractFunction
   f::F
   value_calls::Int
   value_and_gradient_calls::Int
@@ -18,41 +18,48 @@ mutable struct CountingFunction{F<:DifferentiableFunction} <: DifferentiableFunc
 end
 
 CountingFunction(f) = CountingFunction(f, 0, 0, 0)
+ProximalBase.issmooth(::Type{<:CountingFunction}) = true
 
-function ProximalBase.value(c::CountingFunction, x)
+function (c::CountingFunction)(x)
   c.value_calls += 1
-  value(c.f, x)
+  c.f(x)
 end
 
-function ProximalBase.value_and_gradient!(c::CountingFunction, hat_x, x)
+function ProximalBase.value_and_gradient!(hat_x, c::CountingFunction, x)
   c.value_and_gradient_calls += 1
-  value_and_gradient!(c.f, hat_x, x)
+  value_and_gradient!(hat_x, c.f, x)
 end
 
-function ProximalBase.gradient!(c::CountingFunction, hat_x, x)
+function ProximalBase.gradient!(hat_x, c::CountingFunction, x)
   c.gradient_calls += 1
-  gradient!(c.f, hat_x, x)
+  gradient!(hat_x, c.f, x)
 end
 
 f_calls(c::CountingFunction) = c.value_calls + c.value_and_gradient_calls
 grad_calls(c::CountingFunction) = c.value_and_gradient_calls + c.gradient_calls
 
-mutable struct CountingProx{G<:ProximableFunction} <: ProximableFunction
+mutable struct CountingProx{G<:AbstractFunction} <: AbstractFunction
   g::G
   value_calls::Int
   prox_calls::Int
 end
 
 CountingProx(g) = CountingProx(g, 0, 0)
+ProximalBase.isproximable(::Type{<:CountingProx}) = true
 
-function ProximalBase.value(c::CountingProx, x)
+function (c::CountingProx)(x)
   c.value_calls += 1
-  value(c.g, x)
+  c.g(x)
 end
 
-function ProximalBase.prox!(c::CountingProx, out_x, x, γ)
+function ProximalBase.prox!(out_x, c::CountingProx, x, γ::Real)
   c.prox_calls += 1
-  prox!(c.g, out_x, x, γ)
+  prox!(out_x, c.g, x, γ)
+end
+
+function ProximalBase.value_and_prox!(out_x, c::CountingProx, x, γ::Real)
+  c.prox_calls += 1
+  value_and_prox!(out_x, c.g, x, γ)
 end
 
 n, p = 100, 50
@@ -70,8 +77,8 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
 
 @testset "exact counts $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
 
-  @testset "$(nameof(typeof(f0)))" for f0 in (L2Loss(y), QuadraticFunction(A, b))
-    f, g = CountingFunction(f0), CountingProx(ProxL1(λ))
+  @testset "$(nameof(typeof(f0)))" for f0 in (SqrNormL2(1, y), QuadraticFunction(A, b))
+    f, g = CountingFunction(f0), CountingProx(NormL1(λ))
     res = solve!(zeros(p), f, g, solver, opt)
     @test ProximalOPT.converged(res)
     @test !res.call_limit_reached
@@ -92,7 +99,7 @@ end
 @testset "exact counts in both line search modes" begin
   # the function value mode switches to the gradient mode, where backtrack!
   # evaluates gradients itself
-  f, g = CountingFunction(QuadraticFunction(A, b)), CountingProx(ProxL1(λ))
+  f, g = CountingFunction(QuadraticFunction(A, b)), CountingProx(NormL1(λ))
   method = ProximalGradientDescent()
   state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, zeros(p))
   simple = Bool[]
@@ -104,7 +111,7 @@ end
   @test any(simple) && !all(simple)
 
   # in the gradient mode, a retried step that does not move x recomputes ∇f(x)
-  f, g = CountingFunction(QuadraticFunction(ones(1, 1), [-1.])), CountingProx(ProxZero())
+  f, g = CountingFunction(QuadraticFunction(ones(1, 1), [-1.])), CountingProx(ZeroFunction())
   state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
   state.backtrack_simple = false
   state.L = 2.
@@ -120,7 +127,7 @@ limits = ((:f_calls_limit,    :f_calls,    (f, _) -> f_calls(f)),
 
 @testset "$limit stops $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent()),
                                                (limit, count, calls) in limits
-  f, g = CountingFunction(QuadraticFunction(A, b)), CountingProx(ProxL1(λ))
+  f, g = CountingFunction(QuadraticFunction(A, b)), CountingProx(NormL1(λ))
   counts = Int[]    # calls after each iteration
   callback = _ -> (push!(counts, calls(f, g)); false)
   # with tight tolerances, the solvers need 17 (PGD) and 23 (APG) iterations, and the
@@ -142,7 +149,7 @@ end
 @testset "ADMM" begin
 
   @testset "exact counts" begin
-    f, g = CountingProx(ProxGaussLikelihood(S)), CountingProx(ProxL1(0.1))
+    f, g = CountingProx(LogDetLoss(S)), CountingProx(NormL1(0.1))
     # the trace evaluates f every printEvery iterations
     res = redirect_stdout(devnull) do
       solve!(Matrix(1.0I, q, q), f, g, ADMMSolver(),
@@ -161,7 +168,7 @@ end
   end
 
   @testset "prox_calls_limit stops ADMM" begin
-    f, g = CountingProx(ProxGaussLikelihood(S)), CountingProx(ProxL1(0.1))
+    f, g = CountingProx(LogDetLoss(S)), CountingProx(NormL1(0.1))
     res = solve!(Matrix(1.0I, q, q), f, g, ADMMSolver(),
                  ProximalOptions(; maxiter = 5000, prox_calls_limit = 15))
     @test res.call_limit_reached
@@ -173,7 +180,7 @@ end
   end
 
   @testset "f_calls_limit and grad_calls_limit are ignored" begin
-    res = solve!(Matrix(1.0I, q, q), ProxGaussLikelihood(S), ProxL1(0.1), ADMMSolver(),
+    res = solve!(Matrix(1.0I, q, q), LogDetLoss(S), NormL1(0.1), ADMMSolver(),
                  ProximalOptions(; maxiter = 5000, f_calls_limit = 1, grad_calls_limit = 1))
     @test res.converged
     @test !res.call_limit_reached
@@ -182,9 +189,9 @@ end
 end
 
 @testset "zero limits $(summary(solver))" for (solver, f, g, x0) in (
-    (ProximalGradientDescent(), QuadraticFunction(A, b), ProxL1(λ), zeros(p)),
-    (AccProxGradDescent(), QuadraticFunction(A, b), ProxL1(λ), zeros(p)),
-    (ADMMSolver(), ProxGaussLikelihood(S), ProxL1(0.1), Matrix(1.0I, q, q)))
+    (ProximalGradientDescent(), QuadraticFunction(A, b), NormL1(λ), zeros(p)),
+    (AccProxGradDescent(), QuadraticFunction(A, b), NormL1(λ), zeros(p)),
+    (ADMMSolver(), LogDetLoss(S), NormL1(0.1), Matrix(1.0I, q, q)))
   zero_limits = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5000,
                                 f_calls_limit = 0, grad_calls_limit = 0, prox_calls_limit = 0)
   x1, x2 = copy(x0), copy(x0)

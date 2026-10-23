@@ -17,7 +17,7 @@ Random.seed!(1)
 
   @testset "Gaussian likelihood + no penalty" begin
     X = Matrix(1.0I, p, p)
-    res = solve!(X, ProxGaussLikelihood(S), ProxZero(), ADMMSolver(), opt)
+    res = solve!(X, LogDetLoss(S), ZeroFunction(), ADMMSolver(), opt)
     @test res.converged
     @test X ≈ inv(S) rtol = 1e-3
   end
@@ -26,7 +26,7 @@ Random.seed!(1)
     λ = 0.1
     for solver in (ADMMSolver(), ADMMSolver(; ρ = 5., α = 1.6))
       X = Matrix(1.0I, p, p)
-      res = solve!(X, ProxGaussLikelihood(S), ProxL1(λ), solver, opt)
+      res = solve!(X, LogDetLoss(S), NormL1(λ), solver, opt)
       @test res.converged
       @test isposdef(Symmetric(X))
 
@@ -41,12 +41,37 @@ Random.seed!(1)
 
   @testset "Float32" begin
     X32 = Matrix{Float32}(I, p, p)
-    res = solve!(X32, ProxGaussLikelihood(Symmetric(Float32.(S))), ProxL1(0.1f0), ADMMSolver(), opt)
+    res = solve!(X32, LogDetLoss(Symmetric(Float32.(S))), NormL1(0.1f0), ADMMSolver(), opt)
     X64 = Matrix(1.0I, p, p)
-    solve!(X64, ProxGaussLikelihood(S), ProxL1(0.1), ADMMSolver(), opt)
+    solve!(X64, LogDetLoss(S), NormL1(0.1), ADMMSolver(), opt)
     @test res.converged
     @test eltype(X32) == Float32 && res.minimum isa Float32
     @test X32 ≈ X64 atol = 1e-3
+  end
+
+  @testset "adaptive ρ, over-relaxation and warm starts" begin
+    λ = 0.1
+    tight = (; abstol = 1e-9, reltol = 1e-8)
+    X0 = Matrix(1.0I, p, p)
+    ref = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; tight...), opt)
+    for solver in (ADMMSolver(; adaptive = true, tight...), ADMMSolver(; ρ = 100.0, α = 1.6, adaptive = true, tight...))
+      X = copy(X0)
+      res = solve!(X, LogDetLoss(S), NormL1(λ), solver, opt)
+      @test res.converged
+      @test X ≈ ref.minimizer atol = 1e-6
+      @test res.ρ > 0 && size(res.u) == size(X)
+    end
+    # from a large ρ, residual balancing lowers it and converges in fewer iterations
+    fixed = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; ρ = 1e3, tight...), opt)
+    adaptive = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; ρ = 1e3, adaptive = true, tight...), opt)
+    @test adaptive.ρ < 1e3
+    @test adaptive.iterations < fixed.iterations
+    # a warm start from the iterate, the scaled dual variable and ρ of a solution
+    X = copy(ref.minimizer)
+    warm = solve!(X, LogDetLoss(S), NormL1(λ), ADMMSolver(; ρ = ref.ρ, tight...), opt; u = copy(ref.u))
+    @test warm.converged && warm.iterations <= 2
+    @test_throws DimensionMismatch solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(), opt; u = zeros(p + 1, p))
+    @test_throws ArgumentError solve!(copy(X0), SqrNormL2(), LogisticLoss(ones(p), ones(p, p)), ADMMSolver(), opt)
   end
 
   @testset "argument checks" begin

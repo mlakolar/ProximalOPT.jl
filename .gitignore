@@ -6,3 +6,7 @@
 /docs/build/
 /benchmark/Manifest*.toml
 /benchmark/results/
+
+/benchmark/engine/*/Manifest*.toml
+# raw results of benchmark/engine (solutions are large)
+/benchmark/engine/results/

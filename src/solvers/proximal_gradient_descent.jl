@@ -49,8 +49,8 @@ function initial_state(
           x0::AbstractArray{T}) where T
 
     grad_f_x = Array{T}(undef, size(x0))
-    f_x = value_and_gradient!(f, grad_f_x, x0)
-    g_x = value(g, x0)
+    f_x = value_and_gradient!(grad_f_x, f, x0)
+    g_x = g(x0)
 
     ProximalGradientDescentState(
                          x0,          # Maintain current state in state.x
@@ -90,10 +90,9 @@ function update_state!(
     while true
       # find next point
       @. state.xhat =  state.x_previous - state.grad_f_x_previous / state.L
-      prox!(g, state.x, state.xhat, one(T) / state.L)
+      state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)
       _drop!(state.x)
-      state.f_x = value(f, state.x)
-      state.g_x = value(g, state.x)
+      state.f_x = f(state.x)
       state.prox_calls += 1
       state.f_calls += 1
 
@@ -101,7 +100,7 @@ function update_state!(
       backtrack!(state, method.ls, f, g) && break
     end
     if has_updated_gradient( state, method.ls ) == false
-        value_and_gradient!(f, state.grad_f_x, state.x)
+        value_and_gradient!(state.grad_f_x, f, state.x)
         state.f_calls += 1
         state.grad_calls += 1
     end

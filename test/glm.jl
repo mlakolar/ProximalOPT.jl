@@ -32,6 +32,24 @@ gradf(b) = X' * (logistic.(X * b) .- y) / n
   r3 = solve!(x3, fp, NormL1(λp), ProxNewton(; tol = 1e-14, inner = CDSolver(; tol = 1e-10)))
   @test r3.converged
   @test kkt_l1(gp(Vector(x3)), Vector(x3), λp) < 1e-6
+  # Poisson counts around 50: from zero, the first Newton steps overshoot, and
+  # the line search shortens them
+  ηtrue = 4 .+ 0.3 .* (X[:, 1:3] * [1.0, -1.0, 0.5])
+  yc = Float64.(round.(exp.(ηtrue)))
+  fc = (1 / n) * PoissonLoss(yc, X)
+  gc(b) = X' * (exp.(X * b) .- yc) / n
+  λc = 0.05 * maximum(abs, gc(zeros(p)))
+  x5 = SparseIterate(p)
+  r5 = solve!(x5, fc, NormL1(λc), ProxNewton(; tol = 1e-14, inner = CDSolver(; tol = 1e-10)))
+  @test r5.converged
+  @test kkt_l1(gc(Vector(x5)), Vector(x5), λc) < 1e-6 * maximum(abs, gc(zeros(p)))
+  # warm starts: proximal Newton and coordinate descent with the curvature bound
+  x6 = SparseIterate(Vector(x2) .+ 0.1 .* randn(rng, p))
+  solve!(x6, f, NormL1(λ), ProxNewton(; tol = 1e-14, inner = CDSolver(; tol = 1e-10)))
+  @test Vector(x6) ≈ Vector(x2) atol = 1e-6
+  x7 = SparseIterate(Vector(x2) .+ 0.1 .* randn(rng, p))
+  solve!(x7, f, NormL1(λ), CDSolver(; tol = 1e-10, maxpasses = 10^6))
+  @test Vector(x7) ≈ Vector(x2) atol = 1e-5
   # Huber
   yh = X * β + randn(rng, n) .* 2; yh[1:10] .+= 30
   fh = (1 / n) * HuberLoss(yh, X, 1.0)

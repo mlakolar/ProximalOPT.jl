@@ -222,6 +222,33 @@ end
   end
 end
 
+@testset "warm starts from nonzero iterates" begin
+  X, y = lassodata()
+  n, p = size(X)
+  λ = 0.1 * maximum(abs, X' * y) / n
+  start = randn(Xoshiro(31), p)
+  # the quadratic
+  A = Matrix(Symmetric(X' * X / n)) + 0.1I; b = -X' * y / n
+  x0, x1 = SparseIterate(p), SparseIterate(start)
+  solve!(x0, QuadraticFunction(A, b), NormL1(λ), CDSolver(; tol = 1e-12))
+  solve!(x1, QuadraticFunction(A, b), NormL1(λ), CDSolver(; tol = 1e-12))
+  @test Vector(x1) ≈ Vector(x0) atol = 1e-8
+  # the square-root lasso
+  λs = 0.5 * maximum(abs, X' * y) / norm(y)
+  x0, x1 = SparseIterate(p), SparseIterate(start)
+  solve!(x0, SqrtLeastSquaresLoss(y, X), NormL1(λs), CDSolver(; tol = 1e-12))
+  solve!(x1, SqrtLeastSquaresLoss(y, X), NormL1(λs), CDSolver(; tol = 1e-12))
+  @test Vector(x1) ≈ Vector(x0) atol = 1e-7
+  # the Kronecker quadratic on vec Θ
+  q = 8
+  Sx = cov(randn(Xoshiro(32), 40, q)); Sy = cov(randn(Xoshiro(33), 40, q))
+  fk = KronQuadratic(Sx, Sy, randn(Xoshiro(34), q, q))
+  x0, x1 = SparseIterate(q * q), SparseIterate(randn(Xoshiro(35), q * q))
+  solve!(x0, fk, NormL1(0.05), CDSolver(; tol = 1e-12))
+  solve!(x1, fk, NormL1(0.05), CDSolver(; tol = 1e-12))
+  @test Vector(x1) ≈ Vector(x0) atol = 1e-8
+end
+
 @testset "group lasso" begin
   X, y = lassodata()
   n, p = size(X)
@@ -236,6 +263,13 @@ end
   end
   @test_throws ArgumentError solve!(SparseIterate(p), (1 / n) * LeastSquaresLoss(y, X), g, CDSolver())
   @test_throws ArgumentError solve!(AtomIterate(Float64, p, [1:p]), (1 / n) * LeastSquaresLoss(y, X), g, CDSolver())
+  # groups of one coordinate among larger ones
+  groups1 = vcat([[k] for k in 1:10], [i:i+4 for i in 11:5:p])
+  g1 = GroupNormL2(λ, groups1, ones(length(groups1)))
+  x = AtomIterate(Float64, p, groups1)
+  solve!(x, (1 / n) * LeastSquaresLoss(y, X), g1, CDSolver(; tol = 1e-10))
+  xd = Vector(x); gr = lsgrad(X, y, xd)
+  @test maximum(G -> norm(xd[G]) == 0 ? max(norm(gr[G]) - λ, 0) : norm(gr[G] + λ * xd[G] / norm(xd[G])), groups1) < 1e-6
 end
 
 @testset "KronQuadratic" begin
@@ -345,6 +379,27 @@ end
   end
   @test_throws ArgumentError solve_path(f, IndBox(-1, 1), λs)
 
+  @testset "cyclic order, weights, and a level of λmax or more" begin
+    pc = solve_path(f, NormL1(1.0), λs, CDSolver(; order = :cyclic, tol = 1e-10))
+    for k in eachindex(λs)
+      b = Vector(pc.solutions[k])
+      @test kkt_l1(lsgrad(X, y, b), b, λs[k]) < 1e-6
+    end
+    # a weighted least-squares loss screens with its weighted gradient
+    w = rand(Xoshiro(36), n) .+ 0.5
+    fw = GLMLoss(ProximalBase.Squared(), y, X; weights = w ./ n)
+    pw = solve_path(fw, NormL1(1.0), λs, CDSolver(; tol = 1e-10))
+    for k in eachindex(λs)
+      b = Vector(pw.solutions[k])
+      @test kkt_l1(X' * (w .* (X * b - y)) / n, b, λs[k]) < 1e-6
+    end
+    # continuation to a level at or above λmax solves directly
+    x = SparseIterate(p)
+    r = solve!(x, f, NormL1(2λmax), CDSolver(); continuation = 10)
+    @test nnz(x) == 0 && r.kkt_checks == 0
+    @test_throws ArgumentError lambda_max(f, IndBox(-1, 1), SparseIterate(p))
+  end
+
   @testset "the strong rule is corrected by the optimality checks" begin
     # a coordinate whose gradient is small at λmax but large at the next level
     # is discarded by the strong rule and added back by the check
@@ -365,6 +420,11 @@ end
     fk = KronQuadratic(Sx, Sy, Sx - Sy)
     lm = lambda_max(fk, NormL1(1.0), SymmetricSparseIterate(q))
     @test lm ≈ maximum(abs, Sy - Sx)
+    # continuation, which does not screen a symmetric iterate by default
+    xs = SymmetricSparseIterate(q)
+    solve!(xs, fk, NormL1(0.2lm), CDSolver(; tol = 1e-12); continuation = 10)
+    D = Matrix(xs)
+    @test kkt_l1(vec((Sx * D * Sy + Sy * D * Sx) / 2 + (Sx - Sy)), vec(D), 0.2lm) < 1e-8
     for screening in (true, false)
       pk = solve_path(fk, NormL1(1.0), lm .* 10 .^ range(0, -1; length = 6), CDSolver(; tol = 1e-12);
                       x = SymmetricSparseIterate(q), screening)
@@ -438,6 +498,14 @@ end
   coef = [ones(n) X[:, S]] \ y1
   @test Vector(x)[S] ≈ coef[2:end]
   @test intercept(m, Vector(x)) ≈ coef[1]
+  # weighted least squares: the weighted fit on the support
+  w = rand(Xoshiro(37), n) .+ 0.5
+  fw = GLMLoss(ProximalBase.Squared(), y, X; weights = w)
+  x = SparseIterate(p)
+  solve!(x, fw, NormL1(n * λ), CDSolver())
+  S = findall(!iszero, Vector(x))
+  refit!(x, fw)
+  @test Vector(x)[S] ≈ (X[:, S]' * (w .* X[:, S])) \ (X[:, S]' * (w .* y))
   # quadratic, and a given support
   A = Matrix(Symmetric(X' * X / n)) + 0.1I; b = -X' * y / n
   xq = SparseIterate(p)
@@ -468,6 +536,21 @@ PO._coordscale(m::MyQuadratic, x, k::Int) = sqrt(m.A[k, k])
 PO._responsescale(m::MyQuadratic, x) = 1.0
 PO._value(m::MyQuadratic, x) = dot(Vector(x), m.u) / 2 + dot(m.b, Vector(x))
 ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
+
+@testset "scales of the stopping rule" begin
+  # the scale of a coordinate is √aₖ, computed when the cache has no aₖ yet
+  X, y = lassodata()
+  n, p = size(X)
+  w = rand(Xoshiro(38), n) .+ 0.5
+  for (f, a) in (((1 / n) * LeastSquaresLoss(y, X), vec(sum(abs2, X; dims = 1)) ./ n),
+                 (GLMLoss(ProximalBase.Squared(), y, X; weights = w), vec(sum(w .* X .^ 2; dims = 1))),
+                 (SqrtLeastSquaresLoss(y, X), vec(sum(abs2, X; dims = 1)) ./ n))
+    x = SparseIterate(p)
+    m = cdmodel(f, x)
+    PO.initialize!(m, x)
+    @test [PO._coordscale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
+  end
+end
 
 @testset "user-defined model" begin
   rng = Xoshiro(14)

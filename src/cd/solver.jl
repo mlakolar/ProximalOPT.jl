@@ -10,10 +10,11 @@
 
 Coordinate descent for `f(x) + g(x)`, where `g` is separable
 (`isseparable(g)`: `NormL1`, `ElasticNet`, `MCP`, `SCAD`, `IndBox`, …) or a
-group penalty such as `GroupNormL2` on an `AtomIterate` with its groups, and
-`f` is a loss whose structure [`solve!`](@ref) recognizes: `LeastSquaresLoss`,
-a least-squares `GLMLoss`, `QuadraticFunction`, [`KronQuadratic`](@ref), or one
-of these scaled, as in `(1/n) * LeastSquaresLoss(y, X)`.
+group penalty such as `GroupNormL2` or `GroupNormLinf` on an `AtomIterate`
+with its groups, and `f` is a loss whose structure [`solve!`](@ref)
+recognizes: `LeastSquaresLoss`, a least-squares `GLMLoss`, `QuadraticFunction`,
+[`KronQuadratic`](@ref), or one of these scaled, as in
+`(1/n) * LeastSquaresLoss(y, X)`.
 
 Each pass visits the coordinates once, in random order (`order = :random`, from
 the global random number generator) or in the order `1, 2, …`
@@ -478,7 +479,7 @@ _warn_not_converged(st::_CDState, s::CDSolver) =
 Minimize `f(x) + g(x)` by coordinate descent, starting from `x`, a
 `SparseIterate`, a `SymmetricSparseIterate`, or an `AtomIterate` with the groups
 of a group penalty `g`; `x` is overwritten with the solution. A dense vector `x`
-is converted to a `SparseIterate` (an `AtomIterate` for a `GroupNormL2`) and
+is converted to a `SparseIterate` (an `AtomIterate` for a group penalty) and
 overwritten with the solution. Returns a [`CDResults`](@ref). See
 [`CDSolver`](@ref).
 """
@@ -489,14 +490,14 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
 end
 
 # a dense vector is converted to an iterate and overwritten with the solution:
-# an AtomIterate with the groups of a GroupNormL2, a SparseIterate otherwise
+# an AtomIterate with the groups of a group penalty, a SparseIterate otherwise
 solve!(x::Vector{T}, f::AbstractFunction, g::AbstractFunction, method::CDSolver; kwargs...) where {T<:AbstractFloat} =
   _solve_dense!(x, f, g, method; kwargs...)
 solve!(x::Vector{T}, m::CDModel, g::AbstractFunction, method::CDSolver; kwargs...) where {T<:AbstractFloat} =
   _solve_dense!(x, m, g, method; kwargs...)
 
 function _solve_dense!(x::Vector, f, g, method::CDSolver; kwargs...)
-  xs = g isa GroupNormL2 ? AtomIterate(x, g.groups) : SparseIterate(x)
+  xs = g isa ProximalBase.AbstractGroupNorm ? AtomIterate(x, g.groups) : SparseIterate(x)
   r = solve!(xs, f, g, method; kwargs...)
   copyto!(x, Vector(xs))
   CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks)

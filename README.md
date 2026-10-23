@@ -58,7 +58,7 @@ ProximalSolvers was called ProximalOPT before its first release.
 
 `CDSolver` minimizes `f + g` one coordinate at a time on a `SparseIterate`, a
 `SymmetricSparseIterate` (the lower-triangle entries of a symmetric matrix) or
-an `AtomIterate` (the groups of a `GroupNormL2`). It reads the structure of
+an `AtomIterate` (the groups of a group penalty: `GroupNormL2`, `GroupNormLinf`). It reads the structure of
 `f` to make each step cheap, caching the residuals of least squares or the
 product `Ax` of a quadratic, and goes through `prox_entry` of ProximalBase for the
 penalty, so every separable penalty works: `NormL1` (with weights), `ElasticNet`,
@@ -278,7 +278,7 @@ res.converged, res.iterations
 | `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking that also lets the step grow (`α`), and adaptive restart |
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
-| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
+| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or a group penalty (`GroupNormL2`, `GroupNormLinf`) | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
 | `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |
 
 All solvers are called the same way:

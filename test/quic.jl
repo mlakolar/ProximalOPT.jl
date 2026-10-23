@@ -98,12 +98,14 @@ end
   f = LogDetLoss(S)
   X = SymmetricSparseIterate(p)
   solve!(X, f, g, ProxNewton(; tol = 1e-11))
-  # a warm start from a neighboring penalty
+  # a warm start from a neighboring penalty takes fewer passes (the cyclic
+  # order makes the counts deterministic)
   g2 = NormL1(1.0, offdiag(0.06, p))
+  m = ProxNewton(; tol = 1e-11, inner = CDSolver(; tol = 1e-8, order = :cyclic))
   Xw = SymmetricSparseIterate(Matrix(X))
-  rw = solve!(Xw, f, g2, ProxNewton(; tol = 1e-11))
+  rw = solve!(Xw, f, g2, m)
   Xc = SymmetricSparseIterate(p)
-  rc = solve!(Xc, f, g2, ProxNewton(; tol = 1e-11))
+  rc = solve!(Xc, f, g2, m)
   @test norm(Matrix(Xw) - Matrix(Xc)) <= 1e-6 * norm(Matrix(Xc))
   @test rw.passes <= rc.passes
   # a start that is not positive definite falls back to the diagonal solution

@@ -29,8 +29,8 @@ function single(io, d, f, λmax, p)
       @printf "%s  %-5.2f  %-28s %9.4f s  %7d passes  gap %.1e\n" d.name frac label t r.passes gap
       println(io, join((d.name, "single", frac, label, t, r.passes, gap), ","))
     end
-    for (label, opt) in (("APG default", ProximalOptions(; maxiter = 100_000)),
-                         ("APG gaptol 1e-6", ProximalOptions(; maxiter = 100_000, gaptol = 1e-6)))
+    for (label, opt) in (("APG default", ProximalOptions(; maxiter = 20_000)),
+                         ("APG gaptol 1e-6", ProximalOptions(; maxiter = 20_000, gaptol = 1e-6)))
       t, r = fastest(() -> solve!(zeros(p), f, g, AccProxGradDescent(), opt))
       gap = relgap(f, g, r.minimizer)
       @printf "%s  %-5.2f  %-28s %9.4f s  %7d iters   gap %.1e\n" d.name frac label t r.iterations gap

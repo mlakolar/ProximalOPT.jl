@@ -1,7 +1,7 @@
-# ProximalOPT.jl
+# ProximalSolvers.jl
 
-[![CI](https://github.com/mlakolar/ProximalOPT.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/mlakolar/ProximalOPT.jl/actions/workflows/CI.yml?query=branch%3Amaster)
-[![codecov](https://codecov.io/gh/mlakolar/ProximalOPT.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mlakolar/ProximalOPT.jl)
+[![CI](https://github.com/mlakolar/ProximalSolvers.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/mlakolar/ProximalSolvers.jl/actions/workflows/CI.yml?query=branch%3Amaster)
+[![codecov](https://codecov.io/gh/mlakolar/ProximalSolvers.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mlakolar/ProximalSolvers.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 Proximal optimization solvers in Julia for problems of the form
@@ -15,26 +15,29 @@ nuclear-norm and graphical-lasso penalties, ...), or `g` separates across
 coordinates and `f` has a structure that coordinate descent can exploit (least
 squares, quadratics, Kronecker-structured quadratics of matrices, generalized
 linear losses). The loss functions and proximal operators come from
-[ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) (0.5); ProximalOPT
+[ProximalBase.jl](https://github.com/mlakolar/ProximalBase.jl) (0.5); ProximalSolvers
 provides the solvers that put them together, and the drivers built on them:
 paths of penalty levels with screening, reweighting, and refits.
 
 ## Installation
 
-Requires Julia 1.10 or later. ProximalOPT is not registered; install it from
-GitHub (ProximalBase is installed from the General registry):
+Requires Julia 1.10 or later. Install it from the General registry, or the
+development version from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/mlakolar/ProximalOPT.jl")
+Pkg.add("ProximalSolvers")
+Pkg.add(url = "https://github.com/mlakolar/ProximalSolvers.jl")   # development version
 ```
+
+ProximalSolvers was called ProximalOPT before its first release.
 
 ## Example: lasso
 
 Minimize `‖Y - Xβ‖² / 2 + λ‖β‖₁`:
 
 ```julia
-using ProximalBase, ProximalOPT, LinearAlgebra, Random
+using ProximalBase, ProximalSolvers, LinearAlgebra, Random
 
 Random.seed!(1)
 n, p = 100, 50
@@ -68,7 +71,7 @@ coefficients that enter or leave the model together, such as the dummy
 variables of a factor:
 
 ```julia
-using ProximalBase, ProximalOPT, LinearAlgebra, Random
+using ProximalBase, ProximalSolvers, LinearAlgebra, Random
 
 Random.seed!(1)
 n = 100
@@ -103,7 +106,7 @@ singular values to exactly zero, as the ℓ1 norm of the lasso does with the sma
 coefficients:
 
 ```julia
-using ProximalBase, ProximalOPT, LinearAlgebra, Random
+using ProximalBase, ProximalSolvers, LinearAlgebra, Random
 
 Random.seed!(1)
 n, p, k = 200, 20, 10
@@ -143,7 +146,7 @@ Estimate a sparse precision matrix by minimizing
 operators:
 
 ```julia
-using ProximalBase, ProximalOPT, LinearAlgebra, Random
+using ProximalBase, ProximalSolvers, LinearAlgebra, Random
 
 Random.seed!(1)
 Z = randn(200, 10)
@@ -190,7 +193,7 @@ penalty, so every separable penalty works: `NormL1` (with weights), `ElasticNet`
 `‖y - Xβ‖² / (2n) + λ‖β‖₁`:
 
 ```julia
-using ProximalBase, ProximalOPT, LinearAlgebra, Random, Statistics
+using ProximalBase, ProximalSolvers, LinearAlgebra, Random, Statistics
 
 Random.seed!(1)
 n, p = 200, 1000
@@ -208,7 +211,7 @@ path = solve_path(f, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50))
 With the random order, the default, the passes over the active set use
 Nesterov momentum with adaptive restarts, as in CoordinateDescent.jl 0.6, on a
 `SparseIterate` for least squares, square-root least squares, quadratics and
-GLMs. In CoordinateDescent.jl's benchmark, whose passes ProximalOPT reproduces,
+GLMs. In CoordinateDescent.jl's benchmark, whose passes ProximalSolvers reproduces,
 it computes lasso paths 2.8 to 4.5 times faster and single solves at small
 penalties 1.3 to 2.2 times. On logistic lasso problems coordinate descent is
 1.4 to 5.6 times faster with it, and `ProxNewton`, whose inner solves are
@@ -293,7 +296,7 @@ REPL, for example `?ProximalOptions`.
 descent ([CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl)),
 glmnet and Lasso.jl; [benchmark/README.md](benchmark/README.md) explains how to
 run it and summarizes the results. [`benchmark/engine/`](benchmark/engine)
-compares the coordinate descent of ProximalOPT, case by case, with the code it
+compares the coordinate descent of ProximalSolvers, case by case, with the code it
 replaces in CoordinateDescent, CovSel and DiffPrecTest.
 
 ## References

@@ -4,7 +4,7 @@ using Test
 using Random
 using LinearAlgebra
 using ProximalBase
-using ProximalOPT
+using ProximalSolvers
 
 Random.seed!(1)
 
@@ -53,7 +53,7 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
   @testset "$(summary(solver))" for solver in solvers
     x = zeros(p)
     res = solve!(x, f, g, solver, opt)
-    @test ProximalOPT.converged(res)
+    @test ProximalSolvers.converged(res)
     @test res.minimum ≈ f(x) + g(x)
     @test kkt_residual(x, A * x + b, groups, λ * w) < 1e-5
     @test x ≈ x_ref atol = 1e-5
@@ -65,7 +65,7 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
     # ‖Y - Xx‖² / 2 = n f(x) + const, so the penalty scales by n
     x = zeros(p)
     res = solve!(x, LeastSquaresLoss(Y, X), GroupNormL2(n * λ, groups), solver, opt)
-    @test ProximalOPT.converged(res)
+    @test ProximalSolvers.converged(res)
     @test x ≈ x_ref atol = 1e-5
   end
 
@@ -143,7 +143,7 @@ solve!(x_ref, f, g, AccProxGradDescent(), opt)
       x = AtomIterate(p, g.groups)
       res = solve!(x, f, g, solver, opt)
       @test res.minimizer === x
-      @test ProximalOPT.converged(res)
+      @test ProximalSolvers.converged(res)
       @test Vector(x) ≈ x_ref atol = 1e-5
       @test active_groups(x) == nonzero_groups(x, groups)
     end

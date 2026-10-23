@@ -4,7 +4,7 @@ using Test
 using Random
 using LinearAlgebra
 using ProximalBase
-using ProximalOPT
+using ProximalSolvers
 
 Random.seed!(1)
 
@@ -36,13 +36,13 @@ end
 @testset "TFOCS backtracking switches to gradients near convergence" begin
   f, g = QuadraticFunction(A, b), NormL1(λ)
   method = ProximalGradientDescent()
-  state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, zeros(p))
+  state = ProximalSolvers.initial_state(method, ProximalOptions(), f, g, zeros(p))
 
   simple, rel = Bool[], Float64[]
   grad_f_x = similar(state.x)
   fresh_gradient = true
   for k in 1:100
-    ProximalOPT.update_state!(f, g, state, method)
+    ProximalSolvers.update_state!(f, g, state, method)
     push!(simple, state.backtrack_simple)
     push!(rel, abs(state.f_x - state.f_x_previous) / max(abs(state.f_x), abs(state.f_x_previous)))
     value_and_gradient!(grad_f_x, f, state.x)
@@ -67,11 +67,11 @@ end
   # and the retry with a larger L rounds back to x'
   f, g = QuadraticFunction(ones(1, 1), [-1.]), ZeroFunction()
   method = ProximalGradientDescent()
-  state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
+  state = ProximalSolvers.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
   state.backtrack_simple = false
   state.L = 2.
 
-  ProximalOPT.update_state!(f, g, state, method)
+  ProximalSolvers.update_state!(f, g, state, method)
   @test state.backtrack_steps == 1
   @test state.x == [1. + eps()]
   @test state.grad_f_x == [eps()]

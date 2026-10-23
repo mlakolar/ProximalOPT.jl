@@ -16,7 +16,7 @@ model built once serves many solves (paths, reweighting).
 
 A new loss is a subtype of `CDModel{T}` with these functions for the iterates
 it supports. They are public but not exported: extend them as
-`ProximalOPT.initialize!` and so on.
+`ProximalSolvers.initialize!` and so on.
 
 - [`initialize!`](@ref)`(m, x)`, which makes the cache current for `x`.
 - The coordinate step: either [`coordinate_derivatives`](@ref) and

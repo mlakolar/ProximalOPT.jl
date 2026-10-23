@@ -5,12 +5,12 @@
 #     F(β) = ‖y - Xβ‖² / (2n) + λ‖β‖₁
 #
 # (no intercept, no standardization). ProximalBase's LeastSquaresLoss is
-# ‖y - Xβ‖² / 2, so the ProximalOPT solvers get X/√n and y/√n; the solvers that
+# ‖y - Xβ‖² / 2, so the ProximalSolvers solvers get X/√n and y/√n; the solvers that
 # use X'X get A = X'X/n and b = -X'y/n, whose quadratic differs from F only by
 # the constant ‖y‖²/(2n).
 
 using LinearAlgebra, Random, Statistics, SparseArrays, Printf
-using ProximalBase, CoordinateDescent, ProximalOPT
+using ProximalBase, CoordinateDescent, ProximalSolvers
 import GLMNet, Lasso
 
 ################################################################################
@@ -138,11 +138,11 @@ const SOLVERS = [
   Solver("CD random",               "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true), false),
   Solver("CD path from λmax",       "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true, warmStart = false), false),
   Solver("CD X'X/n",                "CoordinateDescent", run_cd_gram, true),
-  Solver("ProxGrad",                "ProximalOPT", (P, λ, t) -> run_prox(P, λ, t, ProximalGradientDescent()), false),
-  Solver("AccProxGrad",             "ProximalOPT", (P, λ, t) -> run_prox(P, λ, t, AccProxGradDescent()), false),
-  Solver("ActiveAccProxGrad",       "ProximalOPT", (P, λ, t) -> run_prox(P, λ, t, ActiveAccProxGradDescent()), false),
-  Solver("AccProxGrad X'X/n",       "ProximalOPT", (P, λ, t) -> run_prox(P, λ, t, AccProxGradDescent(); gram = true), true),
-  Solver("ActiveAccProxGrad X'X/n", "ProximalOPT", (P, λ, t) -> run_prox(P, λ, t, ActiveAccProxGradDescent(); gram = true), true),
+  Solver("ProxGrad",                "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, ProximalGradientDescent()), false),
+  Solver("AccProxGrad",             "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, AccProxGradDescent()), false),
+  Solver("ActiveAccProxGrad",       "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, ActiveAccProxGradDescent()), false),
+  Solver("AccProxGrad X'X/n",       "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, AccProxGradDescent(); gram = true), true),
+  Solver("ActiveAccProxGrad X'X/n", "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, ActiveAccProxGradDescent(); gram = true), true),
   Solver("glmnet",                  "GLMNet.jl", run_glmnet, false),
   Solver("Lasso.jl",                "Lasso.jl", run_lassojl, false),
 ]
@@ -195,10 +195,10 @@ end
 const PATH_SOLVERS = [
   Solver("CD LassoPath",            "CoordinateDescent", path_cd, false),
   Solver("CD X'X/n",                "CoordinateDescent", path_cd_gram, true),
-  Solver("ProxGrad",                "ProximalOPT", (P, λs, t) -> path_prox(P, λs, t, ProximalGradientDescent()), false),
-  Solver("AccProxGrad",             "ProximalOPT", (P, λs, t) -> path_prox(P, λs, t, AccProxGradDescent()), false),
-  Solver("ActiveAccProxGrad",       "ProximalOPT", (P, λs, t) -> path_prox(P, λs, t, ActiveAccProxGradDescent()), false),
-  Solver("ActiveAccProxGrad X'X/n", "ProximalOPT", (P, λs, t) -> path_prox(P, λs, t, ActiveAccProxGradDescent(); gram = true), true),
+  Solver("ProxGrad",                "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, ProximalGradientDescent()), false),
+  Solver("AccProxGrad",             "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, AccProxGradDescent()), false),
+  Solver("ActiveAccProxGrad",       "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, ActiveAccProxGradDescent()), false),
+  Solver("ActiveAccProxGrad X'X/n", "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, ActiveAccProxGradDescent(); gram = true), true),
   Solver("glmnet",                  "GLMNet.jl", path_glmnet, false),
   Solver("Lasso.jl",                "Lasso.jl", path_lassojl, false),
 ]

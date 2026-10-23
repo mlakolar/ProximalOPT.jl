@@ -1,6 +1,6 @@
 # Lasso benchmark
 
-`lasso_bench.jl` times ProximalOPT's solvers on the lasso
+`lasso_bench.jl` times the solvers of ProximalSolvers on the lasso
 
     minimize  ‖y - Xβ‖² / (2n) + λ ‖β‖₁
 
@@ -21,7 +21,7 @@ The quick run checks that everything works on one small problem. The full run
 writes `benchmark/results/single.csv` and `path.csv`, which
 `lasso_summary.jl` turns into the tables below.
 
-The environment needs Julia 1.11 or later, because it loads ProximalOPT from
+The environment needs Julia 1.11 or later, because it loads ProximalSolvers from
 this repository through `[sources]` in `Project.toml`. To benchmark a local
 checkout of CoordinateDescent instead of the registered version, run
 `Pkg.develop(path = "...")` in the environment. This writes the path into
@@ -59,7 +59,7 @@ The solvers:
 | CD path from λmax | `coordinateDescent!` with `warmStart = false`, which solves along a path of 50 penalties |
 | CD X'X/n | `coordinateDescent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
 | CD LassoPath | `CoordinateDescent.LassoPath` |
-| ProxGrad, AccProxGrad, ActiveAccProxGrad | ProximalOPT's solvers on `LeastSquaresLoss` |
+| ProxGrad, AccProxGrad, ActiveAccProxGrad | the solvers of this package on `LeastSquaresLoss` |
 | AccProxGrad X'X/n, ActiveAccProxGrad X'X/n | the same on `QuadraticFunction(X'X/n, -X'y/n)` |
 | glmnet, Lasso.jl | `GLMNet.glmnet` and `Lasso.fit(LassoPath, ...)` |
 
@@ -69,7 +69,7 @@ These results are from 22 October 2026, on one core of an AMD EPYC 7513 (a
 compute node of USC's Discovery cluster) with Julia 1.13.2 and one BLAS
 thread. The full run took 76 minutes. Package versions:
 
-- ProximalOPT at `8674288`
+- this package, then called ProximalOPT, at `8674288`
 - ProximalBase 0.4.0
 - CoordinateDescent 0.5.1
 - GLMNet.jl 0.7.4
@@ -132,20 +132,20 @@ the other. The solution has 452 nonzeros for A and 302 for E.
 
 - **For one λ, coordinate descent is usually fastest, with `ActiveAccProxGradDescent` close behind.**
   - At a relative gap of 1e-6, coordinate descent beats `ActiveAccProxGrad` by 1.1–3.4× on designs A–D. The exception is A at 0.02 λmax, where `ActiveAccProxGrad` is 1.7× faster (75.5 against 127 ms).
-  - On the equicorrelated design E, coordinate descent is 2.9–6× faster than `ActiveAccProxGrad` and over 100× faster than `AccProxGrad`. There the common factor gives X'X/n one very large eigenvalue, which forces ProximalOPT's gradient methods to take small steps; the active set keeps those steps cheap.
+  - On the equicorrelated design E, coordinate descent is 2.9–6× faster than `ActiveAccProxGrad` and over 100× faster than `AccProxGrad`. There the common factor gives X'X/n one very large eigenvalue, which forces the gradient methods of this package to take small steps; the active set keeps those steps cheap.
 - **For a path, `ActiveAccProxGradDescent` is fastest when p > n and the columns are not strongly correlated.**
   - On A and B it beats `LassoPath` by about 3× at a gap of 1e-6, and by 2.8–4.5× at 1e-10.
   - On D (p = 20,000) the two are even at 1e-6 (1.2 s each), and `ActiveAccProxGrad` is faster at 1e-10 (3.9 s against 5.1 s).
   - On E it is the other way round: `LassoPath` is 8× faster at 1e-6, and `ActiveAccProxGrad` does not reach 1e-10.
 - **When n ≫ p (design C), solve on X'X/n.** `CD X'X/n` and `ActiveAccProxGrad X'X/n` compute the whole path in 0.03 s, including forming X'X/n.
-- **Within ProximalOPT, use `ActiveAccProxGradDescent`.**
+- **Among the gradient solvers of this package, use `ActiveAccProxGradDescent`.**
   - `AccProxGrad` without the active set is up to 123× slower at one λ (304 against 2.5 ms for E at 0.1 λmax), and 23× slower on the path for D (27.9 s against 1.2 s).
   - `ProxGrad` is competitive only at low accuracy on easy problems.
   - The X'X/n variants pay off when n ≫ p, or when X'X/n is already at hand. At one λ, `ActiveAccProxGrad X'X/n` is the fastest row in 5 of the 8 columns where it runs, not counting the 27–131 ms it takes to form X'X/n.
 - **Coordinate order matters for coordinate descent.**
   - Cyclic order beats random order in 7 of the 8 cases on A–D, by up to 2.6×.
   - On E cyclic order is 16× slower (220 against 13.8 ms), which is why random order is CoordinateDescent's default.
-- **ProximalOPT's defaults stop early on harder problems.** The defaults are `maxiter = 200` and `ftol = 1e-6`.
+- **The default options stop early on harder problems.** The defaults are `maxiter = 200` and `ftol = 1e-6`.
   - At 0.02 λmax on A, B and D its solvers stop with relative gaps of 2e-5 to 4e-3 and 12 to 248 support errors.
   - On E, `ProxGrad` and `AccProxGrad` stop with gaps of 0.35 and 0.1 and most of the support wrong; `ActiveAccProxGrad` stops at 1.3e-4 with 11 support errors.
   - For accurate solutions, set `ftol`, `xtol` and `gradtol` to about 1e-10 and raise `maxiter`.

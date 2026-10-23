@@ -1,8 +1,9 @@
 # Coordinate descent: the new code against the code it replaces
 
-ProximalOPT took over coordinate descent, penalty paths, reweighting and refits
-from CoordinateDescent.jl, and the losses that CovSel.jl and DiffPrecTest.jl
-wrote for it. This benchmark runs both on the same problems and compares them
+ProximalSolvers (called ProximalOPT before its first release) took over
+coordinate descent, penalty paths, reweighting and refits from
+CoordinateDescent.jl, and the losses that CovSel.jl and DiffPrecTest.jl wrote
+for it. This benchmark runs both on the same problems and compares them
 case by case: the time, the passes, and the solutions.
 
 - `problems.jl`: the problems, from standard libraries only, so that both
@@ -14,7 +15,7 @@ case by case: the time, the passes, and the solutions.
   and ProximalBase 0.4, pinned to their commits of 23 October 2026 (`run.jl`).
   At those commits CovSel and DiffPrecTest allow CoordinateDescent 0.4 and 0.5
   only.
-- `new/`: ProximalOPT from this repository on ProximalBase 0.5 (`run.jl`).
+- `new/`: ProximalSolvers from this repository on ProximalBase 0.5 (`run.jl`).
 - `compare.jl`: the comparison; `ab.sh`: interleaved runs and the comparison.
 
 ## Running
@@ -59,21 +60,22 @@ the same pass.
 | dtrace | CovSel's direct difference estimator at p = 20, 50, 100 (`CDDirectDifferenceLoss` / `KronQuadratic` on a `SymmetricSparseIterate`), and a path of 20 levels |
 | refit | CovSel's `differencePrecisionRefit`, by coordinate descent with the entries off the support penalized by 1e10 / `refit!`, exact |
 | diffprectest | the first stages of DiffPrecTest's inverse Hessians at fixed weights (`CDInverseKroneckerLoss`, `CDInverseReducedSymKroneckerLoss` / `KronQuadratic` on vec Θ and on a symmetric Θ) |
-| proxgrad, admm | ProximalOPT's gradient solvers and ADMM, before and after the port to ProximalBase 0.5 |
+| proxgrad, admm | the gradient solvers and ADMM of ProximalOPT 0.1 and of this package, before and after the port to ProximalBase 0.5 |
 
 | iht | CovSel's `differencePrecisionIHT` (fixed step) / `ProximalGradientDescent` with `IndBallL0` on a `SymmetricSparseIterate` (backtracking) |
 
 The old run also times cases with no counterpart yet, such as DiffPrecTest's
 whole estimators.
 
-`new/` takes ProximalBase 0.5 from the registry and ProximalOPT from this
+`new/` takes ProximalBase 0.5 from the registry and ProximalSolvers from this
 checkout.
 
 ## Results
 
 23 October 2026 on USC CARC Discovery: one core of an AMD EPYC 7513, Julia
 1.13.2, one BLAS thread, three interleaved rounds of each side (Slurm job
-13326700). The new code is ProximalOPT at `c247846`, on ProximalBase 0.5.0.
+13326700). The new code is this package, then ProximalOPT, at `c247846`, on
+ProximalBase 0.5.0.
 The old side is CoordinateDescent 0.6.0 with its default momentum for
 CoordinateDescent's own cases (`old-cd/`), and CovSel, DiffPrecTest and
 ProximalOPT 0.1 on CoordinateDescent 0.5.4 for the others (`old/`). Ratios are

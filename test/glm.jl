@@ -1,6 +1,6 @@
 module GLMTests
 
-using ProximalOPT, ProximalBase, LinearAlgebra, Random, Statistics, Test
+using ProximalSolvers, ProximalBase, LinearAlgebra, Random, Statistics, Test
 logistic(z) = 1 / (1 + exp(-z))
 function kkt_l1(grad, x, λ)
   maximum(i -> x[i] == 0 ? max(abs(grad[i]) - λ, 0.0) : abs(grad[i] + λ * sign(x[i])), eachindex(x))

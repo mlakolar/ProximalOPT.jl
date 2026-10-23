@@ -4,7 +4,7 @@ using Test
 using Random
 using LinearAlgebra
 using ProximalBase
-using ProximalOPT
+using ProximalSolvers
 
 Random.seed!(1)
 
@@ -80,7 +80,7 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
   @testset "$(nameof(typeof(f0)))" for f0 in (SqrNormL2(1, y), QuadraticFunction(A, b))
     f, g = CountingFunction(f0), CountingProx(NormL1(λ))
     res = solve!(zeros(p), f, g, solver, opt)
-    @test ProximalOPT.converged(res)
+    @test ProximalSolvers.converged(res)
     @test !res.call_limit_reached
     @test res.f_calls == f_calls(f)
     @test res.grad_calls == grad_calls(f)
@@ -101,10 +101,10 @@ end
   # evaluates gradients itself
   f, g = CountingFunction(QuadraticFunction(A, b)), CountingProx(NormL1(λ))
   method = ProximalGradientDescent()
-  state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, zeros(p))
+  state = ProximalSolvers.initial_state(method, ProximalOptions(), f, g, zeros(p))
   simple = Bool[]
   for k in 1:100
-    ProximalOPT.update_state!(f, g, state, method)
+    ProximalSolvers.update_state!(f, g, state, method)
     push!(simple, state.backtrack_simple)
     @test (state.f_calls, state.grad_calls, state.prox_calls) == (f_calls(f), grad_calls(f), g.prox_calls)
   end
@@ -112,10 +112,10 @@ end
 
   # in the gradient mode, a retried step that does not move x recomputes ∇f(x)
   f, g = CountingFunction(QuadraticFunction(ones(1, 1), [-1.])), CountingProx(ZeroFunction())
-  state = ProximalOPT.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
+  state = ProximalSolvers.initial_state(method, ProximalOptions(), f, g, [1. + eps()])
   state.backtrack_simple = false
   state.L = 2.
-  ProximalOPT.update_state!(f, g, state, method)
+  ProximalSolvers.update_state!(f, g, state, method)
   @test state.x == [1. + eps()]
   @test (state.f_calls, state.grad_calls, state.prox_calls) == (f_calls(f), grad_calls(f), g.prox_calls)
 end
@@ -197,7 +197,7 @@ end
   x1, x2 = copy(x0), copy(x0)
   res1 = solve!(x1, f, g, solver, opt)
   res2 = solve!(x2, f, g, solver, zero_limits)
-  @test ProximalOPT.converged(res2)
+  @test ProximalSolvers.converged(res2)
   @test !res2.call_limit_reached
   @test x1 == x2
   @test res1.minimum == res2.minimum

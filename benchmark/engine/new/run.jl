@@ -1,4 +1,4 @@
-# The new code: ProximalOPT's coordinate descent on ProximalBase 0.5, on the
+# The new code: ProximalSolvers' coordinate descent on ProximalBase 0.5, on the
 # cases of old/run.jl, under the same keys where both have the case.
 #
 #     julia --project=benchmark/engine/new -e 'using Pkg; Pkg.instantiate()'
@@ -9,8 +9,8 @@
 #
 #     julia benchmark/engine/compare.jl results/old_<stamp>.csv results/new_<stamp>.csv
 
-using ProximalOPT, ProximalBase
-const PO = ProximalOPT
+using ProximalSolvers, ProximalBase
+const PS = ProximalSolvers
 using LinearAlgebra, Random, SparseArrays, SpecialFunctions, Statistics
 
 include(joinpath(@__DIR__, "..", "common.jl"))
@@ -75,7 +75,7 @@ let P = design(:A), λ = 0.05 * lasso_λmax(design(:A).X, design(:A).y)
     xbar = vec(sum(X; dims = 1)) ./ n
     ω = vec(sqrt.(sum(abs2, X .- xbar'; dims = 1) ./ n))
     r = solve!(x, m, NormL1(λ, ω), cds())
-    (vcat(PO.intercept(m, x), Vector(x)), r.passes, r.converged)
+    (vcat(PS.intercept(m, x), Vector(x)), r.passes, r.converged)
   end
 end
 
@@ -151,7 +151,7 @@ for name in (:A, :C)
   run!(rec, Case("scaledlasso", "$name λ=√(2log p/n)", "scaledLasso() random")) do
     Random.seed!(SEED)
     σ0 = std(screening_residuals(X, y, 5))
-    update = (g, x, m) -> (σ = g.λ0 / λ; σnew = sqrt(sum(abs2, PO.residuals(m)) / n);
+    update = (g, x, m) -> (σ = g.λ0 / λ; σnew = sqrt(sum(abs2, PS.residuals(m)) / n);
                            (NormL1(λ * σnew, ω), abs(σnew - σ) / σ))
     x = SparseIterate(p)
     res = reweight!(x, f, NormL1(λ * σ0, ω), update, cds())
@@ -159,7 +159,7 @@ for name in (:A, :C)
   end
   run!(rec, Case("feasiblelasso", "$name λ=√(2log p/n)", "feasibleLasso!() random")) do
     Random.seed!(SEED)
-    update = (g, x, m) -> (Γ = loadings(X, PO.residuals(m)); (NormL1(λ, Γ), maximum(abs.(g.w .- Γ)) / maximum(Γ)))
+    update = (g, x, m) -> (Γ = loadings(X, PS.residuals(m)); (NormL1(λ, Γ), maximum(abs.(g.w .- Γ)) / maximum(Γ)))
     x = SparseIterate(p)
     res = reweight!(x, f, NormL1(λ, loadings(X, screening_residuals(X, y, 5))), update, cds())
     (Vector(x), res.passes, res.converged && res.cd_converged)
@@ -220,7 +220,7 @@ let p = 50
   run!(rec, Case("iht", "dtrace p=$p s=$s", "differencePrecisionIHT"); objective = obj) do
     Δ = SymmetricSparseIterate(p)
     r = solve!(Δ, f, IndBallL0(s), ProximalGradientDescent(), o)
-    (vec(Matrix(Δ)), r.iterations, PO.converged(r))
+    (vec(Matrix(Δ)), r.iterations, PS.converged(r))
   end
 end
 
@@ -299,7 +299,7 @@ for name in (:A, :E)
   run!(rec, Case("proxgrad", "$name λ=0.1λmax", "AccProxGrad tol 1e-10"); objective = obj) do
     x = zeros(p)
     r = solve!(x, LeastSquaresLoss(ys, Xs), NormL1(λ), AccProxGradDescent(), o)
-    (x, r.iterations, PO.converged(r))
+    (x, r.iterations, PS.converged(r))
   end
   run!(rec, Case("proxgrad", "$name λ=0.1λmax", "ActiveAccProxGrad tol 1e-10"); objective = obj) do
     x = SparseIterate(p)
@@ -318,7 +318,7 @@ for p in (50, 100)
     r = solve!(Xa, LogDetLoss(S), NormL1(0.1), covsel, ProximalOptions(; maxiter = 10_000))
     (vec(Xa), r.iterations, r.converged)
   end
-  run!(rec, Case("admm", "glasso p=$p λ=0.1", "ProximalOPT ADMMSolver")) do
+  run!(rec, Case("admm", "glasso p=$p λ=0.1", "ADMMSolver")) do
     Xa = Matrix(1.0I, p, p)
     r = solve!(Xa, LogDetLoss(S), NormL1(0.1), ADMMSolver(), ProximalOptions(; maxiter = 100_000))
     (vec(Xa), r.iterations, r.converged)

@@ -1,7 +1,7 @@
-name = "ProximalOPT"
-uuid = "7b454996-d86a-11e8-189a-bd4064dc21e3"
+name = "ProximalSolvers"
+uuid = "fc4971f5-6616-4709-9bfc-89a819252f6b"
 authors = ["Mladen Kolar <mkolar@chicagobooth.edu>"]
-version = "0.2.0"
+version = "0.1.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

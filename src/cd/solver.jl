@@ -102,6 +102,10 @@ end
 
 Base.summary(::CDSolver) = "Coordinate Descent"
 
+# s with the fields given replaced and every other field copied, so that a new
+# field of CDSolver needs no change where a solver is derived from another
+_with(s::CDSolver; kwargs...) = CDSolver(map(f -> get(kwargs, f, getfield(s, f)), fieldnames(CDSolver))...)
+
 """
     CDResults
 

@@ -139,8 +139,15 @@ end
   end
   # through continuation and paths, which run the same passes
   x = SparseIterate(p)
-  solve!(x, ls, NormL1(0.05λmax), CDSolver(; gaptol = 1e-9); continuation = 10)
+  r = solve!(x, ls, NormL1(0.05λmax), CDSolver(; gaptol = 1e-9); continuation = 10)
+  @test r.converged && r.gap <= 1e-9
   @test relgap(duality_gap(ls, NormL1(0.05λmax), x)) <= 1e-9 * (1 + 1e-6)
+  # the levels before the target take continuation_tol and no gap rule; every
+  # other field of the solver is kept
+  s = CDSolver(; tol = 1e-9, order = :cyclic, anderson = 3, gaptol = 1e-9, gapsafe = true, maxpasses = 77)
+  s2 = PS._with_tol(s, 1e-4)
+  @test s2.tol == 1e-4 && s2.gaptol == 0
+  @test all(getfield(s2, f) == getfield(s, f) for f in fieldnames(CDSolver) if f ∉ (:tol, :gaptol))
   λs = λmax .* 10 .^ range(0, -1.5; length = 12)
   path = solve_path(ls, NormL1(1.0), λs, CDSolver(; gaptol = 1e-9, gapsafe = true))
   ref = solve_path(ls, NormL1(1.0), λs, CDSolver(; tol = 1e-12))

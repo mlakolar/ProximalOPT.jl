@@ -144,11 +144,12 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
     passes += st.passes
   end
   _warn_not_converged(st, method)
-  CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks)
+  CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks, st.relgap)
 end
 
-# the solver with another tolerance
-_with_tol(s::CDSolver, tol::Real) = CDSolver(s.maxpasses, Float64(tol), s.random, s.relative, s.anderson, s.momentum)
+# the solver for the levels before the target, which only give warm starts:
+# the tolerance tol, and no stopping on the duality gap
+_with_tol(s::CDSolver, tol::Real) = _with(s; tol = Float64(tol), gaptol = 0.0)
 
 Base.eltype(::CDModel{T}) where {T} = T
 

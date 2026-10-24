@@ -113,6 +113,7 @@ The losses coordinate descent knows, any of the first four scaled as in
 | Loss | Coordinate step | Use |
 |---|---|---|
 | `LeastSquaresLoss(y, X)`, `GLMLoss(ProximalBase.Squared(), y, X; weights, offset)` | O(n), residuals cached | lasso, weighted lasso; `cdmodel(f, x; intercept = true)` adds an unpenalized intercept |
+| `LeastSquaresLoss(Y, X)` with an `n × q` matrix `Y`, on an `AtomIterate` over `vec(B)` with the rows of `B` as groups | O(nq) per row, exact, residuals cached | the multi-response lasso, `GroupNormL2` on the rows: the same predictors for all responses |
 | `QuadraticFunction(A, b)` | O(p), `Ax` cached | the lasso on `X'X/n` when `n ≫ p` |
 | `KronQuadratic(A, B, C)`, `⟨Θ, AΘB⟩/2 + ⟨C, Θ⟩` | O(pq), `AΘB` cached | the D-trace loss of a symmetric `Θ`, inverse Hessians of Kronecker form |
 | `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster, and also fits Poisson and an intercept |

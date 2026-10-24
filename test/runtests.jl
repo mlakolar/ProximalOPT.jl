@@ -11,6 +11,7 @@ tests = [
   "product_space",
   "active_set",
   "group_lasso",
+  "multiresponse",
   "low_rank",
   "coordinate_descent",
   "sparse_x",

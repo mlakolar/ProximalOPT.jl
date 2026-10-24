@@ -177,6 +177,17 @@ increases and every limit point is a critical point of ``F``, while for a
 convex problem the method keeps the accelerated rate ``O(1/k^2)``. An
 iteration that falls back costs a second gradient and a second search.
 
+For least-squares and generalized linear losses, including scaled losses,
+the method caches the images of the iterates under the design matrix.
+The image of ``y_k`` is the same combination of the images of ``x_k``,
+``z_k`` and ``x_{k-1}``, so it needs no new product. A trial point costs
+one product with the design and a gradient one product with its transpose;
+the plain fallback reuses the image of ``x_k``. Both candidate images are
+kept because the next extrapolation uses ``z_k`` even when the plain
+candidate was selected. Each candidate image comes from a direct product,
+which prevents accumulated drift. Other smooth losses and tuple iterates
+use the original value and gradient oracles.
+
 ## Sparse plus low-rank block iterates
 
 All three gradient methods accept tuples of arrays, including

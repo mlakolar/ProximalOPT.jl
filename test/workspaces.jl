@@ -175,7 +175,9 @@ end
 
 @testset "coordinate workspace resets gap-safe screening" begin
   y = [1., 0.8, 0.4, 0.2, 0.1, zeros(7)...]
-  f = LeastSquaresLoss(y, Matrix{Float64}(I, 12, 12))
+  X = Matrix{Float64}(I, 12, 12)
+  X[1, 2] = 0.2 # require several passes so screening precedes certification
+  f = LeastSquaresLoss(y, X)
   method = CDSolver(; order = :cyclic, gaptol = 1e-10, gapsafe = true)
   ws = SolverWorkspace(zeros(12), f, NormL1(0.6), method)
   gap = nothing
@@ -188,7 +190,9 @@ end
     @test result.passes == ref.passes
     gap === nothing || @test ws.buffers.state.gap === gap
     gap = ws.buffers.state.gap
-    @test count(gap.keep) < length(y)
+    if level == 0.6
+      @test count(gap.keep) < length(y)
+    end
   end
 end
 

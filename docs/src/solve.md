@@ -75,8 +75,8 @@ count can exceed its limit by the evaluations of one iteration.
 | [`ActiveAccProxGradDescent`](@ref) | [`ActiveSetResults`](@ref ProximalSolvers.ActiveSetResults) | `minimizer`, `minimum`, `outer_iterations`, `inner_iterations`, `converged`, `inner_converged`, `max_violation`, `active_set_size` |
 | [`ADMMSolver`](@ref) | [`ADMMResults`](@ref ProximalSolvers.ADMMResults) | `minimizer`, `minimum`, `iterations`, `converged`, the residuals `r_norm`, `s_norm` and their tolerances `eps_pri`, `eps_dual`, the scaled dual variable `u` and the final `ρ`, the counts of calls, `gap` |
 | [`CDSolver`](@ref), [`ProxNewton`](@ref) | [`CDResults`](@ref) | `minimizer`, `minimum`, `passes`, `converged`, `maxchange`, `tolerance`, `kkt_checks`, `gap` |
-| [`solve_path`](@ref) | [`PathResults`](@ref) | per level: `λ`, `solutions`, `values`, `passes`, `converged`, `kkt_checks` |
-| [`reweight!`](@ref) | [`ReweightResults`](@ref) | `minimizer`, `penalty`, `next`, `iterations`, `converged`, `change`, `passes`, `cd_converged` |
+| [`solve_path`](@ref) | [`PathResults`](@ref) | per level: `λ`, `solutions`, `values`, `passes`, `converged`, `kkt_checks`, `stages` |
+| [`reweight!`](@ref), `solve!` with [`LLA`](@ref) | [`ReweightResults`](@ref) | `minimizer`, `penalty`, `next`, `iterations`, `converged`, `change`, `passes`, `cd_converged` |
 
 `minimum` is ``f + g`` at the minimizer, and `gap` the relative duality gap
 there when it was computed, `NaN` otherwise. Printing a result shows a summary.

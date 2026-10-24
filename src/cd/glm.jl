@@ -510,12 +510,9 @@ function _newton_step!(x::SparseIterate{T}, m::GLMModel{T}, g, gi, F::T, b0::T, 
 end
 
 # the weakly convex penalties whose proximal Newton steps may need a proximal
-# term, and their concavity: the largest ρ for which g(x) + ρx²/2 is convex
+# term, with their concavity (_concavity, in models.jl)
 _isdampable(g) = false
 _isdampable(::Union{MCP, SCAD, ProximalBase.BoxConstrained{<:Union{MCP, SCAD}}}) = true
-_concavity(g::MCP{T}) where {T} = inv(T(g.a))
-_concavity(g::SCAD{T}) where {T} = inv(T(g.a) - 1)
-_concavity(c::ProximalBase.BoxConstrained) = _concavity(c.f)
 
 solve!(x::SparseIterate, f::Union{GLMLoss, Scaled{<:GLMLoss}}, g::AbstractFunction, method::ProxNewton) =
   _solve_newton!(x, f, g, method)
@@ -574,7 +571,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
     λprev = _lambda_max(x, grad, g)      # λmax at the starting point, which need not be zero
   end
   solutions = Any[]
-  out = PathResults(T[], [], T[], Int[], Bool[], Int[])
+  out = PathResults(T[], [], T[], Int[], Bool[], Int[], Int[])
   for (k, λ) in enumerate(λs)
     gk = _with_level(g, T(λ))
     if screening
@@ -585,13 +582,14 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
       checks = 0
     end
     push!(out.λ, T(λ)); push!(solutions, _snapshot(x)); push!(out.values, F)
-    push!(out.passes, passes); push!(out.converged, converged); push!(out.kkt_checks, checks)
+    push!(out.passes, passes); push!(out.converged, converged); push!(out.kkt_checks, checks); push!(out.stages, 1)
     (callback !== nothing && callback(k, T(λ), x, m) === true) && break
     nactive(x) > maxnnz && break
     D0 > 0 && 1 - _deviance(m, m.η) / D0 >= devmax && break
   end
   S = isempty(solutions) ? Any : typeof(first(solutions))
-  PathResults{S, T}(out.λ, convert(Vector{S}, solutions), out.values, out.passes, out.converged, out.kkt_checks)
+  PathResults{S, T}(out.λ, convert(Vector{S}, solutions), out.values, out.passes, out.converged, out.kkt_checks,
+                    out.stages)
 end
 
 # _screened! for proximal Newton: the strong rule for the step from λprev to the

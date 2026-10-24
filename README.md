@@ -94,7 +94,9 @@ checking its own result.
 On top of coordinate descent, `solve_path` computes the solutions along a
 decreasing sequence of penalty levels with warm starts and the sequential
 strong rule, `reweight!` alternates solves with updates of the penalty (the
-scaled lasso, adaptive weights, reweighted ℓ1), and `refit!` minimizes the loss
+scaled lasso, adaptive weights, reweighted ℓ1), `LLA()` computes the capped ℓ1,
+log, MCP and SCAD estimators by local linear approximation, at one level or
+along a path with screening in every stage, and `refit!` minimizes the loss
 exactly on a support. A loss of your own joins coordinate descent as a
 `CDModel` with a few functions; see `?CDModel`.
 
@@ -136,7 +138,7 @@ suite and rendered in the documentation:
 | [`01_lasso.jl`](examples/01_lasso.jl) | the lasso by coordinate descent; its optimality conditions; an unpenalized intercept |
 | [`02_lasso_path.jl`](examples/02_lasso_path.jl) | a lasso path with the strong rule; choosing λ on held-out data |
 | [`03_accelerations.jl`](examples/03_accelerations.jl) | momentum and Anderson acceleration on correlated columns |
-| [`04_penalties.jl`](examples/04_penalties.jl) | the elastic net, MCP and SCAD, continuation, the nonnegative lasso, bounds, unpenalized coordinates |
+| [`04_penalties.jl`](examples/04_penalties.jl) | the elastic net, MCP and SCAD, continuation, paths by local linear approximation (capped ℓ1, two-step SCAD), the nonnegative lasso, bounds, unpenalized coordinates |
 | [`05_group_lasso.jl`](examples/05_group_lasso.jl) | the group lasso by block coordinate descent, along a path, and by proximal gradient |
 | [`06_glm.jl`](examples/06_glm.jl) | sparse logistic regression, Poisson regression with an exposure, Huber regression |
 | [`07_sqrt_lasso.jl`](examples/07_sqrt_lasso.jl) | the square-root and scaled lasso; a sparse precision matrix column by column |

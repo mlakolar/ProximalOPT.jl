@@ -222,7 +222,9 @@ _gradient_buffer(x::AbstractArray{T}) where {T} = similar(Array{T}, axes(x))
 # for its screening). The capped ℓ1, log and ℓq penalties of ProximalBase have none:
 # their exact coordinate steps can jump away from zero at levels where zero is
 # locally optimal, so the slope at zero would give neither λmax nor a safe
-# screening test.
+# screening test. The capped ℓ1 and log penalties have paths by LLA instead
+# (lla.jl), whose stages are weighted lassos; their weights below, the slopes at
+# zero over λ, give λmax of the first stage.
 _haslevel(g) = false
 _haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD, Scaled{<:ElasticNet}, GroupMCP, GroupSCAD,
                   Scaled{<:SparseGroupNormL2}}) = true
@@ -249,6 +251,8 @@ _entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
 _entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
 _weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
 _weight(g::Scaled{<:ElasticNet}, i::Int) = g.f.λ1 * _weight(g.f, i)
+_weight(g::CappedL1, i::Int) = _entryweight(g.w, i, typeof(g.λ))
+_weight(g::LogPenalty, i::Int) = _entryweight(g.w, i, typeof(g.λ)) / g.ε
 _weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP or GroupSCAD, possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 # A penalty with a level on a box, Constrained(g, IndBox(l, u)), has the level
@@ -261,6 +265,15 @@ _haslevel(c::_BoxConstrained) = _haslevel(c.f)
 _level(c::_BoxConstrained) = _level(c.f)
 _with_level(c::_BoxConstrained, λ) = (_check_zero_in_box(c.box); _BoxConstrained(_with_level(c.f, λ), c.box))
 _weight(c::_BoxConstrained, i::Int) = _weight(c.f, i)
+
+# The concavity of a weakly convex penalty, the largest ρ for which
+# g(x) + ρx²/2 is convex: 1/a for MCP and 1/(a - 1) for SCAD, of the group norm
+# for their group versions. A proximal Newton step may need a proximal term with
+# it (glm.jl), and an exact coordinate step is convex when its curvature exceeds
+# it (path.jl).
+_concavity(g::Union{MCP{T}, GroupMCP{T}}) where {T} = inv(T(g.a))
+_concavity(g::Union{SCAD{T}, GroupSCAD{T}}) where {T} = inv(T(g.a) - 1)
+_concavity(c::_BoxConstrained) = _concavity(c.f)
 
 _check_zero_in_box(box::IndBox) =
   box.zp ? nothing : throw(ArgumentError("a path, λmax and screening on Constrained(g, IndBox(l, u)) need zero in the box, l ≤ 0 ≤ u."))

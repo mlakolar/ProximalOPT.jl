@@ -11,6 +11,7 @@ tests = [
   "low_rank",
   "coordinate_descent",
   "group_penalties",
+  "nonconvex_penalties",
   "glm",
   "aqua",
 ]

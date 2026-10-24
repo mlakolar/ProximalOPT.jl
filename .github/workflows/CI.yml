@@ -51,6 +51,16 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
+      # The nonconvex penalties are not in a ProximalBase release yet
+      # (ProximalBase PR #66). Julia 1.11 and later take them from [sources] in
+      # Project.toml; Julia 1.10 ignores [sources]. Remove this step and
+      # [sources] once they are released.
+      - name: Add ProximalBase from its pull request on Julia 1.10
+        if: matrix.version == 'lts'
+        shell: julia --color=yes --project=. {0}
+        run: |
+          using Pkg
+          Pkg.add(url="https://github.com/mlakolar/ProximalBase.jl", rev="nonconvex-penalties")
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1

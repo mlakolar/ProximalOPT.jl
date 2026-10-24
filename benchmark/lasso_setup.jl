@@ -97,26 +97,26 @@ struct Solver
   needs_gram::Bool
 end
 
-cd_options(tol; kw...) = CDOptions(; optTol = Float64(tol), maxIter = 1_000_000, kw...)
+cd_options(tol; kw...) = CDOptions(; opt_tol = Float64(tol), max_iter = 1_000_000, kw...)
 prox_options(tol) = ProximalOptions(; maxiter = 1_000_000, ftol = tol, xtol = tol, gradtol = tol,
                                     time_limit = 60.0)
 
 function run_cd(P, λ, tol; kw...)
   x = SparseIterate(P.p)
-  coordinateDescent!(x, CDLeastSquaresLoss(P.y, P.X), ProxL1(λ), cd_options(tol; kw...))
+  coordinate_descent!(x, CDLeastSquaresLoss(P.y, P.X), NormL1(λ), cd_options(tol; kw...))
   Vector(x)
 end
 
 function run_cd_gram(P, λ, tol)
   x = SparseIterate(P.p)
-  coordinateDescent!(x, CDQuadraticLoss(P.G, P.mc), ProxL1(λ), cd_options(tol; randomize = true))
+  coordinate_descent!(x, CDQuadraticLoss(P.G, P.mc), NormL1(λ), cd_options(tol; randomize = true))
   Vector(x)
 end
 
 function run_prox(P, λ, tol, method; gram = false)
   f = gram ? QuadraticFunction(P.G, P.mc) : LeastSquaresLoss(P.ys, P.Xs)
   x = method isa ActiveAccProxGradDescent ? SparseIterate(P.p) : zeros(P.p)
-  solve!(x, f, ProxL1(λ), method, prox_options(tol))
+  solve!(x, f, NormL1(λ), method, prox_options(tol))
   x isa SparseIterate ? Vector(x) : x
 end
 
@@ -136,7 +136,7 @@ end
 const SOLVERS = [
   Solver("CD cyclic",               "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = false), false),
   Solver("CD random",               "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true), false),
-  Solver("CD path from λmax",       "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true, warmStart = false), false),
+  Solver("CD path from λmax",       "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true, warm_start = false), false),
   Solver("CD X'X/n",                "CoordinateDescent", run_cd_gram, true),
   Solver("ProxGrad",                "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, ProximalGradientDescent()), false),
   Solver("AccProxGrad",             "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, AccProxGradDescent()), false),
@@ -150,9 +150,9 @@ const SOLVERS = [
 # each package at its default options
 const DEFAULT_RUNS = [
   ("CD lasso()",        (P, λ) -> Vector(lasso(P.X, P.y, λ).x)),
-  ("ProxGrad",          (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), ProxL1(λ), ProximalGradientDescent()); x)),
-  ("AccProxGrad",       (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), ProxL1(λ), AccProxGradDescent()); x)),
-  ("ActiveAccProxGrad", (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), ProxL1(λ), ActiveAccProxGradDescent()); x)),
+  ("ProxGrad",          (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), NormL1(λ), ProximalGradientDescent()); x)),
+  ("AccProxGrad",       (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), NormL1(λ), AccProxGradDescent()); x)),
+  ("ActiveAccProxGrad", (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), NormL1(λ), ActiveAccProxGradDescent()); x)),
   ("glmnet",            (P, λ) -> convert(Matrix{Float64}, GLMNet.glmnet(P.X, P.y; lambda = [λ], standardize = false, intercept = false).betas)[:, 1]),
   ("Lasso.jl",          (P, λ) -> Vector(Lasso.coef(Lasso.fit(Lasso.LassoPath, P.X, P.y; λ = [λ], standardize = false, intercept = false, maxncoef = P.p))[:, 1])),
 ]
@@ -162,21 +162,21 @@ const DEFAULT_RUNS = [
 # (P, λs, tol) -> vector of dense solutions
 
 function path_cd(P, λs, tol)
-  path = CoordinateDescent.LassoPath(P.X, P.y, λs, cd_options(tol; randomize = true); standardizeX = false)
+  path = CoordinateDescent.LassoPath(P.X, P.y, λs, cd_options(tol; randomize = true); standardize_x = false)
   [Vector(b) for b in path.βpath]
 end
 
 function path_cd_gram(P, λs, tol)
   x = SparseIterate(P.p)
   f = CDQuadraticLoss(P.G, P.mc)
-  [(coordinateDescent!(x, f, ProxL1(λ), cd_options(tol; randomize = true)); Vector(x)) for λ in λs]
+  [(coordinate_descent!(x, f, NormL1(λ), cd_options(tol; randomize = true)); Vector(x)) for λ in λs]
 end
 
 function path_prox(P, λs, tol, method; gram = false)
   f = gram ? QuadraticFunction(P.G, P.mc) : LeastSquaresLoss(P.ys, P.Xs)
   x = method isa ActiveAccProxGradDescent ? SparseIterate(P.p) : zeros(P.p)
   o = prox_options(tol)
-  [(solve!(x, f, ProxL1(λ), method, o); Vector(x)) for λ in λs]
+  [(solve!(x, f, NormL1(λ), method, o); Vector(x)) for λ in λs]
 end
 
 function path_glmnet(P, λs, tol)
@@ -220,7 +220,7 @@ function timed(f; budget = 1.0, minreps = 3, maxreps = 7)
   out, minimum(times)
 end
 
-# coordinate descent run to optTol = 1e-14, in random order: the order 1, 2, …
+# coordinate descent run to opt_tol = 1e-14, in random order: the order 1, 2, …
 # can be very slow when all columns share a common factor
 function reference(P, λ)
   β = run_cd(P, λ, 1e-14; randomize = true)
@@ -230,7 +230,7 @@ end
 function path_reference(P, λs)
   x = SparseIterate(P.p)
   f = CDLeastSquaresLoss(P.y, P.X)
-  [(coordinateDescent!(x, f, ProxL1(λ), cd_options(1e-14; randomize = true)); Vector(x)) for λ in λs]
+  [(coordinate_descent!(x, f, NormL1(λ), cd_options(1e-14; randomize = true)); Vector(x)) for λ in λs]
 end
 
 env_summary() = string("Julia ", VERSION, ", ", Sys.cpu_info()[1].model, ", BLAS threads = ",

@@ -228,5 +228,7 @@ function solve!(X::Matrix{T}, f::LogDetLoss{T}, g::NormL1, method::ProxNewton) w
   CDResults(X, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks, r.gap)
 end
 
-solve!(X::Union{Matrix, SymmetricSparseIterate}, f::Scaled{<:LogDetLoss}, g::NormL1, method::ProxNewton) =
+solve!(X::Matrix, f::Scaled{<:LogDetLoss}, g::NormL1, method::ProxNewton) =
+  solve!(X, LogDetLoss(f.f.S, f.α * f.f.w), g, method)
+solve!(X::SymmetricSparseIterate, f::Scaled{<:LogDetLoss}, g::NormL1, method::ProxNewton) =
   solve!(X, LogDetLoss(f.f.S, f.α * f.f.w), g, method)

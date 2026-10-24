@@ -23,7 +23,7 @@ writes `benchmark/results/single.csv` and `path.csv`, which
 
 The environment needs Julia 1.11 or later, because it loads ProximalSolvers from
 this repository through `[sources]` in `Project.toml`. To benchmark a local
-checkout of CoordinateDescent instead of the registered version, run
+checkout of CoordinateDescent instead of its master on GitHub, run
 `Pkg.develop(path = "...")` in the environment. This writes the path into
 `Project.toml`, so don't commit that change.
 
@@ -153,7 +153,5 @@ the other. The solution has 452 nonzeros for A and 302 for E.
 - **glmnet's tolerance is on a different scale.** Its `tol` bounds squared changes in the coefficients, so reaching a gap of 1e-6 at every λ of a path needs a `tol` of about 1e-11. That makes it slow in these tables. At its default `tol`, its paths take a fraction of these times but are only accurate to about 1e-3.
 
 The current lasso comparison uses CoordinateDescent 0.8's `snake_case` API.
-Its source override temporarily tracks the branch for
-[CoordinateDescent #40](https://github.com/mlakolar/CoordinateDescent.jl/issues/40);
-merge that update first, then use master or a registered 0.8 release.
+Its source override uses master on GitHub until version 0.8 is registered.
 The pinned `engine/old` and `engine/old-cd` comparisons keep their historical API.

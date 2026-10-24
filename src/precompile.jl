@@ -48,6 +48,7 @@ using PrecompileTools: @setup_workload, @compile_workload
     # the gradient methods and ADMM
     solve!(zeros(p), f, NormL1(λ), ProximalGradientDescent())
     solve!(zeros(p), f, NormL1(λ), AccProxGradDescent())
+    solve!(zeros(p), f, NormL1(λ), MonotoneAccProxGradDescent())
     solve!(SparseIterate(p), f, NormL1(λ), ActiveAccProxGradDescent())
     solve!(Matrix(1.0I, p, p), LogDetLoss(S), NormL1(0.1), ADMMSolver())
   end

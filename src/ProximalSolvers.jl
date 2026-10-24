@@ -36,7 +36,7 @@ export
   SqrtLeastSquaresLoss, SqrtQuadraticFunction,
   CDModel, cdmodel,
   lambda_max, solve_path,
-  reweight!, refit!,
+  reweight!, refit!, RefitCache,
 
   # types
   ProximalSolver,
@@ -72,6 +72,7 @@ include("cd/sqrtlasso.jl")
 include("cd/sqrtquadratic.jl")
 include("cd/glm.jl")
 include("cd/path.jl")
+include("cd/refit_cache.jl")
 include("cd/drivers.jl")
 
 include("utils.jl")

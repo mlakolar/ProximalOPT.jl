@@ -10,6 +10,7 @@ tests = [
   "group_lasso",
   "low_rank",
   "coordinate_descent",
+  "refit_cache",
   "glm",
   "aqua",
 ]

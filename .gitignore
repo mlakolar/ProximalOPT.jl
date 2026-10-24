@@ -4,6 +4,8 @@
 /Manifest*.toml
 /test/Manifest*.toml
 /docs/build/
+/docs/Manifest*.toml
+/docs/src/examples/
 /benchmark/Manifest*.toml
 /benchmark/results/
 

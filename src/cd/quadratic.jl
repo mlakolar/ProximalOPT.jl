@@ -85,16 +85,22 @@ end
 _cache(m::QuadModel) = m.u
 
 # with A = X'X/n and b = -X'y/n, √A[k,k] = ‖X[:, k]‖ / √n, and
-# maxₖ |bₖ| / √A[k,k] is a lower bound on ‖y‖ / √n
+# maxₖ |bₖ| / √A[k,k] is a lower bound on ‖y‖ / √n. With c = y'y/(2n) as well,
+# the quadratic is the least-squares loss ‖y - Xx‖² / (2n), whose scale
+# ‖y‖ / √n = √(2c) is that of the least-squares model, so that both take the
+# same passes. The scale is the larger of the two, so that a constant c of
+# another kind never makes the rule stricter than the bound.
 coordinate_scale(m::QuadModel, x, k::Int) = sqrt(m.s * m.A[k, k])
 
 function response_scale(m::QuadModel{T}, x) where {T}
-  m.b === nothing && return zero(T)
   s = zero(T)
-  for k in eachindex(m.b)
-    a = m.A[k, k]
-    a > 0 && (s = max(s, abs(m.b[k]) / sqrt(a)))
+  if m.b !== nothing
+    for k in eachindex(m.b)
+      a = m.A[k, k]
+      a > 0 && (s = max(s, abs(m.b[k]) / sqrt(a)))
+    end
   end
+  m.c > 0 && (s = max(s, sqrt(2 * m.c)))
   sqrt(m.s) * s
 end
 

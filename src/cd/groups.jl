@@ -51,8 +51,7 @@ function _groupstep!(m::QuadModel{T}, g::AbstractFunction, x::AtomIterate{T}, k:
   A, u = m.A, m.u
   G = x.groups[k]
   n = length(G)
-  length(m.tmp) < 2n && resize!(m.tmp, 2n)
-  buf = m.tmp
+  buf = _groupbuffer!(m, 2n)
 
   # buf = ∇_G f(x) = s (Ax + b)[G]
   for (i, j) in enumerate(G)

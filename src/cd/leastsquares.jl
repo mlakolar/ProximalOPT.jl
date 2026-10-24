@@ -28,11 +28,12 @@ mutable struct LSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVect
   xbar::Vector{T}       # (weighted) column means with an intercept, otherwise zeros
   ybar::T               # (weighted) mean of y - o with an intercept, otherwise zero
   L::Vector{T}          # curvatures of the groups of an AtomIterate, NaN until computed
-  tmp::Vector{T}        # wᵢ rᵢ, for the gradient of a weighted loss
+  tmp::Vector{T}        # wᵢ rᵢ, for the gradient of a weighted loss: n entries with weights
   eig::_GroupEig{T}     # workspace of the group curvatures
   δ::T                  # the residuals are r .+ δ (a sparse X with an intercept)
   rbuf::Vector{T}       # r .+ δ, for residuals(m)
   wsum::T               # ∑ᵢ wᵢ (n without weights), for the centering of a sparse X
+  gbuf::Vector{T}       # scratch space of the group steps, grown to the largest need
 end
 
 function LSModel(y::AbstractVector, X::AbstractMatrix, w, offset, s::Real; intercept::Bool = false)
@@ -50,7 +51,7 @@ function LSModel(y::AbstractVector, X::AbstractMatrix, w, offset, s::Real; inter
   LSModel{T, typeof(Xt), typeof(yt), typeof(wt), typeof(ot)}(Xt, yt, wt, ot, T(s), zeros(T, n), fill(T(NaN), p),
                                                              xbar, ybar, T[], wt === nothing ? T[] : zeros(T, n),
                                                              _GroupEig{T}(), zero(T), T[],
-                                                             wt === nothing ? T(n) : T(sum(wt)))
+                                                             wt === nothing ? T(n) : T(sum(wt)), T[])
 end
 
 _mean_response(y, ::Nothing) = sum(y) / length(y)
@@ -547,5 +548,6 @@ function _groupstep!(m::LSModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int, s
   maxh
 end
 
-# a buffer of n entries for group steps, kept in the model
-_groupbuffer!(m::LSModel{T}, n::Int) where {T} = (length(m.tmp) < n && resize!(m.tmp, n); m.tmp)
+# a buffer of at least n entries for the group steps, kept in the model; it is
+# not m.tmp, which the gradient of a weighted model needs at n entries
+_groupbuffer!(m::LSModel{T}, n::Int) where {T} = (length(m.gbuf) < n && resize!(m.gbuf, n); m.gbuf)

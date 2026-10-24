@@ -31,10 +31,15 @@ small timings alone must not be presented as an exhaustive speed comparison.
 The default dimensions are `10,20`, rank `2`, two repetitions and at most
 1,000 iterations. Native solves additionally have a 30-second soft limit.
 
-`native_vs_legacy.tsv` compares every native result with the best finite
-objective over the recorded fixed-step grid. It records both objective and
+`native_vs_legacy.tsv` compares every returned native solution with the best
+finite, feasible legacy objective over the recorded fixed-step grid. Reference
+selection checks symmetry, the sparse support budget, factor dimensions and
+positive definiteness where the log-det objective requires it. Ineligible
+legacy solutions remain in `legacy_reference_rejections.tsv`; a missing valid
+reference produces an explicit unavailable row. It records both objective and
 support agreement; failures and support differences are not repaired or
-discarded. The new exact symmetric projection can select a different support
+discarded. Raw solver and warmup failures remain in the runners' TSV files.
+The new exact symmetric projection can select a different support
 from the legacy magnitude threshold when diagonal entries are constrained.
 These are nonconvex local solutions, so neither objective ordering nor matching
 supports is a universal guarantee. `legacy.tsv` and `native.tsv` also retain
@@ -75,7 +80,8 @@ srun --exclusive --exact -N1 -n1 -c1 "$JULIA" --startup-file=no \
 environment. Its API follows the
 [official MendelIHT source](https://github.com/OpenMendel/MendelIHT.jl/blob/master/src/fit.jl).
 It uses the same centered regression arrays, sparsity and initial-zero option,
-with and without MendelIHT debiasing. The implicit intercept has its optimum
+with and without MendelIHT debiasing. Both branches warm before timing, and a
+failed warmup is recorded explicitly. The implicit intercept has its optimum
 at zero on these centered inputs. Returned coefficients are checked through
 their residual objective and support, rather than comparing likelihood
 normalizations. A missing package or adapter failure remains an explicit

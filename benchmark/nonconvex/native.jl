@@ -101,10 +101,18 @@ function main()
     regression_methods = (METHODS..., ("normalized_PG_debias", ProximalGradientDescent(; normalized = true, debias = 3)))
     open(joinpath(ROOT, "native_regression.tsv"), "w") do io
         record(io, ("solver", "round", "seconds", "iterations", "objective", "support", "support_matches_truth", "status", "detail"))
-        for (_, method) in regression_methods
-            solve!(zeros(p), f, g, method, ProximalOptions(; maxiter = 5))
+        warmed = Dict{String, Bool}()
+        for (label, method) in regression_methods
+            try
+                solve!(zeros(p), f, g, method, ProximalOptions(; maxiter = min(MAXITER, 20)))
+                warmed[label] = true
+            catch err
+                warmed[label] = false
+                record(io, (label, 0, NaN, -1, Inf, "", false, "warmup_error", sprint(showerror, err)))
+            end
         end
         for round in 1:ROUNDS, (label, method) in regression_methods
+            warmed[label] || continue
             try
                 x = zeros(p)
                 elapsed = @elapsed res = solve!(x, f, g, method,

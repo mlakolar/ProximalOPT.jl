@@ -46,10 +46,11 @@ export
   CDResults, PathResults, ReweightResults
 
 # the interface of coordinate descent models (see CDModel) and the accessors of
-# the least-squares models: public, not exported
+# the least-squares and GLM models: public, not exported
 @static if VERSION >= v"1.11.0-DEV.469"
   eval(Expr(:public, :initialize!, :coordinate_step!, :coordinate_derivatives, :update_cache!,
-            :coordinate_scale, :response_scale, :loss_value, :check_penalty, :intercept, :residuals))
+            :coordinate_scale, :response_scale, :loss_value, :check_penalty, :intercept, :residuals,
+            :linear_predictor, :deviance, :nulldeviance))
 end
 
 include("types.jl")

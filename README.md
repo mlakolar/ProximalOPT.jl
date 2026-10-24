@@ -105,7 +105,7 @@ The losses coordinate descent knows, any of the first four scaled as in
 | `LeastSquaresLoss(y, X)`, `GLMLoss(ProximalBase.Squared(), y, X; weights, offset)` | O(n), residuals cached | lasso, weighted lasso; `cdmodel(f, x; intercept = true)` adds an unpenalized intercept |
 | `QuadraticFunction(A, b)` | O(p), `Ax` cached | the lasso on `X'X/n` when `n ≫ p` |
 | `KronQuadratic(A, B, C)`, `⟨Θ, AΘB⟩/2 + ⟨C, Θ⟩` | O(pq), `AΘB` cached | the D-trace loss of a symmetric `Θ`, inverse Hessians of Kronecker form |
-| `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster |
+| `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster, and also fits Poisson and an intercept |
 | `SqrtLeastSquaresLoss(y, X)`, `‖y - Xβ‖` | exact, O(n) | square-root lasso (with `NormL1`) |
 | `SqrtQuadraticFunction(A, b, c)`, `√(x'Ax + 2b'x + c)` | exact, O(p), `Ax` cached | square-root lasso from `X'X/n`, `X'y/n` and `y'y/n`; the scaled lasso of one variable on the others from a covariance matrix (Sun and Zhang, 2013) |
 

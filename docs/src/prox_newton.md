@@ -70,6 +70,23 @@ evaluating the loss. On the logistic lasso problems of the package's
 benchmark, momentum makes the inner solves 1.0 to 4.5 times faster. The
 Poisson loss, whose curvature is unbounded, can only be fitted this way.
 
+## Intercepts and paths
+
+For a logistic or Poisson loss, `ProxNewton` takes an unpenalized intercept
+through the model (`cdmodel(f, x; intercept = true)`), and [`solve_path`](@ref)
+takes `ProxNewton` with the same sequential strong rule as coordinate descent.
+The path also stops once the fit explains a fraction `devmax = 0.999` of the
+null deviance, as glmnet's does:
+
+```julia
+yb = Float64.(y .> 0)                                    # binary responses
+m = ProximalSolvers.cdmodel((1 / n) * LogisticLoss(yb, X), SparseIterate(p); intercept = true)
+λmax = lambda_max(m, NormL1(1.0), SparseIterate(p))      # at the fit with only the intercept
+b0 = Float64[]                                           # the intercepts along the path
+path = solve_path(m, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50), ProxNewton();
+                  callback = (k, λ, β, m) -> (push!(b0, ProximalSolvers.intercept(m, β)); false))
+```
+
 ## Settings
 
 `ProxNewton(; inner = CDSolver(; tol = 1e-8), maxiter = 100, tol = 1e-8, β = 0.5)`.

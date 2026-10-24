@@ -35,6 +35,8 @@ The condition is `τ*(L/2 + σ*normD^2) < 1`, where `L` bounds the Lipschitz
 constant of `∇f` and `normD` bounds the spectral norm of `D`. The defaults use
 `lipschitz(f)` and `sqrt(opnorm(D, 1)*opnorm(D, Inf))`, without densifying a
 sparse matrix. Supply known tighter bounds through `CondatVu(; L, normD)`.
+Some `lipschitz` implementations, including least squares, return numerical
+estimates; supply a certified `L` when the formal step guarantee is needed.
 Lanczos norm estimates can help choose steps experimentally, but are not
 certified upper bounds. Explicit `τ` and `σ` are checked against these bounds.
 With `f = ZeroFunction()`, the method is Chambolle–Pock.
@@ -92,11 +94,14 @@ g = NormL1(λ)
 h = Scaled(Translate(CheckLoss(1 - q), b), 1 / length(b))
 res = solve!(zeros(size(X, 2)), f, g, h, X, CondatVu(),
              ProximalOptions(maxiter = 500_000, gaptol = 1e-6))
-rank_scores = -length(b) .* res.y
+centered_scores = -length(b) .* res.y
+rank_scores = centered_scores .+ (1 - q)
 ```
 
 The sign follows from `h(z) = mean(ρ_q(b-z))`: `res.y` is the subgradient
-with respect to predictions, whereas rank scores use residuals. For rank-score
+with respect to predictions. Centered residual scores lie in `[q-1, q]`;
+adding `1-q` gives dual rank-score coordinates in `[0,1]`. Penalization
+changes their moment constraints. For rank-score
 tests, check dual accuracy at the required fixed quantile; objective accuracy
 alone does not certify individual dual coordinates. The benchmark includes
 small LP comparisons of coefficients and duals. LPs can be faster at moderate

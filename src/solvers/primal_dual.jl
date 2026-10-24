@@ -10,6 +10,8 @@ Primal–dual splitting for convex `f(x) + g(x) + h(D*x)`. Use
 The dual proximal step uses `Conjugate(h)` and cached Moreau buffers.
 
 Steps satisfy `τ*(L/2 + σ*normD^2) < 1`. `L` defaults to `lipschitz(f)`.
+Some `lipschitz` implementations, including least squares, return a numerical
+estimate; supply a known `L` bound when a certified step condition is needed.
 `normD` defaults to the guaranteed matrix bound
 `√(opnorm(D, 1)*opnorm(D, Inf))`; for faster steps, supply a tighter known
 bound. ProximalBase's Lanczos estimate `sqrt(opnorm2(D))` can guide that
@@ -192,7 +194,7 @@ function _pd_steps(ω::T, L, nD) where {T}
 end
 function _pd_startsteps(method, f, D, ::Type{T}) where {T}
   L = T(method.L === nothing ? lipschitz(f) : method.L)
-  nD = T(method.normD === nothing ? sqrt(opnorm(D,1)*opnorm(D,Inf)) : method.normD)
+  nD = T(method.normD === nothing ? sqrt(T(opnorm(D,1)))*sqrt(T(opnorm(D,Inf))) : method.normD)
   isfinite(L) && L >= 0 && isfinite(nD) || throw(ArgumentError("finite global L and normD bounds are required"))
   τ, σ = method.τ, method.σ
   if τ === nothing && σ === nothing
@@ -331,7 +333,8 @@ end
 
 A Fenchel certificate for convex `f(x) + g(x) + h(D*x)` at primal/dual
 vectors `x,y`. Requires the relevant conjugate values in ProximalBase.
-For `g = ZeroFunction()`, the dual is `-f*(-D'y) - h*(y)`. Otherwise set
+For `g = ZeroFunction()` and a squared Euclidean loss, the dual is
+`-f*(-D'y) - h*(y)`. Otherwise set
 `u = ∇f(x)` and use `f*(u) = dot(x,u) - f(x)` and the dual
 `-f*(u) - g*(-u-D'y) - h*(y)`. An infeasible dual point gives an infinite
 gap. When `f = ZeroFunction()` and `g = NormL1(...)`, scale `y` toward zero
@@ -345,7 +348,7 @@ function duality_gap(f::AbstractFunction, g::AbstractFunction, h::AbstractFuncti
   size(D) == (length(y),length(x)) || throw(DimensionMismatch())
   Dx, Dty = D*x, D'*y
   primal = f(x)+g(x)+h(Dx)
-  if g isa ZeroFunction
+  if g isa ZeroFunction && f isa SqrNormL2 && f.λ > 0
     dual = -Conjugate(f)(-Dty)-Conjugate(h)(y)
   elseif f isa ZeroFunction
     t = g isa NormL1 ? something(_dualscale(g,Dty),zero(T)) : one(T)

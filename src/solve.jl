@@ -18,6 +18,9 @@ _check_start(f_x) = isfinite(f_x) ||
     solve!(x, f, g, method::ProximalSolver, options = ProximalOptions())
 
 Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
+For a convex linear composite, use
+`solve!(x, f, g, h, D, CondatVu(), options)` for `f(x) + g(x) + h(D*x)`;
+see [`CondatVu`](@ref).
 
 For [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
 [`MonotoneAccProxGradDescent`](@ref), `f` is a smooth function of ProximalBase

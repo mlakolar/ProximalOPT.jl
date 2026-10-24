@@ -28,3 +28,10 @@ An earlier attempt at conic tolerances `1e-9` passed the objective comparison
 but missed the requested KKT target in two cases. The retained passing run
 uses `1e-12` conic tolerances. The log records both solver versions and every
 case's diagnostics.
+
+## Primal–dual LP and QP oracles
+
+Run `julia --project=test/oracles test/oracles/primal_dual.jl` after instantiating
+this environment. HiGHS independently checks quantile-regression coefficients
+and dual scores at three quantiles, with dense and sparse designs, and a
+second-difference generalized lasso against a quadratic program.

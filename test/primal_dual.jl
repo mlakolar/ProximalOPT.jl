@@ -51,9 +51,10 @@ const PS = ProximalSolvers
       b = T[2,-3,.1,0]
       f, g, h = SqrNormL2(one(T),b),NormL1(T(.2)),NormL1(T(.3))
       truth = sign.(b).*max.(abs.(b).-T(.2).-T(.3).*diag(D),0)
-      for sparsex in (false,true)
+      for sparsex in (false,true), sparseD in (false,true)
+        A = sparseD ? sparse(D) : D
         x = sparsex ? SparseIterate(T,4) : zeros(T,4)
-        res = solve!(x,f,g,h,D,CondatVu(abstol=1e-7,reltol=1e-5),opts)
+        res = solve!(x,f,g,h,A,CondatVu(abstol=1e-7,reltol=1e-5),opts)
         @test res.converged
         @test Vector(x) ≈ truth atol=2e-4
         @test eltype(res.minimizer) === T && eltype(res.y) === T
@@ -94,6 +95,10 @@ const PS = ProximalSolvers
     @test_throws ArgumentError solve!(zeros(2),f,g,h,D,CondatVu(τ=2,σ=1))
     cert = solve!(zeros(2),f,g,h,D,CondatVu(),ProximalOptions(gaptol=1e-6,maxiter=10000))
     @test cert.converged && cert.gap <= 1e-6
+    # A smooth term needs no implemented conjugate when its gradient provides
+    # the Fenchel equality. Zero g may leave the dual infeasible off stationarity.
+    cert = duality_gap(LeastSquaresLoss([1.,-2.],D),ZeroFunction(),NormL1(.5),D,[.5,-1.5],[.5,-.5])
+    @test cert.gap ≈ 0 atol=1e-12
     @test_throws DimensionMismatch solve!(zeros(3),f,g,h,D,CondatVu())
     @test_throws DimensionMismatch solve!(zeros(2),f,g,h,D,CondatVu();y=zeros(3))
     @test_throws ArgumentError solve!(zeros(2),f,MCP(.1,3.),h,D,CondatVu())
@@ -107,10 +112,10 @@ const PS = ProximalSolvers
     end
   end
   @testset "allocation-free ordinary dense/sparse steps" begin
-    for T in (Float32,Float64), sparseD in (false,true)
+    for T in (Float32,Float64), sparseD in (false,true), sparsex in (false,true)
       D = sparseD ? spdiagm(0=>ones(T,10)) : Matrix{T}(I,10,10)
       f,g,h = SqrNormL2(one(T),ones(T,10)),NormL1(T(.1)),NormL1(T(.2))
-      s = PS._pd_state(zeros(T,10),zeros(T,10),f,D)
+      s = PS._pd_state(sparsex ? SparseIterate(T,10) : zeros(T,10),zeros(T,10),f,D)
       hc = Conjugate(h)
       step() = PS._pd_step!(s,f,g,hc,D,T(.4),T(.4),T(1e-6),T(1e-4))
       step(); step()

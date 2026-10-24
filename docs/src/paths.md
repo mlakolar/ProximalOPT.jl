@@ -10,7 +10,9 @@ one level.
 ## Penalty families
 
 These penalties of ProximalBase have a level, and
-`solve_path(f, g, λs)` replaces the level of `g` by each ``\lambda``:
+`solve_path(f, g, λs)` replaces the level of `g` by each ``\lambda``; the
+capped ℓ1 and log penalties have paths by local linear approximation (see
+[Nonconvex penalties: exact steps or local linear approximation](@ref)):
 
 | Penalty | ``g_\lambda(x)`` | weight of coordinate ``k`` |
 |:--------|:-----------------|:---------------------------|
@@ -173,6 +175,94 @@ points from the zero solution, as along a path. In
 [Other penalties](examples/04_penalties.md), with MCP, it ends at less than
 half the objective of the direct solve, with a far smaller estimation error.
 
+## Nonconvex penalties: exact steps or local linear approximation
+
+For a nonconvex penalty the algorithm decides which local solution is
+reported, so recreating a published estimator means matching both its penalty
+and its algorithm. Two kinds of algorithm compute nonconvex paths here.
+
+**Exact coordinate steps.** `solve_path(f, MCP(1, a), λs)` and its relatives
+(`SCAD`, `GroupMCP`, `GroupSCAD`) take each coordinate to the exact minimizer
+of the loss along it plus the penalty, as ncvreg and grpreg do (Breheny and
+Huang, 2011). λmax, the strong rule and the optimality checks all test a
+coordinate at zero by the slope of the penalty there, ``|\nabla_k f| \le \lambda w_k``.
+This test agrees with the coordinate step only when the coordinate problem is
+convex:
+
+```math
+a L_k > 1 \ \text{(MCP)}, \qquad (a - 1) L_k > 1 \ \text{(SCAD)},
+```
+
+where ``L_k`` is the curvature of the step along coordinate ``k``: the
+diagonal entry of the Hessian for a quadratic loss, the bound on the
+curvature of a GLM, the largest eigenvalue of the Gram matrix of a group, and
+on a `SymmetricSparseIterate` the curvature over the two entries of an
+off-diagonal coordinate, divided by two. When it fails, the step can leave zero
+where the test says that zero is optimal, so λmax is wrong and screening
+changes the local solution. A path, and continuation, then throw an
+`ArgumentError` that names the coordinate. With least squares,
+``\|y - X\beta\|^2/(2n)`` on columns of unit variance has ``L_k = 1``, so that
+ncvreg's conditions ``a > 1`` and ``a > 2`` suffice; logistic regression by
+coordinate descent has ``L_k = 1/4`` on such columns, and MCP needs ``a > 4``.
+Otherwise standardize the columns, take a larger ``a``, or use LLA. A single
+solve does not use the test and is left alone. Paths of [`ProxNewton`](@ref),
+whose curvatures change with the weights of the Newton steps, are not checked.
+
+**Local linear approximation (LLA)**, also called reweighted ℓ1. The capped
+ℓ1, log, MCP and SCAD penalties are ``\sum_k p_k(|x_k|)`` with each ``p_k``
+concave and nondecreasing on ``[0, \infty)``, so they lie below their tangent at
+the current solution. Each stage of LLA minimizes the loss plus the tangent: the
+weighted lasso with the weights ``p_k'(|x_k|)`` of the previous stage, from
+`ProximalBase.lla_weights!`, or the weighted group lasso with
+``p_k'(\|x_{G_k}\|_2)`` for group MCP and SCAD. The slopes are taken from the
+right, so that at zero they are ``p_k'(0+)`` and the first stage from zero is
+the lasso. Each stage, solved exactly, decreases the loss plus the penalty
+(majorization-minimization), and each is convex, so λmax, the strong rule and
+the gap-safe rule are exact inside it, and the condition above does not arise.
+
+`solve_path(f, g, λs, LLA(inner = CDSolver(); stages = 2, tol, start = :lasso))`
+runs the stages at each level:
+
+- **The first stage** is, with `start = :lasso`, the lasso with the weights
+  ``p_k'(0)``, warm started from the lasso at the previous level, so that every
+  level starts again from the lasso, as the papers do. With
+  `start = :previous` it takes its weights from the solution at the previous
+  level and starts from it, which follows the path more cheaply.
+- **The later stages** start from the stage before. `stages` bounds their
+  number, the first included, and they stop early once the weights change by
+  at most `tol`, relative to the largest; the default `tol` is rounding.
+- **Screening.** The first stage uses the strong rule for the step from the
+  previous level. A later stage starts from the coordinates that are nonzero or
+  violate their condition at the stage before: the weights change only on the
+  nonzero coordinates, so the zero ones keep their condition. The optimality
+  conditions are checked after every stage.
+- **λmax** is that of the first stage, [`lambda_max`](@ref)`(f, g, x)`, which
+  for `CappedL1(λ, a, w)` and `LogPenalty(λ, ε, w)` uses the slopes at zero,
+  ``\lambda w_k`` and ``\lambda w_k/\varepsilon``.
+- **The results** are [`PathResults`](@ref), whose `values` are the loss plus the
+  nonconvex penalty, with the passes and checks summed over the stages and the
+  number of `stages` at each level.
+
+`solve!(x, f, g, LLA())` runs the stages at the level of `g`, the first with
+the weights at `x`, and returns the [`ReweightResults`](@ref) of
+[`reweight!`](@ref), on which it is built.
+
+The papers, with their penalties as they define them, and the calls that
+compute their estimators:
+
+| Paper | Penalty | Algorithm | Call |
+|:------|:--------|:----------|:-----|
+| Zou and Li (2008) | SCAD | one LLA stage from an initial estimate | `solve!(x̃, f, SCAD(λ, 3.7), LLA(; stages = 1))` from the unpenalized fit `x̃` |
+| Candès, Wakin and Boyd (2008) | ``\sum_k\log(|x_k| + \varepsilon)``, fixed ``\varepsilon`` | reweighted ℓ1 from the ℓ1 solution | `LogPenalty(λ, ε)` with `LLA(; stages = K)`, or many stages and a `tol` |
+| T. Zhang (2010) | capped ℓ1, ``\lambda\min(|t|, a)``, fixed cap | multi-stage convex relaxation from the lasso | `solve_path(f, CappedL1(1, a), λs, LLA(; stages = 100))` |
+| Shen, Pan and Zhu (2012) | truncated ℓ1 (TLP), ``\lambda\min(|t|/\tau, 1)``, fixed ``\tau`` | difference of convex functions, until the weights stop changing | `CappedL1(λ/τ, τ)`: the path of `CappedL1(1, τ)` at the levels `λs ./ τ`, with `LLA(; stages = 100)` |
+| Fan, Xue and Zou (2014) | SCAD, MCP | two LLA stages from zero: the lasso, then one weighted lasso | `solve_path(f, SCAD(1, 3.7), λs, LLA())` |
+| Breheny and Huang (2011) | MCP, SCAD, breakpoint ``a\lambda`` | coordinate descent with exact steps | `solve_path(f, MCP(1, 3), λs)` |
+
+The exact steps for the capped ℓ1 and log penalties stay single-level solves: a
+path from their coordinate steps would depend on the scale of ``X`` through
+``L_k``, and no paper defines one that way.
+
 ## References
 
 - R. Tibshirani, J. Bien, J. Friedman, T. Hastie, N. Simon, J. Taylor and
@@ -186,3 +276,17 @@ half the objective of the direct solve, with a far smaller estimation error.
 - J. Friedman, T. Hastie and R. Tibshirani. Regularization Paths for
   Generalized Linear Models via Coordinate Descent. *Journal of Statistical
   Software*, 33(1), 2010.
+- P. Breheny and J. Huang. Coordinate Descent Algorithms for Nonconvex
+  Penalized Regression, with Applications to Biological Feature Selection.
+  *Annals of Applied Statistics*, 5(1), 2011.
+- E. J. Candès, M. B. Wakin and S. P. Boyd. Enhancing Sparsity by Reweighted
+  ℓ1 Minimization. *Journal of Fourier Analysis and Applications*, 14, 2008.
+- H. Zou and R. Li. One-Step Sparse Estimates in Nonconcave Penalized
+  Likelihood Models. *Annals of Statistics*, 36(4), 2008.
+- T. Zhang. Analysis of Multi-stage Convex Relaxation for Sparse
+  Regularization. *Journal of Machine Learning Research*, 11, 2010.
+- X. Shen, W. Pan and Y. Zhu. Likelihood-Based Selection and Sharp Parameter
+  Estimation. *Journal of the American Statistical Association*, 107(497),
+  2012.
+- J. Fan, L. Xue and H. Zou. Strong Oracle Optimality of Folded Concave
+  Penalized Estimation. *Annals of Statistics*, 42(3), 2014.

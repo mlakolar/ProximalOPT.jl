@@ -45,17 +45,21 @@ end
       @test coordinate_residual(X, y, g, Vector(x)) <= 1e-8
     end
   end
-  # but they have no penalty level: their exact coordinate steps jump away from
-  # zero where the slope at zero says that zero is locally optimal (here, the
-  # capped ℓ1 at the level of the ℓ1 λmax), so paths and screening refuse them
+  # but they have no penalty level for exact coordinate descent: their exact
+  # coordinate steps jump away from zero where the slope at zero says that zero
+  # is locally optimal (here, the capped ℓ1 at the level of the ℓ1 λmax), so
+  # paths and screening of CDSolver refuse them; their paths go through LLA
+  # (lla_paths.jl), whose λmax, that of the first stage, lambda_max gives
   g = CappedL1(λmax1, 0.8)
   x = SparseIterate(p)
   solve!(x, f, g, CDSolver(; tol = 1e-12))
   @test nactive(x) > 0
   for g in (CappedL1(1.0, 0.8), LogPenalty(1.0, 0.5), NormLq(1.0, 0.5))
     @test_throws ArgumentError solve_path(f, g, [1.0, 0.5])
-    @test_throws ArgumentError lambda_max(f, g, SparseIterate(p))
   end
+  @test lambda_max(f, CappedL1(1.0, 0.8), SparseIterate(p)) ≈ λmax1
+  @test lambda_max(f, LogPenalty(1.0, 0.5), SparseIterate(p)) ≈ 0.5 * λmax1
+  @test_throws ArgumentError lambda_max(f, NormLq(1.0, 0.5), SparseIterate(p))
 end
 
 @testset "group MCP and group SCAD" begin

@@ -40,7 +40,7 @@ export
   # coordinate descent: losses, models, penalty levels, drivers
   SqrtLeastSquaresLoss, SqrtQuadraticFunction,
   CDModel, cdmodel,
-  lambda_max, solve_path,
+  lambda_max, solve_path, LLA,
   reweight!, refit!, RefitCache,
   duality_gap, kkt_residual,
 
@@ -90,6 +90,7 @@ include("cd/generic_newton.jl")
 include("cd/path.jl")
 include("cd/refit_cache.jl")
 include("cd/drivers.jl")
+include("cd/lla.jl")
 
 include("utils.jl")
 

@@ -20,6 +20,7 @@ tests = [
   "box_paths",
   "refit_cache",
   "nonconvex_penalties",
+  "lla_paths",
   "glm",
   "newton_nonconvex",
   "duality_gap",

@@ -13,6 +13,7 @@ SqrtQuadraticFunction
 lambda_max
 solve_path
 PathResults
+LLA
 ```
 
 ## Reweighting and refits

@@ -75,6 +75,12 @@ at every step (Candès, Wakin and Boyd, 2008; Zou and Li, 2008). For
 ``\rho(t) = \lambda\varepsilon\log(1 + t/\varepsilon)``, the weights are
 ``\lambda/(1 + |\beta_k|/\varepsilon)``; the
 [post-lasso example](examples/08_refit_and_reweight.md) runs it to convergence.
+For the penalties of ProximalBase (`CappedL1`, `LogPenalty`, `MCP`, `SCAD` and
+the group versions), [`LLA`](@ref) runs these stages, with the weights of
+`ProximalBase.lla_weights!`: `solve!(x, f, g, LLA())` at one level, through
+`reweight!`, and `solve_path(f, g, λs, LLA())` along a path, with screening in
+every stage (see
+[Nonconvex penalties: exact steps or local linear approximation](@ref)).
 
 ### Penalty loadings
 

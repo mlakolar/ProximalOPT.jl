@@ -39,6 +39,11 @@ On a box, `Constrained(g, IndBox(l, u))` with `l ≤ 0 ≤ u`, only the
 part of the gradient that points into the box counts: `(-∇ₖf(0))₊` when
 `uₖ > 0` and `(∇ₖf(0))₊` when `lₖ < 0`, so that `λmax` of the nonnegative
 lasso, `Constrained(NormL1(λ), IndBox(0, Inf))`, is `maxₖ (-∇ₖf(0))₊ / wₖ`.
+
+`CappedL1(λ, a, w)` and `LogPenalty(λ, ε, w)` have paths by [`LLA`](@ref)
+only, and their `λmax` is that of the first stage, the lasso with the slopes at
+zero: the weights `wₖ` and `wₖ/ε`. Zero is then a stationary point of
+`f + g`, and the first stage of LLA from zero stays there.
 """
 function lambda_max(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, x)
   g isa _BoxConstrained && _check_zero_in_box(g.box)
@@ -48,6 +53,60 @@ function lambda_max(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, x)
   grad = _gradient_buffer(x0)
   gradient!(grad, m, x0)
   _lambda_max(x0, grad, g)
+end
+
+# The exact coordinate steps of MCP and SCAD, and of their group versions, agree
+# with the test at zero of λmax, the strong rule and the optimality checks only
+# when each coordinate problem is convex: when the curvature L of the step
+# exceeds the concavity of the penalty, a·L > 1 for MCP and (a - 1)·L > 1 for
+# SCAD, as ncvreg requires a > 1 and a > 2 on standardized columns. Otherwise
+# the step can leave zero where the slope test says that zero is optimal, and
+# λmax and screening go wrong. Paths and continuation refuse such a penalty; a
+# single solve does not use the test and is left alone. L is the curvature that
+# the step divides by, over the number of entries a coordinate of a
+# SymmetricSparseIterate sets, and the curvature of the group on an AtomIterate.
+_needsconvexsteps(g) = false
+_needsconvexsteps(::Union{MCP, SCAD, GroupMCP, GroupSCAD}) = true
+_needsconvexsteps(c::_BoxConstrained) = _needsconvexsteps(c.f)
+
+function _check_convex_steps(m::CDModel, g, x)
+  _needsconvexsteps(g) || return nothing
+  ρ = _concavity(g)
+  for k in 1:ncoordinates(x)
+    _penalized(g, x, k) || continue
+    L = _stepcurvature(m, x, k)
+    L === nothing && return nothing        # a model that does not give its curvature
+    (iszero(L) || L > ρ) && continue       # with L = 0 the loss does not depend on the coordinate
+    throw(ArgumentError(_convex_steps_message(g, x, k, L)))
+  end
+  return nothing
+end
+
+_penalized(g, x, k::Int) = true
+_penalized(g::Union{GroupMCP, GroupSCAD}, x::AtomIterate, k::Int) = !iszero(g.w[k])
+
+_stepcurvature(m::CDModel, x::SparseIterate, k::Int) =
+  applicable(coordinate_derivatives, m, x, k) ? coordinate_derivatives(m, x, k)[2] : nothing
+function _stepcurvature(m::CDModel{T}, x::SymmetricSparseIterate, k::Int) where {T}
+  applicable(coordinate_derivatives, m, x, k) || return nothing
+  r, c = tril_cartesian(x.p, k)
+  coordinate_derivatives(m, x, k)[2] / _multiplicity(T, r, c)
+end
+_stepcurvature(m::CDModel, x::AtomIterate, k::Int) =
+  applicable(_groupcurvature!, m, x, k) ? _groupcurvature!(m, x, k) : nothing
+
+function _convex_steps_message(g, x, k::Int, L)
+  p = g isa _BoxConstrained ? g.f : g
+  mcp = p isa Union{MCP, GroupMCP}
+  cond = mcp ? "a·L > 1" : "(a - 1)·L > 1"
+  val = mcp ? p.a * L : (p.a - 1) * L
+  what = x isa AtomIterate ? "group $k" : "coordinate $k"
+  "a path or continuation with $(nameof(typeof(p))) needs every coordinate step to be convex, $cond, " *
+    "where L is the curvature of the step, but $what has L = $(round(L; sigdigits = 4)) and a = $(p.a), " *
+    "so that $cond fails ($(round(val; sigdigits = 4))). The exact step could then leave zero where the slope " *
+    "test of λmax and screening says that zero is optimal. Standardize the columns (L = 1 for the loss " *
+    "‖y - Xβ‖²/(2n) with columns of unit variance, as in ncvreg), take a larger a, or use the path of " *
+    "local linear approximation, solve_path(f, g, λs, LLA())."
 end
 
 # Solves at the penalty g, warm started from x, with the sequential strong rule
@@ -103,7 +162,9 @@ level to `tol`. With `screening`, each level is screened with the strong rule
 everywhere, so that the optimality checks of screening cost more passes than
 they save. When the level of `g` is zero or at least `lambda_max`, `f + g` is
 minimized from zero directly, and so it is for a penalty without a level
-(`ZeroFunction`, `IndBox`, …), which has no path.
+(`ZeroFunction`, `IndBox`, …), which has no path. As for [`solve_path`](@ref),
+MCP, SCAD and their group versions need convex coordinate steps along the
+levels, and an `ArgumentError` says so when they are not.
 """
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f::Union{AbstractFunction, CDModel},
                 g::AbstractFunction, method::CDSolver; continuation::Integer,
@@ -124,6 +185,7 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
   T = eltype(m)
   fill!(x, zero(T))
   initialize!(m, x)
+  _check_convex_steps(m, g, x)
   st = _CDState(T, x, method)
   passes, checks = 0, 0
   path = false
@@ -169,8 +231,9 @@ Base.eltype(::CDModel{T}) where {T} = T
 Returned by [`solve_path`](@ref): the penalty levels `λ` that were solved
 for, the `solutions` (a `SparseVector` per level for a vector iterate, a sparse
 matrix for a matrix iterate), the objective `values`, and per level the
-`passes`, whether coordinate descent `converged`, and the number of
-`kkt_checks` of the screening.
+`passes`, whether coordinate descent `converged`, the number of `kkt_checks`
+of the screening, and the number of `stages`: 1, except along a path of
+[`LLA`](@ref), where the passes and the checks are summed over the stages.
 """
 struct PathResults{S, T}
   λ::Vector{T}
@@ -179,6 +242,7 @@ struct PathResults{S, T}
   passes::Vector{Int}
   converged::Vector{Bool}
   kkt_checks::Vector{Int}
+  stages::Vector{Int}
 end
 
 # a compact copy of the solution
@@ -221,6 +285,17 @@ problem solved again. The path stops early after the first solution with more
 than `maxnnz` nonzero coordinates, or when `callback(k, λ, x, m)` returns `true`
 (`m` is the [`CDModel`](@ref), current for `x`; use it, for example, to compute
 a validation loss). Returns [`PathResults`](@ref).
+
+The slope test at zero, on which λmax and screening rest, agrees with the
+exact coordinate steps of `MCP(λ, a)`, `SCAD(λ, a)`, `GroupMCP` and `GroupSCAD`
+only when each coordinate problem is convex: `a·Lₖ > 1` for MCP and
+`(a - 1)·Lₖ > 1` for SCAD, where `Lₖ` is the curvature of the step along
+coordinate `k` (of group `k`, for a group penalty). A path, and continuation,
+with these penalties throws an `ArgumentError` when a penalized coordinate
+fails it. For least squares, standardized columns give `Lₖ = 1` with the loss
+`‖y - Xβ‖²/(2n)`, so that ncvreg's conditions `a > 1` and `a > 2` suffice.
+The path of [`LLA`](@ref), `solve_path(f, g, λs, LLA())`, has no such
+condition.
 """
 function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λs::AbstractVector{<:Real},
                     method::CDSolver = CDSolver(); x = _default_iterate(f), screening::Bool = true,
@@ -233,6 +308,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   check_penalty(m, g)
   isempty(λs) || _with_level(g, T(first(λs)))      # a penalty with a level
   initialize!(m, x)
+  _check_convex_steps(m, g, x)
   st = _CDState(T, x, method)
   if screening
     grad = _gradient_buffer(x)
@@ -241,7 +317,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
     λprev = _lambda_max(x, grad, g)      # λmax at the starting point, which need not be zero
   end
   solutions = Any[]
-  out = PathResults(T[], [], T[], Int[], Bool[], Int[])
+  out = PathResults(T[], [], T[], Int[], Bool[], Int[], Int[])
   for (k, λ) in enumerate(λs)
     gk = _with_level(g, T(λ))
     if screening
@@ -254,12 +330,13 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
     end
     _warn_not_converged(st, method)
     push!(out.λ, T(λ)); push!(solutions, _snapshot(x)); push!(out.values, loss_value(m, x) + gk(x))
-    push!(out.passes, st.passes); push!(out.converged, st.converged); push!(out.kkt_checks, checks)
+    push!(out.passes, st.passes); push!(out.converged, st.converged); push!(out.kkt_checks, checks); push!(out.stages, 1)
     (callback !== nothing && callback(k, T(λ), x, m) === true) && break
     nactive(x) > maxnnz && break
   end
   S = isempty(solutions) ? Any : typeof(first(solutions))
-  PathResults{S, T}(out.λ, convert(Vector{S}, solutions), out.values, out.passes, out.converged, out.kkt_checks)
+  PathResults{S, T}(out.λ, convert(Vector{S}, solutions), out.values, out.passes, out.converged, out.kkt_checks,
+                    out.stages)
 end
 
 _default_iterate(f::LeastSquaresLoss{T, <:AbstractVector}) where {T} = SparseIterate(T, size(f.X, 2))

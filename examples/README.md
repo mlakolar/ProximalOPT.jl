@@ -21,7 +21,7 @@ with their output.
 | [`01_lasso.jl`](01_lasso.jl) | the lasso | `CDSolver` on a `SparseIterate`, `lambda_max`, the optimality conditions, an unpenalized intercept with `cdmodel(f, x; intercept = true)` |
 | [`02_lasso_path.jl`](02_lasso_path.jl) | a lasso path | `solve_path` with the sequential strong rule and its checks; a `callback` that picks λ on held-out data and stops the path |
 | [`03_accelerations.jl`](03_accelerations.jl) | the lasso with correlated columns | the random and cyclic orders, momentum, Anderson acceleration |
-| [`04_penalties.jl`](04_penalties.jl) | sparse regression | `ElasticNet`, `MCP` and `SCAD`, paths and `continuation` for nonconvex penalties, `NormL1Nonneg`, `IndBox`, zero weights for unpenalized coordinates |
+| [`04_penalties.jl`](04_penalties.jl) | sparse regression | `ElasticNet`, `MCP` and `SCAD`, paths and `continuation` for nonconvex penalties, `LLA` paths for `CappedL1` and the two-step SCAD, `NormL1Nonneg`, `IndBox`, zero weights for unpenalized coordinates |
 | [`05_group_lasso.jl`](05_group_lasso.jl) | the group lasso | `GroupNormL2` with groups of unequal sizes: coordinate descent on an `AtomIterate`, a path, `AccProxGradDescent` and `ActiveAccProxGradDescent` |
 | [`06_glm.jl`](06_glm.jl) | generalized linear models | logistic regression by `CDSolver` and `ProxNewton`, an unpenalized intercept; Poisson regression with an exposure offset; Huber regression with outliers |
 | [`07_sqrt_lasso.jl`](07_sqrt_lasso.jl) | the square-root and scaled lasso | `SqrtLeastSquaresLoss` across noise levels, the scaled lasso by `reweight!`, `SqrtQuadraticFunction` from sufficient statistics, a sparse precision matrix column by column |

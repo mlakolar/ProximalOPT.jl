@@ -80,6 +80,24 @@ continued = solve!(βc, f2, g2, CDSolver(; tol = 1e-10); continuation = 20)
 @printf "from zero:        objective %.4f   error ‖β - β*‖ %.3f   passes %d\n" direct.minimum norm(Vector(βd) - β2) direct.passes
 @printf "by continuation:  objective %.4f   error ‖β - β*‖ %.3f   passes %d\n" continued.minimum norm(Vector(βc) - β2) continued.passes
 
+# --- Paths by local linear approximation ---
+#
+# The papers that define the capped ℓ1 penalty, λ min(|t|, a) with a fixed cap
+# (T. Zhang, 2010), and the two-step SCAD and MCP estimators (Fan, Xue and Zou,
+# 2014) compute them by reweighted ℓ1, local linear approximation: each stage
+# is the lasso with the weights p′(|βₖ|) at the previous solution, a convex
+# problem, so λmax and screening are those of a weighted lasso. `LLA()` runs
+# the stages at every level, the first one the lasso; two stages by default,
+# Fan, Xue and Zou's estimator, and with `stages = 100` until the weights stop
+# changing, Zhang's multi-stage convex relaxation.
+
+capped = solve_path(f, CappedL1(1.0, 0.5), λs, LLA(CDSolver(; tol = 1e-10); stages = 100))
+twostep = solve_path(f, SCAD(1.0, 3.7), λs, LLA(CDSolver(; tol = 1e-10)))
+for k in 10:10:30
+    bc, bt = Vector(capped.solutions[k]), Vector(twostep.solutions[k])
+    @printf "λ / λmax = %.3f   capped ℓ1: nonzeros %2d, %d stages, error %.3f   two-step SCAD: nonzeros %2d, error %.3f\n" λs[k] / λmax count(!iszero, bc) capped.stages[k] norm(bc - β_true) count(!iszero, bt) norm(bt - β_true)
+end
+
 # --- Signs and bounds ---
 #
 # `NormL1Nonneg(λ)` is the lasso over β ≥ 0, for coefficients known to be
@@ -132,6 +150,15 @@ stationary(b, d) = maximum(k -> iszero(b[k]) ? max(abs(∇f(b)[k]) - λ, 0.0) : 
 @assert maximum(abs, mcp_path.solutions[1]) < 1e-12        # zero, up to rounding at λmax
 @assert continued.converged && continued.minimum < direct.minimum
 @assert norm(Vector(βc) - β2) < norm(Vector(βd) - β2)
+
+# the capped ℓ1 path ends at fixed points of its stages, stationary points of
+# f + g: the weighted lasso of their own weights p′(|βₖ|) = λ 1(|βₖ| < a)
+@assert all(<(100), capped.stages) && all(<=(2), twostep.stages)
+for k in eachindex(λs)
+    bc = Vector(capped.solutions[k])
+    wc, gc = lla_weights(CappedL1(λs[k], 0.5), bc), ∇f(bc)
+    @assert maximum(j -> iszero(bc[j]) ? max(abs(gc[j]) - wc[j], 0.0) : abs(gc[j] + wc[j] * sign(bc[j])), 1:p) < 1e-7
+end
 
 bn, gn = Vector(βn), X' * (X * Vector(βn) - yp) / n
 @assert all(>=(0), bn) && issubset(1:5, findall(!iszero, bn))

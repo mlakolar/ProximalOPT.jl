@@ -5,12 +5,12 @@
 ####################################
 
 # The model of QuadraticFunction, possibly scaled by s. It caches Ax, so a
-# coordinate step costs O(p). A is kept as a dense matrix: indexing a Symmetric
-# branches on every access, which would dominate the updates. A dense Matrix{T}
-# is used as it is, so the model sees changes made to it in place, as LSModel
-# sees those of X; any other matrix is copied.
-mutable struct QuadModel{T<:AbstractFloat, B<:Union{Nothing, AbstractVector{T}}} <: CDModel{T}
-  A::Matrix{T}
+# coordinate step costs O(p) for a dense matrix, O(nnz(A[:, k])) for a sparse
+# column, and O(1) for a diagonal. Native floating-point storage is kept, so the
+# model sees changes made to it in place, as LSModel sees those of X. Other
+# wrappers are copied once: dense Symmetric indexing would branch per entry.
+mutable struct QuadModel{T<:AbstractFloat, B<:Union{Nothing, AbstractVector{T}}, M<:AbstractMatrix{T}} <: CDModel{T}
+  A::M
   b::B
   c::T
   s::T
@@ -20,15 +20,25 @@ mutable struct QuadModel{T<:AbstractFloat, B<:Union{Nothing, AbstractVector{T}}}
   eig::_GroupEig{T}     # workspace of the group curvatures
 end
 
+_quad_matrix(A::AbstractMatrix) = Matrix{float(eltype(A))}(A)
+_quad_matrix(A::Matrix{T}) where {T<:AbstractFloat} = A
+_quad_matrix(A::SparseMatrixCSC{T, I}) where {T, I} =
+  T <: AbstractFloat ? A : SparseMatrixCSC{float(T), I}(A)
+_quad_matrix(A::Diagonal{T}) where {T} = T <: AbstractFloat ? A : Diagonal(float.(A.diag))
+# Preserve sparse storage when only one triangle is provided. The mirrored
+# CSC copy is independent of the original wrapper, as the former dense copy was.
+_quad_matrix(A::Symmetric{T, <:SparseMatrixCSC}) where {T} = _quad_matrix(sparse(A))
+_quad_matrix(A::Symmetric{T, <:Diagonal}) where {T} = _quad_matrix(parent(A))
+
 function QuadModel(A::AbstractMatrix, b, c, s)
   T = float(eltype(A))
   n = LinearAlgebra.checksquare(A)
   b === nothing || length(b) == n || throw(DimensionMismatch("b has length $(length(b)) and A has $n columns"))
-  Ad = A isa Matrix{T} ? A : Matrix{T}(A)
-  _check_finite(Ad, "A")
+  Ad = _quad_matrix(A)
+  _check_finite(Ad isa Diagonal ? Ad.diag : Ad, "A")
   bt = b === nothing ? nothing : convert(AbstractVector{T}, b)
   bt === nothing || _check_finite(bt, "b")
-  QuadModel{T, typeof(bt)}(Ad, bt, T(c), T(s), zeros(T, n), T[], T[], _GroupEig{T}())
+  QuadModel{T, typeof(bt), typeof(Ad)}(Ad, bt, T(c), T(s), zeros(T, n), T[], T[], _GroupEig{T}())
 end
 
 cdmodel(f::QuadraticFunction, x) = QuadModel(f.A, f.b, f.c, 1)
@@ -36,6 +46,28 @@ cdmodel(f::Scaled{<:QuadraticFunction}, x) = QuadModel(f.f.A, f.f.b, f.f.c, f.α
 
 @inline _linear(b::Nothing, k::Int, ::Type{T}) where {T} = zero(T)
 @inline _linear(b::AbstractVector, k::Int, ::Type{T}) where {T} = @inbounds b[k]
+
+# u += h A[:, k], using the same dense loop as before and visiting only stored
+# values for structured matrices. Shared by initialization and scalar/group steps.
+@inline function _quad_axpy!(u, A::Matrix, k::Int, h)
+  @inbounds @simd for i in eachindex(u)
+    u[i] += A[i, k] * h
+  end
+  u
+end
+
+@inline function _quad_axpy!(u, A::SparseMatrixCSC, k::Int, h)
+  rows, vals = rowvals(A), nonzeros(A)
+  @inbounds for j in nzrange(A, k)
+    u[rows[j]] += vals[j] * h
+  end
+  u
+end
+
+@inline function _quad_axpy!(u, A::Diagonal, k::Int, h)
+  @inbounds u[k] += A.diag[k] * h
+  u
+end
 
 initialize!(m::QuadModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}}) where {T} = _initialize!(m, x, true)
 
@@ -46,9 +78,7 @@ function _initialize!(m::QuadModel{T}, x::Union{SparseIterate{T}, AtomIterate{T}
   for k in _activeentries(x)
     v = x[k]
     iszero(v) && continue
-    @inbounds @simd for i in eachindex(u)
-      u[i] += A[i, k] * v
-    end
+    _quad_axpy!(u, A, k, v)
   end
   curvatures && x isa AtomIterate && fill!(resize!(m.L, ncoordinates(x)), T(NaN))
   m
@@ -65,9 +95,7 @@ end
   h = new - old
   iszero(h) && return h      # x and Ax do not change
   x[k] = new
-  @inbounds @simd for i in eachindex(u)
-    u[i] += A[i, k] * h
-  end
+  _quad_axpy!(u, A, k, h)
   h
 end
 
@@ -76,9 +104,7 @@ end
 
 function update_cache!(m::QuadModel{T}, x::SparseIterate{T}, k::Int, h::T) where {T}
   A, u = m.A, m.u
-  @inbounds @simd for i in eachindex(u)
-    u[i] += A[i, k] * h
-  end
+  _quad_axpy!(u, A, k, h)
   m
 end
 
@@ -129,6 +155,7 @@ end
 
 # λmax(A[G, G]), for a quadratic
 function _gram_eigmax!(m::QuadModel{T}, x::AtomIterate{T}, G) where {T<:Union{Float32, Float64}}
+  m.A isa Diagonal && return maximum(j -> m.A.diag[j], G)
   q = length(G)
   ws = m.eig.nmax >= q ? m.eig : _reserve!(m.eig, _maxgroup(x), 0)
   C, A = ws.C, m.A
@@ -173,9 +200,7 @@ function _groupstep!(m::QuadModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int,
     h = new - x[j]
     iszero(h) && continue
     x[j] = new
-    @inbounds @simd for l in eachindex(u)
-      u[l] += A[l, j] * h
-    end
+    _quad_axpy!(u, A, j, h)
     maxh = max(maxh, _scaledchange(m, x, j, h, scaled))
   end
   maxh

@@ -87,7 +87,7 @@ x_G^+ = \operatorname{prox}_{(\lambda w_k / L_k)\|\cdot\|_2}(u)
 ```
 
 For least squares, ``L_k = s\,\lambda_{\max}(X_G^\top W X_G)``, computed on the
-first visit to the group and cached. A group at zero stays at zero exactly
+first visit to the group without allocating, and kept for the rest of a path. A group at zero stays at zero exactly
 when ``\|\nabla_G f(x)\|_2 \le \lambda w_k``, its optimality condition, which is
 checked first: ``L_k`` is never computed for a group that does not move.
 

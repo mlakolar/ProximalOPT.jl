@@ -75,6 +75,13 @@ where ``n`` is the number of entries of ``x``, ``\rho\|u\| = \|y\|``, and
 ``\varepsilon_{\text{abs}}``, ``\varepsilon_{\text{abs,dual}}`` and
 ``\varepsilon_{\text{rel}}`` are `abstol`, `abstol_dual` and `reltol`.
 
+The norm is Euclidean by default. `ADMMSolver(; norm)` measures the
+residuals, ``\|x\|``, ``\|z\|`` and ``\|u\|`` in another norm, a function of an
+array: for a stack of ``K`` matrices, for example, the sum of the norms of
+the slices, `x -> sum(k -> norm(view(x, :, :, k)), axes(x, 3))`. If the
+function also has a method `norm(x, y)` for the norm of ``x - y``, the
+residuals are computed with it, without forming the differences.
+
 ## Choosing ρ
 
 The parameter ``\rho`` trades the two residuals: a large ``\rho`` enforces

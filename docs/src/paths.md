@@ -103,20 +103,26 @@ geometrically from ``\lambda_{\max}`` down to the level ``\lambda`` of `g`, each
 warm started from the one before and screened as above (`screening = true`,
 the default except on a `SymmetricSparseIterate`, where a coordinate step
 changes the gradient everywhere, so that the checks cost more passes than they
-save). It returns the solution at `g`. When the level of `g` is zero or at
+save). The levels before `g` only provide warm starts, so they are solved to
+the looser tolerance `continuation_tol`, ``\sqrt{\mathrm{tol}}`` by default,
+and only `g` itself to `tol`; `continuation_tol = tol` solves every level
+fully. It returns the solution at `g`. When the level of `g` is zero or at
 least ``\lambda_{\max}``, or `g` has no level (`IndBox`, `ZeroFunction`), it
 solves from zero directly.
 
-Continuation matters most for MCP and SCAD. From zero, coordinate descent can
+On a convex problem the minimizer is the same either way, and continuation is
+a question of speed. On the lasso design of
+[A lasso path](examples/02_lasso_path.md), it took half the passes of a direct
+solve from zero, or fewer, at ``0.01\lambda_{\max}``, and fewer at
+``0.02\lambda_{\max}``, but more at ``0.05\lambda_{\max}`` and above, where the
+direct solve is short anyway.
+
+For MCP and SCAD it also changes the answer. From zero, coordinate descent can
 stop at a poor stationary point when ``p \gg n`` and the columns are
 correlated; along the levels, the solution follows a branch of stationary
 points from the zero solution, as along a path. In
 [Other penalties](examples/04_penalties.md), with MCP, it ends at less than
 half the objective of the direct solve, with a far smaller estimation error.
-On a convex problem the minimizer is the same either way, and the levels need
-not save work: on the lasso design of [A lasso path](examples/02_lasso_path.md),
-a direct solve from zero took fewer passes than continuation at every level
-tried, from ``0.2\lambda_{\max}`` down to ``0.01\lambda_{\max}``.
 
 ## References
 

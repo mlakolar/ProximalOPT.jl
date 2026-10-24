@@ -71,9 +71,7 @@ function _groupstep!(m::QuadModel{T}, g::AbstractFunction, x::AtomIterate{T}, k:
   for (i, j) in enumerate(G)
     h = storage[j] - buf[n + i]
     iszero(h) && continue
-    @inbounds @simd for l in eachindex(u)
-      u[l] += A[l, j] * h
-    end
+    _quad_axpy!(u, A, j, h)
     maxh = max(maxh, _scaledchange(m, x, j, h, scaled))
   end
   maxh

@@ -152,7 +152,13 @@ function _hessian(m::CDModel{T}, x, S::Vector{Int}) where {T}
   (H .+ H') ./ 2
 end
 
-_hessian(m::QuadModel{T}, x::SparseIterate{T}, S::Vector{Int}) where {T} = m.s .* m.A[S, S]
+function _hessian(m::QuadModel{T}, x::SparseIterate{T}, S::Vector{Int}) where {T}
+  H = m.A[S, S]
+  # Pivoted QR works on a dense support Hessian, including for sparse and
+  # diagonal models. Densify this small submatrix only, never the full Hessian.
+  H isa Matrix || (H = Matrix(H))
+  m.s .* H
+end
 
 function _hessian(m::KronModel{T}, x::SparseIterate{T}, S::Vector{Int}) where {T}
   p = size(m.M, 1)

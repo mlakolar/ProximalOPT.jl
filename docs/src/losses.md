@@ -10,7 +10,7 @@ or takes one built beforehand so that many solves share it.
 |:-----|:------|:-----|:----------|
 | `LeastSquaresLoss(y, X)`, `GLMLoss(Squared(), y, X; weights, offset)` | residuals ``y - o - X\beta`` | ``O(n)`` | separable, group penalties |
 | `LeastSquaresLoss(Y, X)` with a matrix `Y` | residuals ``Y - XB`` | ``O(nq)`` per row of ``B``, exact | `GroupNormL2` on the rows of ``B`` |
-| `QuadraticFunction(A, b)` | ``Ax`` | ``O(p)`` | separable, group penalties |
+| `QuadraticFunction(A, b)` | ``Ax`` | ``O(p)`` dense, ``O(\operatorname{nnz}(A_{:k}))`` sparse, ``O(1)`` diagonal | separable, group penalties |
 | `KronQuadratic(A, B, C)` | ``A\Theta B`` | ``O(pq)`` | separable |
 | `GLMLoss` with `Logistic` or `Huber` | ``\eta = X\beta + o`` | ``O(n)`` | separable |
 | [`SqrtLeastSquaresLoss`](@ref)`(y, X)` | residuals | ``O(n)``, exact | `NormL1` |
@@ -63,7 +63,14 @@ positive semidefinite, the model caches ``u = Ax``:
 u \leftarrow u + (x_k^+ - x_k)\, A_{:k},
 ```
 
-an ``O(p)`` step. With ``A = X^\top X/n`` and ``b = -X^\top y/n`` this is the
+an ``O(p)`` step for a dense ``A``. A `SparseMatrixCSC` is kept sparse and its
+update visits only the stored entries of column ``k``; a `Diagonal` updates
+only ``u_k``. These floating-point matrices are shared with the loss, so a new
+solve or `initialize!` sees changes made to them in place. A sparse `Symmetric`
+wrapper is copied into a full sparse matrix once. Refits form a dense Hessian
+only on the selected support.
+
+With ``A = X^\top X/n`` and ``b = -X^\top y/n`` this is the
 lasso of ``\|y - X\beta\|^2/(2n)`` up to a constant, at a cost per step
 independent of ``n``: the form to use when ``n \gg p``, or when many problems
 share one Gram matrix, as the columns of a covariance matrix do.

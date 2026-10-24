@@ -218,6 +218,10 @@ with the gradient at ``x`` (at ``y`` for the accelerated method). The first
 compares the residual with the largest one seen so far; the second with the
 size of the two terms that cancel at the solution.
 
+With `gaptol > 0` and functions that have a duality gap, the relative gap,
+computed every `gapevery` iterations, replaces these tests and the stop on an
+increasing objective; see [Duality gaps](@ref).
+
 **Choosing tolerances.** Near a minimizer at which ``F`` grows quadratically,
 ``F(x) - F^\star`` is of the order of ``\|x - x^\star\|^2``, so the objective
 settles long before the iterate does: `ftol = 1e-12` gives roughly six correct

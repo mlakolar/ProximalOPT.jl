@@ -53,14 +53,16 @@ inner solve of the active-set method:
 | `f_calls_limit`, `grad_calls_limit`, `prox_calls_limit` | `0` | the largest number of evaluations of ``f``, of its gradient and of proximal operators; `0` is no limit |
 | `store_trace`, `show_trace`, `extended_trace`, `printEvery` | `false`, `false`, `false`, `1` | record or print the progress |
 | `callback` | `nothing` | called every `printEvery` iterations; returning `true` stops |
+| `gaptol`, `gapevery` | `0`, `10` | with `gaptol > 0`, stop when the relative duality gap, computed every `gapevery` iterations, is at most `gaptol` (see [Duality gaps](@ref)) |
 
 The tests of `ftol`, `xtol` and `gradtol` are those of
 [Proximal gradient methods](@ref "Stopping rules"); the solver stops when any
 of them passes. [`ADMMSolver`](@ref) has its own tolerances and uses only
-`maxiter`, `time_limit`, `prox_calls_limit`, `show_trace` and `printEvery`.
+`maxiter`, `time_limit`, `prox_calls_limit`, `show_trace`, `printEvery`,
+`gaptol` and `gapevery`.
 [`CDSolver`](@ref) and [`ProxNewton`](@ref) take their settings as keywords
 of their constructors instead: `CDSolver(; maxpasses, tol, order, relative,
-anderson, momentum)` and `ProxNewton(; inner, maxiter, tol, β)`.
+anderson, momentum, rng, gaptol, gapsafe)` and `ProxNewton(; inner, maxiter, tol, β)`.
 
 The call limits are checked after each iteration, which always finishes, so a
 count can exceed its limit by the evaluations of one iteration.
@@ -69,14 +71,49 @@ count can exceed its limit by the evaluations of one iteration.
 
 | Solver | Result | Fields |
 |:-------|:-------|:-------|
-| [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref), [`MonotoneAccProxGradDescent`](@ref) | [`OptimizationResults`](@ref ProximalSolvers.OptimizationResults) | `minimizer`, `minimum`, `iterations`, the flags `x_converged`, `f_converged`, `grad_converged` with the final residuals, `f_increased`, `iteration_converged` (the iteration limit was reached), `call_limit_reached`, `backtrack_steps`, `f_calls`, `grad_calls`, `prox_calls`, `trace` |
+| [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref), [`MonotoneAccProxGradDescent`](@ref) | [`OptimizationResults`](@ref ProximalSolvers.OptimizationResults) | `minimizer`, `minimum`, `iterations`, the flags `x_converged`, `f_converged`, `grad_converged` with the final residuals, `f_increased`, `iteration_converged` (the iteration limit was reached), `call_limit_reached`, `backtrack_steps`, `f_calls`, `grad_calls`, `prox_calls`, `trace`, `gap` |
 | [`ActiveAccProxGradDescent`](@ref) | [`ActiveSetResults`](@ref ProximalSolvers.ActiveSetResults) | `minimizer`, `minimum`, `outer_iterations`, `inner_iterations`, `converged`, `inner_converged`, `max_violation`, `active_set_size` |
-| [`ADMMSolver`](@ref) | [`ADMMResults`](@ref ProximalSolvers.ADMMResults) | `minimizer`, `minimum`, `iterations`, `converged`, the residuals `r_norm`, `s_norm` and their tolerances `eps_pri`, `eps_dual`, the scaled dual variable `u` and the final `ρ`, the counts of calls |
-| [`CDSolver`](@ref), [`ProxNewton`](@ref) | [`CDResults`](@ref) | `minimizer`, `minimum`, `passes`, `converged`, `maxchange`, `tolerance`, `kkt_checks` |
+| [`ADMMSolver`](@ref) | [`ADMMResults`](@ref ProximalSolvers.ADMMResults) | `minimizer`, `minimum`, `iterations`, `converged`, the residuals `r_norm`, `s_norm` and their tolerances `eps_pri`, `eps_dual`, the scaled dual variable `u` and the final `ρ`, the counts of calls, `gap` |
+| [`CDSolver`](@ref), [`ProxNewton`](@ref) | [`CDResults`](@ref) | `minimizer`, `minimum`, `passes`, `converged`, `maxchange`, `tolerance`, `kkt_checks`, `gap` |
 | [`solve_path`](@ref) | [`PathResults`](@ref) | per level: `λ`, `solutions`, `values`, `passes`, `converged`, `kkt_checks` |
 | [`reweight!`](@ref) | [`ReweightResults`](@ref) | `minimizer`, `penalty`, `next`, `iterations`, `converged`, `change`, `passes`, `cd_converged` |
 
-`minimum` is ``f + g`` at the minimizer. Printing a result shows a summary.
+`minimum` is ``f + g`` at the minimizer, and `gap` the relative duality gap
+there when it was computed, `NaN` otherwise. Printing a result shows a summary.
+
+## Duality gaps
+
+For a loss of a linear map, ``f(x) = F(Ax)`` with
+``F(\eta) = \sum_i \phi_i(\eta_i)``, and a convex penalty ``g``, every dual
+point ``\theta`` bounds the minimum of ``P = f + g`` from below:
+
+```math
+D(\theta) = -F^*(\theta) - g^*(-A^\top\theta) \le \min P \le P(x).
+```
+
+[`duality_gap`](@ref) builds the dual point from the gradient,
+``\theta = t\,\nabla F(Ax)``, with the largest ``t \in (0, 1]`` that puts
+``-A^\top\theta`` in the domain of ``g^*``, and returns ``P(x) - D(\theta)``:
+an upper bound on ``P(x) - \min P`` that is zero at the solution. It knows
+least squares and the logistic, Poisson and Huber losses, weighted, scaled or
+through a model with an intercept, with `NormL1`, `NormL1Nonneg`, `ElasticNet`
+or `GroupNormL2`; and the graphical lasso, a `LogDetLoss` with a `NormL1`,
+whose dual point comes from the inverse of ``x``.
+
+The relative gap ``(P(x) - D(\theta))/|P(x)|`` is a tolerance that means the
+same for every problem. With `gaptol > 0`, [`CDSolver`](@ref) computes it,
+at the cost of a full gradient, where its rule on the changes would stop, and
+goes on with a tenfold smaller `tol` until the gap is at most `gaptol`. With
+`gapsafe = true`, each gap also screens the coordinates by the gap-safe rule
+of Fercoq, Gramfort and Salmon (*Mind the duality gap: safer rules for the
+lasso*, 2015): a coordinate it proves zero at the solution is set to zero and
+left out of the full passes. `ProximalOptions(; gaptol, gapevery)` stops
+[`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
+[`ADMMSolver`](@ref) on the gap, computed every `gapevery` iterations, in
+place of their other tests. For other losses and penalties `gaptol` is
+ignored, with a warning. For the losses without a gap, such as the quadratics,
+[`kkt_residual`](@ref) measures optimality on the scale of the stopping rule of
+coordinate descent.
 
 ## Traces and callbacks
 

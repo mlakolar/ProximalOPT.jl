@@ -15,6 +15,7 @@ tests = [
   "coordinate_descent",
   "sparse_x",
   "glm",
+  "duality_gap",
   "examples",
   "aqua",
 ]

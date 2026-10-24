@@ -82,6 +82,10 @@ the slices, `x -> sum(k -> norm(view(x, :, :, k)), axes(x, 3))`. If the
 function also has a method `norm(x, y)` for the norm of ``x - y``, the
 residuals are computed with it, without forming the differences.
 
+With `gaptol > 0` in [`ProximalOptions`](@ref) and functions that have a
+duality gap, such as the graphical lasso, the relative gap at ``z`` replaces
+the residual tests; see [Duality gaps](@ref).
+
 ## Choosing ρ
 
 The parameter ``\rho`` trades the two residuals: a large ``\rho`` enforces

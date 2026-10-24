@@ -83,7 +83,7 @@ checking its own result.
 
 | Solver | Problem | Method |
 |---|---|---|
-| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, a quadratic, a Kronecker quadratic, a square-root loss or a GLM; `g` separable or `GroupNormL2` | [Coordinate descent](https://mlakolar.github.io/ProximalSolvers.jl/dev/coordinate_descent/) with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule |
+| `CDSolver(; maxpasses, tol, order, relative, anderson, momentum, gaptol, gapsafe)` | `f` least squares, a quadratic, a Kronecker quadratic, a square-root loss or a GLM; `g` separable or `GroupNormL2` | [Coordinate descent](https://mlakolar.github.io/ProximalSolvers.jl/dev/coordinate_descent/) with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule or a duality gap |
 | `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | [Proximal Newton](https://mlakolar.github.io/ProximalSolvers.jl/dev/prox_newton/) (glmnet's IRLS): coordinate descent on the weighted least squares model of `f`, then backtracking |
 | `ProximalGradientDescent(; normalized, debias)` | `f` smooth, `g` proximable, possibly nonconvex | [Proximal gradient](https://mlakolar.github.io/ProximalSolvers.jl/dev/proximal_gradient/) with the backtracking of TFOCS; with `g = IndBallL0(s)` it is iterative hard thresholding, and the options take normalized steps and refit a support that stopped changing |
 | `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient with backtracking that also lets the step grow, and adaptive restart |
@@ -97,6 +97,15 @@ strong rule, `reweight!` alternates solves with updates of the penalty (the
 scaled lasso, adaptive weights, reweighted ℓ1), and `refit!` minimizes the loss
 exactly on a support. A loss of your own joins coordinate descent as a
 `CDModel` with a few functions; see `?CDModel`.
+
+A duality gap certifies the accuracy of a solution. `duality_gap(f, g, x)`
+bounds the distance of `f(x) + g(x)` to the minimum for least squares and the
+logistic, Poisson and Huber losses with the ℓ1 norm, the elastic net or the
+group lasso, and for the graphical lasso. With `gaptol`, `CDSolver` and the
+solvers that take `ProximalOptions` stop on the relative gap, a tolerance that
+means the same for every problem, and `CDSolver(; gapsafe = true)` adds
+gap-safe screening. For the losses without a gap, `kkt_residual(f, g, x)`
+measures optimality.
 
 The losses coordinate descent knows, any of the first four scaled as in
 `(1/n) * f`:

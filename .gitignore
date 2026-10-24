@@ -15,3 +15,5 @@
 
 /benchmark/proxalg/Manifest*.toml
 /benchmark/proxalg/results/
+/benchmark/gap/Manifest*.toml
+/benchmark/gap/*.csv

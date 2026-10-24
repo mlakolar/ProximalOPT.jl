@@ -151,6 +151,11 @@ with ``A = X^\top X/n`` and ``b = -X^\top y/n``,
 of least squares. With `relative = false`, or when ``\sigma = 0``, the rule is
 absolute: ``\max_k |\Delta x_k| < \mathrm{tol}``.
 
+With `gaptol > 0`, a duality gap certifies the solution where one is known:
+where the rule would stop, the relative gap is computed, and the passes go on
+with a tenfold smaller `tol` until it is at most `gaptol`; see
+[Duality gaps](@ref).
+
 ## Momentum
 
 With the random order, the passes over the active set use Nesterov momentum.
@@ -240,9 +245,11 @@ with observation weights.
 ## Settings
 
 `CDSolver(; maxpasses = 100_000, tol = 1e-7, order = :random, relative = true,
-anderson = 0, momentum = nothing)`. The result, a [`CDResults`](@ref), reports
-the passes, whether the stopping rule was met, the largest scaled change in the
-last pass and the tolerance it was compared with.
+anderson = 0, momentum = nothing, rng = Random.default_rng(), gaptol = 0,
+gapsafe = false)`. The random orders are drawn from `rng`. The result, a
+[`CDResults`](@ref), reports the passes, whether the stopping rule was met, the
+largest scaled change in the last pass and the tolerance it was compared with,
+and the relative duality gap when `gaptol` or `gapsafe` computed it.
 
 ## References
 

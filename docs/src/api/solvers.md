@@ -30,6 +30,13 @@ CDSolver
 ProxNewton
 ```
 
+## Duality gaps and optimality
+
+```@docs
+duality_gap
+kkt_residual
+```
+
 ## Result types
 
 ```@docs

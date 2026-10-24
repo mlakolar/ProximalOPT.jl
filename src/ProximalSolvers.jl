@@ -42,6 +42,7 @@ export
   CDModel, cdmodel,
   lambda_max, solve_path,
   reweight!, refit!,
+  duality_gap, kkt_residual,
 
   # types
   ProximalSolver,
@@ -79,6 +80,7 @@ include("cd/kron.jl")
 include("cd/sqrtlasso.jl")
 include("cd/sqrtquadratic.jl")
 include("cd/glm.jl")
+include("cd/gap.jl")
 include("cd/path.jl")
 include("cd/drivers.jl")
 

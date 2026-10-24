@@ -152,7 +152,7 @@ function _update_factor!(cache::RefitCache, f, m, S::Vector{Int})
     cache.refactors += 1
   else
     for k in removed
-      _remove_coordinate!(cache, findfirst(==(k), cache.S))
+      _remove_coordinate!(cache, something(findfirst(==(k), cache.S)))
     end
     cache.updates += length(removed) + length(added)
   end

@@ -16,6 +16,7 @@ tests = [
   "coordinate_descent",
   "sparse_x",
   "group_penalties",
+  "sgl_paths",
   "box_paths",
   "refit_cache",
   "nonconvex_penalties",

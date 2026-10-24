@@ -238,7 +238,7 @@ _with_level(g::SCAD, λ) = SCAD(λ, g.a)
 _with_level(g::GroupMCP, λ) = GroupMCP(λ, g.groups, g.w; a = g.a)
 _with_level(g::GroupSCAD, λ) = GroupSCAD(λ, g.groups, g.w; a = g.a)
 _with_level(g::Scaled{<:ElasticNet}, λ) = Scaled(g.f, λ)
-_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP or GroupSCAD, possibly on a box (Constrained(g, IndBox(l, u)))."))
+_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP, GroupSCAD or SparseGroupNormL2(α, 1 - α, groups), possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 _weight(g::Union{NormL1, NormL1Nonneg}, i::Int) = _entryweight(g.w, i, typeof(g.λ0))
 _weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
@@ -246,7 +246,7 @@ _entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
 _entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
 _weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
 _weight(g::Scaled{<:ElasticNet}, i::Int) = g.f.λ1 * _weight(g.f, i)
-_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP or GroupSCAD, possibly on a box (Constrained(g, IndBox(l, u)))."))
+_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP, GroupSCAD or SparseGroupNormL2(α, 1 - α, groups), possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 # A penalty with a level on a box, Constrained(g, IndBox(l, u)), has the level
 # and the weights of g. Zero must be in the box (l ≤ 0 ≤ u, as glmnet requires
@@ -305,3 +305,46 @@ end
 
 # the change of an entry in the stopping rule, scaled as in _visit!
 _scaledchange(m, x, j::Int, h, scaled::Bool) = scaled ? abs(h) * coordinate_scale(m, x, j) : abs(h)
+
+# The sparse group lasso, SparseGroupNormL2(λ1, λ2, groups, w) =
+# λ1 Σᵢ |xᵢ| + λ2 Σₖ wₖ ‖x[Gₖ]‖₂, along a path at the fixed mix α = λ1/(λ1 + λ2):
+# its level is λ = λ1 + λ2, and at level λ it is SparseGroupNormL2(λα, λ(1 - α)),
+# as along the paths of R's SGL. A group at zero is optimal while
+# ‖soft(∇_G f, λα)‖₂ ≤ λ(1 - α) wₖ. The left side decreases and the right side
+# increases in λ, so the group is zero from the root λₖ of the equality on, and
+# λₖ, with weight one, is what λmax, the strong rule and the optimality checks
+# compare with λ (_screengrad). A group with no penalty at all (α = 0 and
+# wₖ = 0) has weight zero, as an unpenalized coordinate.
+_haslevel(::SparseGroupNormL2) = true
+_level(g::SparseGroupNormL2) = g.λ1 + g.λ0
+function _with_level(g::SparseGroupNormL2, λ)
+  α = _sglmix(g)
+  SparseGroupNormL2(λ * α, λ * (1 - α), g.groups, g.w)
+end
+function _sglmix(g::SparseGroupNormL2)
+  s = g.λ1 + g.λ0
+  s > 0 || throw(ArgumentError("SparseGroupNormL2 with λ1 = λ2 = 0 has no mix λ1/(λ1 + λ2) for a path; give it at level one, as SparseGroupNormL2(α, 1 - α, groups)."))
+  g.λ1 / s
+end
+_coordweight(g::SparseGroupNormL2{T}, ::AtomIterate, k::Int) where {T} =
+  iszero(g.λ1) && iszero(g.w[k]) ? zero(T) : one(T)
+_screengrad(g::SparseGroupNormL2, grad::AbstractArray, x::AtomIterate, k::Int) =
+  _sglroot(view(grad, x.groups[k]), _sglmix(g), g.w[k])
+
+# the smallest λ ≥ 0 with ‖soft(v, λα)‖₂ ≤ λ(1 - α) w, by bisection on the
+# decreasing function ‖soft(v, λα)‖₂ - λ(1 - α) w, which is ‖v‖₂ at zero and at
+# most zero at max|v|/α
+function _sglroot(v::AbstractVector{T}, α::T, w::T) where {T}
+  c = (1 - α) * w
+  iszero(α) && return norm(v) / c
+  m = maximum(abs, v; init = zero(T))
+  (iszero(m) || iszero(c)) && return m / α
+  φ(λ) = sqrt(sum(t -> abs2(max(abs(t) - λ * α, zero(T))), v)) - λ * c
+  lo, hi = zero(T), m / α
+  for _ in 1:200
+    mid = (lo + hi) / 2
+    φ(mid) > 0 ? (lo = mid) : (hi = mid)
+    hi - lo <= 4 * eps(T) * hi && break
+  end
+  hi
+end

@@ -27,6 +27,16 @@ the gradient of the loss over it is at most ``\lambda w_k`` in absolute value,
 or in Euclidean norm for a group: the right derivative of every penalty at
 zero is ``\lambda w_k``. A coordinate with ``w_k = 0`` is not penalized.
 
+The sparse group lasso `SparseGroupNormL2(λ₁, λ₂, groups, w)`,
+``\lambda_1\sum_i |x_i| + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2``, follows
+a path at the fixed mix ``\alpha = \lambda_1/(\lambda_1 + \lambda_2)``, as R's
+SGL does: its level is ``\lambda = \lambda_1 + \lambda_2``, and give it at
+level one, `SparseGroupNormL2(α, 1 - α, groups)`. A group at zero is optimal
+while ``\lVert \mathrm{soft}(\nabla_{G_k} f, \lambda\alpha)\rVert_2 \le
+\lambda(1 - \alpha) w_k``; for the gradient at hand this holds from a level
+``\lambda_k`` on, the root of the equality, which ``\lambda_{\max}``
+(``\max_k \lambda_k`` at zero) and the strong rule compare with ``\lambda``.
+
 The level of `ElasticNet(λ, λ₂)` is ``\lambda``, with ``\lambda_2`` fixed. The
 elastic-net path of glmnet at a fixed mixing ``\alpha`` moves both terms with
 ``\lambda``: it is the path of `Scaled(ElasticNet(α, 1 - α), λ)`, whose level is

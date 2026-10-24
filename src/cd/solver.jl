@@ -16,14 +16,15 @@ a least-squares `GLMLoss`, `QuadraticFunction`, [`KronQuadratic`](@ref), or one
 of these scaled, as in `(1/n) * LeastSquaresLoss(y, X)`.
 
 Each pass visits the coordinates once, in random order (`order = :random`, drawn
-from `rng`) or in the order `1, 2, …` (`order = :cyclic`). Passes over all coordinates alternate with passes over the
-active ones (the stored entries of the iterate); the method stops after a full
-pass followed by a pass in which no coordinate changes by more than `tol`, or
-after `maxpasses` passes. With `relative`, the change of coordinate `k` is
-measured as `|Δxₖ| √aₖ`, where `aₖ` is the curvature of `f` along the
-coordinate, and compared with `tol` times a scale of the data, so that the
-tolerance does not depend on the units of the data (for least squares,
-`‖X[:, k]‖ √s` and `‖y‖ √s` for `f = s ‖y - Xβ‖² / 2`).
+from `rng`) or in the order `1, 2, …` (`order = :cyclic`). The first pass visits
+all coordinates. After a full pass that changes some coordinate by more than
+`tol`, passes over the active ones (the stored entries of the iterate) follow
+until one changes none by more than `tol`, and then another full pass. The method stops after a full pass in which
+no coordinate changes by more than `tol`, or after `maxpasses` passes. With
+`relative`, the change of coordinate `k` is measured as `|Δxₖ| √aₖ`, where `aₖ`
+is the curvature of `f` along the coordinate, and compared with `tol` times a
+scale of the data, so that the tolerance does not depend on the units of the
+data (for least squares, `‖X[:, k]‖ √s` and `‖y‖ √s` for `f = s ‖y - Xβ‖² / 2`).
 
 With `anderson = K > 0` and `order = :cyclic`, the passes over an unchanged
 active set are accelerated by Anderson extrapolation (Bertrand and Massias,
@@ -249,10 +250,9 @@ function _activepass!(x, m, g, st::_CDState{T}, scaled::Bool) where {T}
   maxh
 end
 
-# Alternates full passes with passes over the active set; stops after two
-# consecutive passes below the tolerance, the first of which is a full pass, so
-# that the active set is checked against all coordinates before stopping. The
-# model m must be current for x.
+# Passes over the active set until one is below the tolerance, then a full pass;
+# stops after a full pass below the tolerance, so that the active set is checked
+# against all coordinates before stopping. The model m must be current for x.
 function _cd!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
   s.anderson > 0 && !s.random && !(x isa AtomIterate) && return _cd_anderson!(x, m, g, st, s)
   _usemomentum(s, x, m) && return _cd_momentum!(x, m, g, st, s)

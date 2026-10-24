@@ -8,6 +8,25 @@ using ProximalSolvers
 
 Random.seed!(1)
 
+mutable struct StopAfter
+  calls::Int
+  limit::Int
+end
+(callback::StopAfter)(state) = (callback.calls += 1; callback.calls >= callback.limit)
+
+@testset "callable callbacks" for solver in (ProximalGradientDescent(), AccProxGradDescent(),
+                                            MonotoneAccProxGradDescent()), store_trace in (false, true)
+  callback = StopAfter(0, 2)
+  options = ProximalOptions(; callback, store_trace, printEvery = 2,
+                             ftol = 1e-300, xtol = 1e-300, gradtol = 1e-300)
+  @test options.callback === callback
+  f = QuadraticFunction(Matrix(Diagonal([1., 10., 100.])), [-1., -1., -1.])
+  result = solve!(zeros(3), f, NormL1(0.1), solver, options)
+  @test callback.calls == 2
+  @test result.iterations == 4
+  @test length(result.trace) == (store_trace ? 4 : 0)
+end
+
 opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5000)
 
 @testset "$(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent())

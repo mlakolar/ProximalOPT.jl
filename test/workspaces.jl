@@ -75,6 +75,30 @@ end
   @test_throws ArgumentError SolverWorkspace((x[1], x[1]), f, g, AccProxGradDescent())
 end
 
+@testset "grouped gradient workspaces and nested partitions" begin
+  groups = [1:3, 4:6, 7:9, 10:12]
+  changed = [1:4, 5:8, 9:12]
+  f = SqrNormL2(1.0, collect(0.1:0.1:1.2))
+  options = ProximalOptions(; maxiter = 1000, ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10)
+  for method in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent())
+    g = GroupNormL2(0.1, groups)
+    ws = SolverWorkspace(AtomIterate(12, groups), f, g, method, options)
+    for level in (0.1, 0.03, 0.2)
+      reinit!(ws, AtomIterate(12, groups))
+      penalty = GroupNormL2(level, groups)
+      same_gradient_result(solve!(ws, penalty), solve!(AtomIterate(12, groups), f, penalty, method, options))
+    end
+    @test_throws ArgumentError solve!(ws, GroupNormL2(0.1, changed))
+    # Nested penalties have the same concrete type even when their groups differ.
+    ft = SeparableSum(f, SqrNormL2())
+    gt = SeparableSum(2.0 * g, NormL1(0.1))
+    wt = SolverWorkspace((zeros(12), zeros(2)), ft, gt, method, options)
+    @test_throws ArgumentError solve!(wt, SeparableSum(2.0 * GroupNormL2(0.1, changed), NormL1(0.1)))
+    result = solve!(wt, SeparableSum(2.0 * GroupNormL2(0.03, groups), NormL1(0.2)))
+    @test result.converged
+  end
+end
+
 @testset "gap and callback configuration is retained" begin
   X, y = Matrix(Diagonal([1., 2., 3.])), ones(3)
   f, g = LeastSquaresLoss(y, X), NormL1(0.1)
@@ -147,6 +171,25 @@ end
   wi = SolverWorkspace(xs, m, g, method)
   @test solve!(wi).converged
   @test isfinite(PS.intercept(m, xs))
+end
+
+@testset "coordinate workspace resets gap-safe screening" begin
+  y = [1., 0.8, 0.4, 0.2, 0.1, zeros(7)...]
+  f = LeastSquaresLoss(y, Matrix{Float64}(I, 12, 12))
+  method = CDSolver(; order = :cyclic, gaptol = 1e-10, gapsafe = true)
+  ws = SolverWorkspace(zeros(12), f, NormL1(0.6), method)
+  gap = nothing
+  for level in (0.6, 0.05, 0.8)
+    reinit!(ws, zeros(12))
+    result = solve!(ws, NormL1(level))
+    ref = solve!(zeros(12), f, NormL1(level), method)
+    @test result.minimizer ≈ ref.minimizer atol = 1e-11
+    @test result.converged && result.gap <= method.gaptol
+    @test result.passes == ref.passes
+    gap === nothing || @test ws.buffers.state.gap === gap
+    gap = ws.buffers.state.gap
+    @test count(gap.keep) < length(y)
+  end
 end
 
 @testset "ADMM cold and dual warm starts" begin

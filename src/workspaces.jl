@@ -122,6 +122,7 @@ _workspace_shape(ws::SolverWorkspace) = _size(ws.x) == ws.shape ||
 _workspace_groups(g) = nothing
 _workspace_groups(g::ProximalBase.AbstractGroupNorm) = g.groups
 _workspace_groups(g::Scaled) = _workspace_groups(g.f)
+_workspace_groups(g::SeparableSum) = map(_workspace_groups, g.fs)
 
 """
     reinit!(workspace::SolverWorkspace, x)

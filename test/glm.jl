@@ -93,6 +93,12 @@ end
   @test abs(sum(μ .- y)) / n < 1e-9
   @test kkt_l1(X' * (μ .- y) / n, Vector(x), λ) < 1e-7
   @test r.minimum ≈ f.α * sum(log1p.(exp.(b .+ X * Vector(x))) .- y .* (b .+ X * Vector(x))) + λ * norm(Vector(x), 1)
+  # the linear predictor and the deviances of the model
+  ηx = b .+ X * Vector(x)
+  @test ProximalSolvers.linear_predictor(m) ≈ ηx
+  @test ProximalSolvers.deviance(m) ≈ 2 * sum(log1p.(exp.(ηx)) .- y .* ηx)
+  @test ProximalSolvers.nulldeviance(m) ≈ -2n * (ȳ * log(ȳ) + (1 - ȳ) * log(1 - ȳ))
+  @test ProximalSolvers.linear_predictor(m) ≈ ηx          # untouched by nulldeviance
 
   # the same as a column of ones with a zero penalty weight
   x1 = SparseIterate(p + 1)
@@ -134,6 +140,7 @@ end
   @test rp.converged
   @test abs(sum(μp .- yp)) / n < 1e-9
   @test kkt_l1(X' * (μp .- yp) / n, Vector(xp), λp) < 1e-7
+  @test ProximalSolvers.deviance(mp) ≈ 2 * sum(yp .* log.(max.(yp, 1e-300) ./ μp) .- (yp .- μp))
 
   # a path: the solutions and intercepts satisfy the optimality conditions, and
   # screening gives the solutions of the path without it

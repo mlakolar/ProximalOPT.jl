@@ -60,6 +60,34 @@ intercept(m::GLMModel, x::AbstractArray) = m.β0
 
 _default_iterate(m::GLMModel{T}) where {T} = SparseIterate(T, size(m.X, 2))
 
+"""
+    linear_predictor(m::CDModel)
+
+The linear predictor `η = Xβ + β₀ + o` of a GLM model, for the iterate it is
+current for.
+"""
+linear_predictor(m::GLMModel) = m.η
+
+"""
+    deviance(m::CDModel)
+
+The deviance `2 ∑ᵢ wᵢ (ℓ(ηᵢ, yᵢ) - minᵤ ℓ(u, yᵢ))` of a GLM model at its linear
+predictor (see [`linear_predictor`](@ref)), with the observation weights `wᵢ`
+but without the scale `s` of the loss: twice the negative log-likelihood ratio
+against the saturated model for the logistic and Poisson losses, twice the
+weighted sum of squares or of the Huber losses for those. `NaN` for a scalar
+loss whose saturated loss is unknown.
+"""
+deviance(m::GLMModel) = _deviance(m, m.η)
+
+"""
+    nulldeviance(m::CDModel)
+
+The [`deviance`](@ref) of the fit with `β = 0`: the offset, plus the intercept
+fitted to it when the model has one.
+"""
+nulldeviance(m::GLMModel) = _null_deviance(m)
+
 @inline _obsweight(::Nothing, i::Int, ::Type{T}) where {T} = one(T)
 @inline _obsweight(w::AbstractVector, i::Int, ::Type{T}) where {T} = @inbounds w[i]
 

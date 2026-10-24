@@ -5,25 +5,33 @@
 ####################################
 
 """
-    SqrtLeastSquaresLoss(y, X)
+    SqrtLeastSquaresLoss(y, X; weights = nothing)
 
 The loss `f(β) = ‖y - Xβ‖₂` of the square-root lasso (Belloni, Chernozhukov and
-Wang, 2011), whose optimal penalty level does not depend on the noise level.
+Wang, 2011), whose optimal penalty level does not depend on the noise level,
+or with observation weights `w ≥ 0` the weighted norm `√(∑ᵢ wᵢ (yᵢ - Xᵢ'β)²)`.
 It is not differentiable where the residuals vanish, so coordinate descent
 ([`CDSolver`](@ref)) minimizes `f + g` exactly over each coordinate, which it
 does for `g = NormL1(λ, w)`. With [`cdmodel`](@ref)`(f, x; intercept = true)`
 the loss is minimized over an unpenalized intercept as well.
 """
-struct SqrtLeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVector, TX<:AbstractMatrix} <: AbstractFunction
+struct SqrtLeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVector, TX<:AbstractMatrix,
+                            W<:Union{Nothing, AbstractVector}} <: AbstractFunction
   y::Ty
   X::TX
+  w::W
   tmp::Vector{T}
 end
 
-function SqrtLeastSquaresLoss(y::AbstractVector, X::AbstractMatrix)
-  size(X, 1) == length(y) || throw(DimensionMismatch("X has $(size(X, 1)) rows and y has length $(length(y))"))
+function SqrtLeastSquaresLoss(y::AbstractVector, X::AbstractMatrix; weights::Union{Nothing, AbstractVector} = nothing)
+  n = size(X, 1)
+  n == length(y) || throw(DimensionMismatch("X has $n rows and y has length $(length(y))"))
+  if weights !== nothing
+    length(weights) == n || throw(DimensionMismatch("X has $n rows and weights has length $(length(weights))"))
+    all(w -> isfinite(w) && w >= 0, weights) || throw(ArgumentError("the weights must be finite and nonnegative."))
+  end
   T = float(promote_type(eltype(y), eltype(X)))
-  SqrtLeastSquaresLoss{T, typeof(y), typeof(X)}(y, X, zeros(T, length(y)))
+  SqrtLeastSquaresLoss{T, typeof(y), typeof(X), typeof(weights)}(y, X, weights, zeros(T, n))
 end
 
 ProximalBase.isconvex(::Type{<:SqrtLeastSquaresLoss}) = true
@@ -31,25 +39,33 @@ ProximalBase.isconvex(::Type{<:SqrtLeastSquaresLoss}) = true
 function (f::SqrtLeastSquaresLoss)(β::AbstractVector)
   mul!(f.tmp, f.X, β)
   f.tmp .= f.y .- f.tmp
-  norm(f.tmp)
+  f.w === nothing ? norm(f.tmp) : sqrt(sum(i -> f.w[i] * f.tmp[i]^2, eachindex(f.tmp)))
 end
 
-mutable struct SqrtLSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T}} <: CDModel{T}
+mutable struct SqrtLSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T},
+                           W<:Union{Nothing, AbstractVector{T}}} <: CDModel{T}
   X::MX
   y::VY
+  w::W
   r::Vector{T}
-  a::Vector{T}          # squared norms of the centered columns, NaN until computed
-  xbar::Vector{T}
-  ybar::T
+  a::Vector{T}          # ∑ᵢ wᵢ (Xᵢₖ - x̄ₖ)², the squared norms of the centered columns, NaN until computed
+  xbar::Vector{T}       # (weighted) column means with an intercept, otherwise zeros
+  ybar::T               # (weighted) mean of y with an intercept, otherwise zero
+  N::T                  # n, or ∑ᵢ wᵢ: the scales of the stopping rule are per observation
+  tmp::Vector{T}        # wᵢ rᵢ, for the gradient of a weighted loss
 end
 
 function cdmodel(f::SqrtLeastSquaresLoss{T}, x; intercept::Bool = false) where {T}
   X, y = convert(AbstractMatrix{T}, f.X), convert(AbstractVector{T}, f.y)
+  w = f.w === nothing ? nothing : convert(AbstractVector{T}, f.w)
   _check_finite(y, "y"); _check_finite(X, "X")
+  N = w === nothing ? T(length(y)) : sum(w)
+  intercept && !(N > 0) && throw(ArgumentError("an intercept needs weights with a positive sum"))
   p = size(X, 2)
-  SqrtLSModel{T, typeof(X), typeof(y)}(X, y, zeros(T, length(y)), fill(T(NaN), p),
-                                       intercept ? _column_means(X) : zeros(T, p),
-                                       intercept ? _mean_response(y, nothing) : zero(T))
+  SqrtLSModel{T, typeof(X), typeof(y), typeof(w)}(X, y, w, zeros(T, length(y)), fill(T(NaN), p),
+                                                  intercept ? _column_means(X, w) : zeros(T, p),
+                                                  intercept ? _mean_response(y, nothing, w) : zero(T), N,
+                                                  w === nothing ? T[] : zeros(T, length(y)))
 end
 
 intercept(m::SqrtLSModel, x::AbstractArray) = m.ybar - dot(m.xbar, x)
@@ -101,8 +117,34 @@ end
   a, s, ρ
 end
 
+# the same with weights: s = ∑ᵢ wᵢ (Xᵢₖ - c) rᵢ, ρ = ∑ᵢ wᵢ rᵢ² and a = ∑ᵢ wᵢ (Xᵢₖ - c)²
+@inline function _column_dot_rsqr(X::AbstractMatrix{T}, r::AbstractVector{T}, w::AbstractVector{T}, k::Int, c::T,
+                                  a::T) where {T}
+  s = zero(T)
+  ρ = zero(T)
+  if isnan(a)
+    a = zero(T)
+    @inbounds @simd for i in eachindex(r)
+      d = X[i, k] - c
+      a += d * d * w[i]
+      s += r[i] * d * w[i]
+      ρ += r[i] * r[i] * w[i]
+    end
+  else
+    @inbounds @simd for i in eachindex(r)
+      s += r[i] * (X[i, k] - c) * w[i]
+      ρ += r[i] * r[i] * w[i]
+    end
+  end
+  a, s, ρ
+end
+
+@inline _column_dot_rsqr(m::SqrtLSModel, ::Nothing, k::Int) = _column_dot_rsqr(m.X, m.r, k, m.xbar[k], m.a[k])
+@inline _column_dot_rsqr(m::SqrtLSModel, w::AbstractVector, k::Int) = _column_dot_rsqr(m.X, m.r, w, k, m.xbar[k], m.a[k])
+
 # the exact minimizer of ‖r - X[:,k] t‖ + λ|t| over the coordinate, with the
-# columns centered at their means when the model fits an intercept
+# columns centered at their means when the model fits an intercept, and the
+# inner products weighted by w if the loss has weights
 function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
   T = eltype(m)
   X, r = m.X, m.r
@@ -112,7 +154,7 @@ function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
   old = x[k]
   iszero(old) || _column_axpy!(r, X, k, c, -old)
 
-  xsqr, s, rsqr = _column_dot_rsqr(X, r, k, c, m.a[k])
+  xsqr, s, rsqr = _column_dot_rsqr(m, m.w, k)
   m.a[k] = xsqr
   λ = T(g.λ0 * _weight(g, k))
 
@@ -141,27 +183,43 @@ function _sqnorm!(m::SqrtLSModel{T}, k::Int) where {T}
   a = m.a[k]
   if isnan(a)
     a = zero(T)
-    X, c = m.X, m.xbar[k]
-    @inbounds @simd for i in axes(X, 1)
-      a += (X[i, k] - c) * (X[i, k] - c)
+    X, c, w = m.X, m.xbar[k], m.w
+    if w === nothing
+      @inbounds @simd for i in axes(X, 1)
+        a += (X[i, k] - c) * (X[i, k] - c)
+      end
+    else
+      @inbounds @simd for i in axes(X, 1)
+        a += (X[i, k] - c) * (X[i, k] - c) * w[i]
+      end
     end
     m.a[k] = a
   end
   a
 end
 
-coordinate_scale(m::SqrtLSModel, x, k::Int) = sqrt(_sqnorm!(m, k) / length(m.y))
+coordinate_scale(m::SqrtLSModel, x, k::Int) = sqrt(_sqnorm!(m, k) / m.N)
 function response_scale(m::SqrtLSModel{T}, x) where {T}
   s = zero(T)
+  w = m.w
   @inbounds for i in eachindex(m.y)
-    s += (m.y[i] - m.ybar)^2
+    d = m.y[i] - m.ybar
+    s += w === nothing ? d * d : w[i] * d * d
   end
-  sqrt(s / length(m.y))
+  sqrt(s / m.N)
 end
 
-loss_value(m::SqrtLSModel, x) = norm(m.r)
+loss_value(m::SqrtLSModel{T}, x) where {T} =
+  m.w === nothing ? norm(m.r) : sqrt(sum(i -> m.w[i] * m.r[i]^2, eachindex(m.r); init = zero(T)))
 
 function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T}, x) where {T}
-  mul!(G, transpose(m.X), m.r)
-  G .= (m.xbar .* sum(m.r) .- G) ./ norm(m.r)
+  if m.w === nothing
+    mul!(G, transpose(m.X), m.r)
+    G .= (m.xbar .* sum(m.r) .- G) ./ norm(m.r)
+  else
+    m.tmp .= m.w .* m.r
+    mul!(G, transpose(m.X), m.tmp)
+    G .= (m.xbar .* sum(m.tmp) .- G) ./ loss_value(m, x)
+  end
+  G
 end

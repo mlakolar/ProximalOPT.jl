@@ -19,7 +19,8 @@ function _newton_penalty(g::NormL1, x::SymmetricSparseIterate)
   # On a symmetric variable the two entry weights add. The CD step visits
   # one stored entry with multiplicity two, so it needs their mean, even
   # when the user's weight matrix is asymmetric. The objective is unchanged.
-  NormL1(g.λ0, (g.w .+ transpose(g.w)) ./ 2)
+  weights = reshape(g.w, size(x))
+  NormL1(g.λ0, (weights .+ transpose(weights)) ./ 2)
 end
 _newton_penalty(g, ::SymmetricSparseIterate) =
   throw(ArgumentError("generic ProxNewton on a symmetric matrix supports NormL1 or ZeroFunction; use a vector iterate for other separable penalties."))

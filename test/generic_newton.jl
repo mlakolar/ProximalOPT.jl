@@ -155,11 +155,12 @@ end
 @testset "asymmetric penalty weights on symmetric iterates" begin
   f = KronQuadratic(Matrix{Float64}(I, 2, 2), Matrix{Float64}(I, 2, 2),
                     [0.0 -2.0; -2.0 0.0])
-  g = NormL1(1.0, [0.0 2.0; 0.0 0.0])
+  weights = [0.0 2.0; 0.0 0.0]
   # On X12 = X21 = t, the objective is t² - 4t + 2|t|.
   expected = [0.0 1.0; 1.0 0.0]
   method = ProxNewton(; tol = 1e-10, inner = CDSolver(; order = :cyclic, tol = 1e-12))
-  for x in (zeros(2, 2), SymmetricSparseIterate(2))
+  for w in (weights, vec(weights)), x in (zeros(2, 2), SymmetricSparseIterate(2))
+    g = NormL1(1.0, w)
     r = solve!(x, f, g, method)
     @test r.converged && r.minimizer === x
     @test Matrix(x) ≈ expected atol = 1e-12

@@ -185,7 +185,7 @@ solve!(x::SymmetricSparseIterate, f::AbstractFunction, g::AbstractFunction, meth
 function solve!(x::Vector{T}, f::AbstractFunction, g::AbstractFunction, method::ProxNewton) where {T<:AbstractFloat}
   xs = SparseIterate(x)
   r = solve!(xs, f, g, method)
-  copyto!(x, Vector(xs))
+  _copy_dense!(x, xs)
   CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks, r.gap)
 end
 
@@ -194,6 +194,6 @@ function solve!(x::Matrix{T}, f::AbstractFunction, g::AbstractFunction, method::
   issymmetric(x) || throw(ArgumentError("the matrix iterate of ProxNewton must be symmetric."))
   xs = SymmetricSparseIterate(x)
   r = solve!(xs, f, g, method)
-  copyto!(x, Matrix(xs))
+  _copy_dense!(x, xs)
   CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks, r.gap)
 end

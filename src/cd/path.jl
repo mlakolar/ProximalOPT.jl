@@ -250,20 +250,29 @@ end
 
 # a compact copy of the solution
 _snapshot(x::SparseIterate{T, 1}) where {T} = _sparsevec(x)
-_snapshot(x::AtomIterate) = sparsevec(Vector(x))
-_snapshot(x::SymmetricSparseIterate) = sparse(Matrix(x))
-_snapshot(x::SparseIterate{T, 2}) where {T} = sparse(Matrix(x))
+_snapshot(x::AtomIterate) = _sparsevec(x)
+_snapshot(x::SymmetricSparseIterate) = sparse(x)
 
-function _sparsevec(x::SparseIterate{T, 1}) where {T}
+function _sparsevec(x::Union{SparseIterate{T, 1}, AtomIterate{T}}) where {T}
   ind = Int[]
   val = T[]
-  for k in activecoordinates(x)
+  for k in _activeentries(x)
     v = x[k]
     iszero(v) && continue
     push!(ind, k); push!(val, v)
   end
-  p = sortperm(ind)
-  sparsevec(ind[p], val[p], length(x))
+  sparsevec(ind, val, length(x))
+end
+
+function _snapshot(x::SparseIterate{T, 2}) where {T}
+  rows, cols, vals = Int[], Int[], T[]
+  n, p = size(x)
+  for k in activecoordinates(x)
+    v = x[k]
+    iszero(v) && continue
+    push!(rows, mod1(k, n)); push!(cols, div(k - 1, n) + 1); push!(vals, v)
+  end
+  sparse(rows, cols, vals, n, p)
 end
 
 """

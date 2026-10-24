@@ -36,6 +36,7 @@ export
   CDSolver,
   ProxNewton,
   solve!,
+  SolverWorkspace, reinit!,
 
   # coordinate descent: losses, models, penalty levels, drivers
   SqrtLeastSquaresLoss, SqrtQuadraticFunction,
@@ -93,6 +94,8 @@ include("cd/drivers.jl")
 include("cd/lla.jl")
 
 include("utils.jl")
+
+include("workspaces.jl")
 
 include("precompile.jl")
 

@@ -5,6 +5,8 @@ ProximalSolvers
 solve!
 ProximalSolver
 ProximalOptions
+SolverWorkspace
+reinit!
 ```
 
 ## Coordinate descent solvers

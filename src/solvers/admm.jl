@@ -169,14 +169,21 @@ function solve!(
   isproximable(g) || throw(ArgumentError("ADMM needs a proximable g (isproximable(g)), but g is a $(typeof(g))."))
   u === nothing || (typeof(u) == typeof(x) && _size(u) == _size(x)) || throw(DimensionMismatch("u must have the size of x"))
   t0 = time()
-  ρ, α = T(method.ρ), T(method.α)
-  sqrt_n = sqrt(T(_length(x)))
+  ρ = T(method.ρ)
 
   z = x
   xk = _copy(x)
   u = u === nothing ? _zero(x) : u
   z_previous = _similar(x)
   tmp = _similar(x)
+  gapev = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
+  _solve_admm!(z, f, g, method, options, xk, u, z_previous, tmp, gapev, t0, ρ)
+end
+
+function _solve_admm!(z::Union{AbstractArray{T}, _Blocks{T}}, f, g, method, options,
+                      xk, u, z_previous, tmp, gapev, t0 = time(), ρ = T(method.ρ)) where {T}
+  α = T(method.α)
+  sqrt_n = sqrt(T(_length(z)))
 
   r_norm = s_norm = eps_pri = eps_dual = T(Inf)
   converged = false
@@ -185,7 +192,6 @@ function solve!(
   f_calls = prox_calls = 0
 
   # with gaptol, the duality gap at z replaces the residual tests
-  gapev = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
   options.gaptol > 0 && gapev === nothing &&
     @warn "there is no duality gap for $(nameof(typeof(f))) with $(nameof(typeof(g))); gaptol is ignored." maxlog = 1
   relgap, relgap_iteration = NaN, -1

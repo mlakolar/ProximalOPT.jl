@@ -136,7 +136,9 @@ function _solve_generic_newton!(x::_GenericNewtonIterate{T}, f::AbstractFunction
       # scale. Check its actual proximal residual before using a nearly
       # stationary direction; all refinements share the requested pass limit.
       initialize!(m, trial)
-      gradient!(modelgrad, m, trial)
+      value_and_gradient!(modelgrad, q, trial)
+      all(isfinite, modelgrad) ||
+        throw(ArgumentError("the quadratic model gradient is not finite."))
       modelres = _newton_residual(trial, g, modelgrad)
       modeltol = T(method.tol / 10) * max(one(T), norm(trial, Inf))
       (modelres <= modeltol || !st.converged || st.passes == 0 ||

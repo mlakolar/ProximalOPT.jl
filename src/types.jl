@@ -181,7 +181,8 @@ end
 
 Returned by [`solve!`](@ref) for [`ProximalGradientDescent`](@ref) and
 [`AccProxGradDescent`](@ref). Its fields include `minimizer`, `minimum`
-(`f + g` at the minimizer), `iterations`, the flags `x_converged`,
+(`f + g` at the minimizer), `iterations`, `converged` (the selected
+convergence criterion passed), the diagnostic flags `x_converged`,
 `f_converged`, `grad_converged`, `f_increased` and `iteration_converged`
 (the iteration limit was reached), the final residuals `x_residual`,
 `f_residual` and `g_residual` with their tolerances, the `trace`,
@@ -191,7 +192,10 @@ evaluations: `f_calls` of `f` (by `value` or `value_and_gradient!`),
 `grad_calls` of its gradient and `prox_calls` of the proximal operator of `g`.
 `call_limit_reached` is `true` when the solver stopped at one of the limits in
 [`ProximalOptions`](@ref), and `gap` is the relative duality gap at the
-minimizer when `gaptol > 0`, `NaN` otherwise. The minimizer is the `x` passed
+minimizer when `gaptol > 0`, `NaN` otherwise. With a computable gap and
+`gaptol > 0`, `converged` reports whether that gap meets `gaptol`; the
+diagnostic flags still report the individual residual tests. Without a
+computable gap, those tests determine `converged`. The minimizer is the `x` passed
 to `solve!`: an `Array`, a `SparseIterate`, an `AtomIterate`, or a tuple of
 arrays (`N` is 1 for a tuple).
 """
@@ -201,6 +205,7 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:Union{AbstractArra
     minimum::T
     iterations::Int
     iteration_converged::Bool
+    converged::Bool
     x_converged::Bool
     x_tol::Float64
     x_residual::Float64
@@ -229,7 +234,7 @@ minimizer(r::OptimizationResults) = r.minimizer
 minimum(r::OptimizationResults) = r.minimum
 iterations(r::OptimizationResults) = r.iterations
 iteration_limit_reached(r::OptimizationResults) = r.iteration_converged
-converged(r::OptimizationResults) = r.x_converged || r.f_converged || r.grad_converged
+converged(r::OptimizationResults) = r.converged
 x_converged(r::OptimizationResults) = r.x_converged
 f_converged(r::OptimizationResults) = r.f_converged
 f_increased(r::OptimizationResults) = r.f_increased

@@ -71,7 +71,7 @@ count can exceed its limit by the evaluations of one iteration.
 
 | Solver | Result | Fields |
 |:-------|:-------|:-------|
-| [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref), [`MonotoneAccProxGradDescent`](@ref) | [`OptimizationResults`](@ref ProximalSolvers.OptimizationResults) | `minimizer`, `minimum`, `iterations`, the flags `x_converged`, `f_converged`, `grad_converged` with the final residuals, `f_increased`, `iteration_converged` (the iteration limit was reached), `call_limit_reached`, `backtrack_steps`, `f_calls`, `grad_calls`, `prox_calls`, `trace`, `gap` |
+| [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref), [`MonotoneAccProxGradDescent`](@ref) | [`OptimizationResults`](@ref ProximalSolvers.OptimizationResults) | `minimizer`, `minimum`, `iterations`, `converged`, the flags `x_converged`, `f_converged`, `grad_converged` with the final residuals, `f_increased`, `iteration_converged` (the iteration limit was reached), `call_limit_reached`, `backtrack_steps`, `f_calls`, `grad_calls`, `prox_calls`, `trace`, `gap` |
 | [`ActiveAccProxGradDescent`](@ref) | [`ActiveSetResults`](@ref ProximalSolvers.ActiveSetResults) | `minimizer`, `minimum`, `outer_iterations`, `inner_iterations`, `converged`, `inner_converged`, `max_violation`, `active_set_size` |
 | [`ADMMSolver`](@ref) | [`ADMMResults`](@ref ProximalSolvers.ADMMResults) | `minimizer`, `minimum`, `iterations`, `converged`, the residuals `r_norm`, `s_norm` and their tolerances `eps_pri`, `eps_dual`, the scaled dual variable `u` and the final `ρ`, the counts of calls, `gap` |
 | [`CDSolver`](@ref), [`ProxNewton`](@ref) | [`CDResults`](@ref) | `minimizer`, `minimum`, `passes`, `converged`, `maxchange`, `tolerance`, `kkt_checks`, `gap` |
@@ -79,7 +79,12 @@ count can exceed its limit by the evaluations of one iteration.
 | [`reweight!`](@ref), `solve!` with [`LLA`](@ref) | [`ReweightResults`](@ref) | `minimizer`, `penalty`, `next`, `iterations`, `converged`, `change`, `passes`, `cd_converged` |
 
 `minimum` is ``f + g`` at the minimizer, and `gap` the relative duality gap
-there when it was computed, `NaN` otherwise. Printing a result shows a summary.
+there when it was computed, `NaN` otherwise. For the gradient solvers,
+`converged(result)` reports the selected criterion: with `gaptol > 0` and a
+computable gap, the final gap must meet `gaptol`, including when a run stops
+at a limit or a callback. The `x_converged`, `f_converged` and `grad_converged`
+flags remain diagnostics of the individual residual tests. Without a
+computable gap, those tests determine convergence. Printing a result shows a summary.
 
 ## Duality gaps
 

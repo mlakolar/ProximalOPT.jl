@@ -116,6 +116,12 @@ function solve!(
     end
   end # while
   gapev === nothing || relgap_iteration == iteration || (relgap = _relgap!(gapev, f, g, state.x))
+  # A final gap check can fall between the scheduled checks when a limit or a
+  # callback stops the solve. Report the chosen criterion at the returned point,
+  # retaining the residual flags as diagnostics rather than as a gap certificate.
+  if gapev !== nothing
+    converged = isnan(relgap) ? x_converged || fg_converged || grad_converged : relgap <= options.gaptol
+  end
 
   # the residuals are stored as Float64, like the tolerances, whatever the element type
   return OptimizationResults{typeof(method), typeof(state.f_x), _resultdims(state.x), typeof(method), typeof(state.x)}(
@@ -124,6 +130,7 @@ function solve!(
                 state.f_x + state.g_x,
                 iteration,
                 iteration == options.maxiter,
+                converged,
                 x_converged,
                 options.xtol,
                 Float64(_norm_diff(state.x, state.x_previous, 2.)),

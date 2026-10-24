@@ -272,6 +272,24 @@ duality gap (see [`duality_gap`](@ref)) is at most `tol`, which the `gap` of
 the results reports. `X` is the starting point when it is positive definite;
 otherwise (for example zero) the start is the diagonal solution
 `1/(Sᵢᵢ + λᵢᵢ/w)`.
+
+Other smooth losses can provide `ProximalBase.hashessian`, `quadratic_model`
+and `quadratic_model!`. Their quadratic model is a function of the new point
+and must be supported by [`cdmodel`](@ref), for example a `QuadraticFunction`,
+`LeastSquaresLoss` or `KronQuadratic`, possibly scaled. The inner coordinate
+descent minimizes that model plus `g`, and an Armijo line search rejects
+nonfinite trials. Dense vectors, `SparseIterate`s, `SymmetricSparseIterate`s
+and dense symmetric matrices are accepted. Vector penalties must be
+separable; the generic symmetric-matrix path supports `NormL1` and
+`ZeroFunction`, averaging transposed entry weights for `NormL1`.
+
+For this generic path, the unit-step proximal fixed-point residual of the
+original objective must be at most `tol * max(1, norm(x, Inf))` for
+convergence. The results report the residual in `maxchange` and the threshold
+in `tolerance`; `gap` is `NaN`. A failed line search reports no convergence.
+The quadratic-model buffers are reused, while their coordinate-descent caches
+are refreshed on each outer step. Generic losses do not receive the GLM's
+extra intercept or screened-path interface.
 """
 struct ProxNewton <: ProximalSolver
   inner::CDSolver
@@ -499,7 +517,8 @@ _concavity(g::MCP{T}) where {T} = inv(T(g.a))
 _concavity(g::SCAD{T}) where {T} = inv(T(g.a) - 1)
 _concavity(c::ProximalBase.BoxConstrained) = _concavity(c.f)
 
-solve!(x::SparseIterate, f::AbstractFunction, g::AbstractFunction, method::ProxNewton) = _solve_newton!(x, f, g, method)
+solve!(x::SparseIterate, f::Union{GLMLoss, Scaled{<:GLMLoss}}, g::AbstractFunction, method::ProxNewton) =
+  _solve_newton!(x, f, g, method)
 solve!(x::SparseIterate, m::GLMModel, g::AbstractFunction, method::ProxNewton) = _solve_newton!(x, m, g, method)
 
 function _solve_newton!(x::SparseIterate{T}, f, g::AbstractFunction, method::ProxNewton) where {T}

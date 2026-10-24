@@ -24,6 +24,7 @@ tests = [
   "newton_nonconvex",
   "duality_gap",
   "quic",
+  "generic_newton",
   "examples",
   "aqua",
 ]

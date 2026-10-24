@@ -118,13 +118,73 @@ example, the start is the diagonal solution ``1/(S_{ii} + \lambda_{ii}/w)``. A
 Newton step costs a few Cholesky factorizations, where an iteration of
 [ADMM](@ref) costs an eigendecomposition.
 
+## Other smooth losses
+
+`ProxNewton` also accepts a smooth loss `f` with
+`ProximalBase.hashessian(f) == true`. The loss supplies
+`quadratic_model(f, x)` and `quadratic_model!(q, f, x)`. Its model must be a
+function that `cdmodel(q, x)` supports, such as `LeastSquaresLoss`,
+`QuadraticFunction` or `KronQuadratic`, possibly scaled. A custom smooth loss
+can return a `QuadraticFunction` with its Hessian and linear term. A Hessian
+trait alone does not make an unsupported model usable by coordinate descent.
+
+The quadratic model is a function of the **new point** `z`:
+
+```math
+q(z) = f(x) + \langle\nabla f(x), z-x\rangle
+       + \tfrac12\langle z-x, \nabla^2 f(x)(z-x)\rangle,
+```
+
+up to a constant. The inner solve minimizes `q(z) + g(z)`, warm started at
+`x`. The outer step is `d = z - x`; the penalty is evaluated at `z`, without
+translating it again. The model buffers are updated with `quadratic_model!`.
+The coordinate-descent model is refreshed after each update so that copied
+matrices and scalar fields cannot retain the previous Hessian.
+
+The generic path uses an Armijo line search on `f + g`. It rejects nonfinite
+trial values, including a trial outside the domain of `f`. A failed line
+search leaves the last accepted iterate and reports `converged = false`.
+The specialized GLM and graphical-lasso algorithms above retain their own
+model updates and stopping rules.
+
+For the generic path, convergence is checked against the gradient of the
+original loss at the current iterate. Its unit-step proximal fixed-point
+residual is compared with `tol * max(1, norm(x, Inf))`. The residual is zero
+when the proximal stationarity condition holds; for a convex objective this
+characterizes a global minimizer. `CDResults.maxchange` and `tolerance`
+report that residual and its threshold. `gap` is `NaN`, since a generic smooth loss need not provide a
+Fenchel dual.
+
+The inner change rule is followed by a proximal-residual check on the
+quadratic model. When needed, its tolerance is tightened, sharing the
+original `inner.maxpasses` budget across these refinements. The original
+objective's residual remains the convergence check for the outer solve.
+
+Dense vectors and `SparseIterate`s are supported. Matrix models can use a
+`SymmetricSparseIterate` or a dense symmetric matrix with `NormL1` or
+`ZeroFunction`. For matrix-weighted `NormL1`, transposed entry weights are
+averaged: their sum determines the penalty on a symmetric pair. Vector
+penalties must be separable. The quadratic models must have positive
+semidefinite Hessians for the inner coordinate-descent solves to have their
+usual interpretation. This generic path does not fit an extra intercept or
+construct a screened penalty path; the GLM model interface supplies those
+features.
+
+```julia
+A = [2.0 0.2; 0.2 1.0]
+f = QuadraticFunction(A, [-1.0, 0.5])
+x = zeros(2)
+r = solve!(x, f, NormL1(0.1), ProxNewton(; tol = 1e-8))
+r.converged, r.maxchange, r.tolerance
+```
+
 ## Settings
 
 `ProxNewton(; inner = CDSolver(; tol = 1e-8), maxiter = 100, tol = 1e-8, β = 0.5)`.
-`solve!` takes a `SparseIterate` (a `SymmetricSparseIterate` or a `Matrix` for
-the graphical lasso) and returns a [`CDResults`](@ref) whose
-`passes` sum the inner passes, and which is `converged` when the outer stopping
-rule was met and every inner solve converged.
+`solve!` returns a [`CDResults`](@ref) whose `passes` sum the inner passes.
+The GLM path reports convergence when its outer stopping rule was met and
+every inner solve converged. The graphical lasso stops on its duality gap.
+The generic path stops on the proximal fixed-point residual described above.
 
 ## References
 

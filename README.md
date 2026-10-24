@@ -99,8 +99,11 @@ columns are strongly correlated.
 `solve_path` warm starts each level from the previous solution and screens it
 with the sequential strong rule, checking the optimality conditions of the
 screened coordinates afterwards; `callback(k, λ, x, m)` can compute a
-validation loss or stop the path. `solve!(β, f, g, CDSolver(); continuation = 50)`
-starts from zero and follows 50 levels down to `g`. Each pass visits the
+validation loss or stop the path. The level of `ElasticNet(λ1, λ2)` is `λ1`, with
+`λ2` fixed; glmnet's elastic-net path at a fixed `α` is that of
+`Scaled(ElasticNet(α, 1 - α), 1)`, whose level is the scale.
+`solve!(β, f, g, CDSolver(); continuation = 50)` starts from zero and follows 50
+levels down to `g`. Each pass visits the
 coordinates once, passes over all of them alternate with passes over the
 nonzero ones, and the method stops after a full pass followed by a pass in which
 no coordinate moves by more than `tol` times a scale of the data, so that the

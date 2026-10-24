@@ -3,9 +3,14 @@
 # that products by it touch only its support; nothing to do for an Array
 _drop!(x::AbstractArray) = x
 _drop!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = dropzeros!(x)
+_drop!(x::Tuple) = (foreach(_drop!, x); x)
 
 # the gradient methods step from a point where f is finite, and keep to such
 # points, rejecting the trial points off the domain of f
+# the parameter N of OptimizationResults: the dimension of an array, 1 for a tuple
+_resultdims(x::AbstractArray) = ndims(x)
+_resultdims(::Tuple) = 1
+
 _check_start(f_x) = isfinite(f_x) ||
   throw(ArgumentError("f(x0) = $f_x: start from a point where f is finite, such as the identity for LogDetLoss."))
 
@@ -14,20 +19,29 @@ _check_start(f_x) = isfinite(f_x) ||
 
 Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
 
-For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
-a smooth function of ProximalBase (`issmooth(f)`) and `g` a proximable one
-(`isproximable(g)`), and `x` is an array of any shape that they accept, such as
-the `p × k` coefficient matrix of a `LeastSquaresLoss` with `k` responses and a
+For [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
+[`MonotoneAccProxGradDescent`](@ref), `f` is a smooth function of ProximalBase
+(`issmooth(f)`) and `g` a proximable one (`isproximable(g)`), possibly
+nonconvex, and `x` is an array of any shape that they accept, such as the
+`p × k` coefficient matrix of a `LeastSquaresLoss` with `k` responses and a
 `NuclearNorm` penalty; the result is an [`OptimizationResults`](@ref). There `x`
-may also be a `SparseIterate`, or for the group lasso `GroupNormL2` an
-`AtomIterate` that shares the groups of `g` (`AtomIterate(x, g.groups)`): the
-iterates keep its type, zeros are dropped after each step, and products by the
-iterates touch only their stored entries or active groups. For
+may also be a `SparseIterate`, a `SymmetricSparseIterate` (a symmetric matrix,
+as for `KronQuadratic`, `LogDetLoss` and `IndBallL0(s; diagonal = false)`), or
+for the group lasso `GroupNormL2` an `AtomIterate` that shares the groups of `g`
+(`AtomIterate(x, g.groups)`): the iterates keep its type, zeros are dropped
+after each step, and products by the iterates touch only their stored entries
+or active groups. For
 [`ActiveAccProxGradDescent`](@ref), `x` is a vector, a `SparseIterate` or an
 `AtomIterate`, and the result is an `ActiveSetResults`. For
 [`ADMMSolver`](@ref), both `f` and `g` are proximable and the result is an
 `ADMMResults`. For [`CDSolver`](@ref) and [`ProxNewton`](@ref), see their
 documentation.
+
+The gradient solvers and ADMM also take a tuple of arrays with one element
+type, `x = (x1, …, xK)`: a point of a product space, for functions of several
+blocks such as ProximalBase's `SeparableSum(f1, …, fK)` (`fₖ` on block `k`) or a
+penalty that couples the blocks. Norms and inner products are taken over all
+the blocks, and a tuple of one array computes exactly what the array does.
 
 # Example
 ```julia
@@ -38,7 +52,7 @@ res = solve!(x, QuadraticFunction(A, b), NormL1(0.1), AccProxGradDescent())
 ```
 """
 function solve!(
-    initial_x::AbstractArray,
+    initial_x::Union{AbstractArray, _Blocks},
     f::AbstractFunction,
     g::AbstractFunction,
     method::ProximalSolver,
@@ -59,6 +73,12 @@ function solve!(
   converged = false
   iteration = 0
 
+  # with gaptol, the duality gap replaces the other convergence tests
+  gapev = options.gaptol > 0 ? _gapevaluator(f, g, initial_x) : nothing
+  options.gaptol > 0 && gapev === nothing &&
+    @warn "there is no duality gap for $(nameof(typeof(f))) with $(nameof(typeof(g))); gaptol is ignored." maxlog = 1
+  relgap, relgap_iteration = NaN, -1
+
   options.show_trace && print_header(method, options)
 
   while !converged && !stopped && iteration < options.maxiter
@@ -68,6 +88,15 @@ function solve!(
 
     x_converged, fg_converged,
     grad_converged, converged, f_increased = convergence_assessment(state, f, g, options)
+    if gapev !== nothing
+      if iteration % options.gapevery == 0
+        relgap, relgap_iteration = _relgap!(gapev, f, g, state.x), iteration
+        # a gap that cannot be computed here leaves the other tests in charge
+        isnan(relgap) || (converged = relgap <= options.gaptol)
+      else
+        converged = false
+      end
+    end
 
     if tracing
       # update trace; callbacks can stop routine early by returning true
@@ -79,14 +108,17 @@ function solve!(
     grad_limit_reached = options.grad_calls_limit > 0 && state.grad_calls >= options.grad_calls_limit
     prox_limit_reached = options.prox_calls_limit > 0 && state.prox_calls >= options.prox_calls_limit
 
-    if (f_increased && !options.allow_f_increases) || stopped_by_callback ||
+    # with a gap, an objective that rises by rounding near the solution does not
+    # stop the solver: the primal converges before the dual point does
+    if (f_increased && !options.allow_f_increases && gapev === nothing) || stopped_by_callback ||
         stopped_by_time_limit || f_limit_reached || grad_limit_reached || prox_limit_reached
         stopped = true
     end
   end # while
+  gapev === nothing || relgap_iteration == iteration || (relgap = _relgap!(gapev, f, g, state.x))
 
   # the residuals are stored as Float64, like the tolerances, whatever the element type
-  return OptimizationResults(
+  return OptimizationResults{typeof(method), typeof(state.f_x), _resultdims(state.x), typeof(method), typeof(state.x)}(
                 method,
                 state.x,
                 state.f_x + state.g_x,
@@ -94,7 +126,7 @@ function solve!(
                 iteration == options.maxiter,
                 x_converged,
                 options.xtol,
-                Float64(norm_diff(state.x, state.x_previous, 2.)),
+                Float64(_norm_diff(state.x, state.x_previous, 2.)),
                 fg_converged,
                 options.ftol,
                 Float64(f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol)),
@@ -107,6 +139,7 @@ function solve!(
                 state.f_calls,
                 state.grad_calls,
                 state.prox_calls,
-                f_limit_reached || grad_limit_reached || prox_limit_reached)
+                f_limit_reached || grad_limit_reached || prox_limit_reached,
+                relgap)
 
 end

@@ -8,6 +8,11 @@ using ProximalSolvers
 
 Random.seed!(1)
 
+# 1000 times the Euclidean norm, with a method for the difference of two arrays
+struct Big1000 end
+(::Big1000)(x) = 1e3 * LinearAlgebra.norm(x)
+(::Big1000)(x, y) = 1e3 * norm_diff(x, y)
+
 @testset "ADMM" begin
 
   opt = ProximalOptions(; maxiter = 5000)
@@ -72,6 +77,32 @@ Random.seed!(1)
     @test warm.converged && warm.iterations <= 2
     @test_throws DimensionMismatch solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(), opt; u = zeros(p + 1, p))
     @test_throws ArgumentError solve!(copy(X0), SqrNormL2(), LogisticLoss(ones(p), ones(p, p)), ADMMSolver(), opt)
+  end
+
+  @testset "the norm of the residuals" begin
+    λ = 0.1
+    X0 = Matrix(1.0I, p, p)
+    for adaptive in (false, true)
+      ref = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; adaptive), opt)
+      # the Euclidean norm, given as a function, takes the same iterations
+      res = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; adaptive, norm = LinearAlgebra.norm), opt)
+      @test res.iterations == ref.iterations
+      @test res.minimizer ≈ ref.minimizer rtol = 1e-12
+      @test res.r_norm ≈ ref.r_norm rtol = 1e-10
+      # with a negligible relative tolerance, a norm 1000 times larger makes the
+      # absolute tolerance 1000 times smaller: more iterations
+      abs_only = (; abstol = 1e-5, reltol = 1e-14)
+      ref = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; adaptive, abs_only...), opt)
+      big = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; adaptive, abs_only..., norm = x -> 1e3 * LinearAlgebra.norm(x)), opt)
+      @test big.converged
+      @test big.iterations > ref.iterations
+      @test big.r_norm <= big.eps_pri && big.s_norm <= big.eps_dual
+      # a norm with a method for the difference of two arrays measures the
+      # residuals with it, and takes the same iterations
+      diff = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; adaptive, abs_only..., norm = Big1000()), opt)
+      @test diff.iterations == big.iterations
+      @test diff.minimizer ≈ big.minimizer rtol = 1e-12
+    end
   end
 
   @testset "argument checks" begin

@@ -17,7 +17,6 @@
 # the gradient in 1:|G| and the previous entries in |G|+1:2|G|.
 
 function _groupstep!(m::LSModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::Int, scaled::Bool) where {T}
-  X, r = m.X, m.r
   G = x.groups[k]
   n = length(G)
   buf = _groupbuffer!(m, 2n)
@@ -42,7 +41,7 @@ function _groupstep!(m::LSModel{T}, g::AbstractFunction, x::AtomIterate{T}, k::I
   for (i, j) in enumerate(G)
     h = storage[j] - buf[n + i]
     iszero(h) && continue
-    _column_axpy!(r, X, j, m.xbar[j], h)
+    _residual_axpy!(m, j, h)
     maxh = max(maxh, _scaledchange(m, x, j, h, scaled))
   end
   maxh

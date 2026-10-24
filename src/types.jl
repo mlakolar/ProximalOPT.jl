@@ -3,7 +3,8 @@
 
 Abstract supertype of the solvers passed to [`solve!`](@ref):
 [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref),
-[`ActiveAccProxGradDescent`](@ref) and [`ADMMSolver`](@ref).
+[`MonotoneAccProxGradDescent`](@ref), [`ActiveAccProxGradDescent`](@ref) and
+[`ADMMSolver`](@ref).
 """
 abstract type ProximalSolver end
 
@@ -39,6 +40,16 @@ returns `true`.
   each iteration, which always finishes, so a count can exceed its limit by
   the evaluations of one iteration. [`ADMMSolver`](@ref) uses only
   `prox_calls_limit`.
+- `gaptol = 0`: with `gaptol > 0`, stop when the relative duality gap
+  `(P - D) / |P|` at the iterate is at most `gaptol`, checked every `gapevery`
+  iterations, instead of on the `ftol`, `xtol`, `gradtol` tests and an
+  increasing objective (or ADMM's residuals): a certificate that `P = f + g` is within `gaptol ⋅ |P|` of its
+  minimum (see [`duality_gap`](@ref) for the functions that have a gap; for
+  others `gaptol` is ignored, with a warning). Used by
+  [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
+  [`ADMMSolver`](@ref); the results report the final relative gap as `gap`.
+- `gapevery = 10`: how often to compute the gap when `gaptol > 0`. Each
+  evaluation costs about two products with the design.
 
 The solvers work in the element type of the starting point, `Float32` as well
 as `Float64`. Tolerances below its precision, such as `ftol = 1e-8` in
@@ -60,6 +71,8 @@ struct ProximalOptions{TCallback <: Union{Nothing, Function}}
   printEvery::Int64
   callback::TCallback
   time_limit::Float64
+  gaptol::Float64
+  gapevery::Int
 end
 
 function ProximalOptions(;maxiter::Integer       = 200,
@@ -75,11 +88,15 @@ function ProximalOptions(;maxiter::Integer       = 200,
                          extended_trace::Bool    = false,
                          printEvery::Integer     = 1,
                          callback                = nothing,
-                         time_limit              = Inf)
+                         time_limit              = Inf,
+                         gaptol::Real            = 0.0,
+                         gapevery::Integer       = 10)
 
   maxiter > 1 || error("maxiter must be an integer greater than 1.")
   ftol > 0 || error("ftol must be a positive real value.")
   xtol > 0 || error("xtol must be a positive real value.")
+  gaptol >= 0 || error("gaptol must be nonnegative.")
+  gapevery > 0 || error("gapevery must be positive.")
   printEvery = printEvery > 0 ? printEvery : 1
 
   ProximalOptions{typeof(callback)}(
@@ -96,7 +113,9 @@ function ProximalOptions(;maxiter::Integer       = 200,
                   extended_trace,
                   convert(Int64, printEvery),
                   callback,
-                  time_limit
+                  time_limit,
+                  convert(Float64, gaptol),
+                  convert(Int, gapevery)
                   )
 end
 
@@ -171,10 +190,12 @@ search over all iterations (accepted steps included), and the number of
 evaluations: `f_calls` of `f` (by `value` or `value_and_gradient!`),
 `grad_calls` of its gradient and `prox_calls` of the proximal operator of `g`.
 `call_limit_reached` is `true` when the solver stopped at one of the limits in
-[`ProximalOptions`](@ref). The minimizer is the `x` passed to `solve!`: an
-`Array`, a `SparseIterate` or an `AtomIterate`.
+[`ProximalOptions`](@ref), and `gap` is the relative duality gap at the
+minimizer when `gaptol > 0`, `NaN` otherwise. The minimizer is the `x` passed
+to `solve!`: an `Array`, a `SparseIterate`, an `AtomIterate`, or a tuple of
+arrays (`N` is 1 for a tuple).
 """
-mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:AbstractArray{T,N}}
+mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:Union{AbstractArray{T,N}, _Blocks{T}}}
     method::O
     minimizer::X
     minimum::T
@@ -196,6 +217,11 @@ mutable struct OptimizationResults{O<:ProximalSolver,T,N,M,X<:AbstractArray{T,N}
     grad_calls::Int
     prox_calls::Int
     call_limit_reached::Bool
+    gap::Float64
+
+    # N appears only in the bound of X, which a tuple leaves free, so solve!
+    # gives all the parameters
+    OptimizationResults{O,T,N,M,X}(fields...) where {O,T,N,M,X} = new{O,T,N,M,X}(fields...)
 end
 
 Base.summary(r::OptimizationResults) = summary(r.method)
@@ -222,6 +248,16 @@ prox_calls(r::OptimizationResults) = r.prox_calls
 call_limit_reached(r::OptimizationResults) = r.call_limit_reached
 
 
+function _show_minimizer(io::IO, x::AbstractArray)
+    if length(join(x, ",")) < 40
+        @printf io " * Minimizer: [%s]\n" join(x, ",")
+    else
+        @printf io " * Minimizer: [%s, ...]\n" join(x[1:2], ",")
+    end
+end
+_show_minimizer(io::IO, x::Tuple) =
+    @printf io " * Minimizer: %d blocks of sizes %s\n" length(x) join(map(b -> join(size(b), "×"), x), ", ")
+
 function Base.show(io::IO, r::OptimizationResults)
     @printf io "Results of Optimization Algorithm\n"
     @printf io " * Algorithm: %s\n" summary(r)
@@ -230,11 +266,7 @@ function Base.show(io::IO, r::OptimizationResults)
     # else
     #     @printf io " * Starting Point: [%s, ...]\n" join(initial_state(r)[1:2], ",")
     # end
-    if length(join(minimizer(r), ",")) < 40
-        @printf io " * Minimizer: [%s]\n" join(minimizer(r), ",")
-    else
-        @printf io " * Minimizer: [%s, ...]\n" join(minimizer(r)[1:2], ",")
-    end
+    _show_minimizer(io, minimizer(r))
     @printf io " * Minimum: %e\n" minimum(r)
     @printf io " * Iterations: %d\n" iterations(r)
     @printf io " * Convergence: %s\n" converged(r)
@@ -247,6 +279,7 @@ function Base.show(io::IO, r::OptimizationResults)
     @printf io "   * stopped by an increasing objective: %s\n" f_increased(r)
     @printf io "   * Reached Maximum Number of Iterations: %s\n" iteration_limit_reached(r)
     @printf io "   * Reached a limit on the number of calls: %s\n" call_limit_reached(r)
+    isnan(r.gap) || @printf io "   * relative duality gap %.2e\n" r.gap
     @printf io " * Backtracking steps: %d\n" backtrack_steps(r)
     @printf io " * f(x) calls: %d\n" f_calls(r)
     @printf io " * ∇f(x) calls: %d\n" grad_calls(r)

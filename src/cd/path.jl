@@ -29,7 +29,9 @@ end
 The smallest penalty level `λ` for which zero minimizes `f + g` with the level
 of `g` replaced by `λ` (`NormL1(λ, w)` for `g = NormL1(λ0, w)`, and so on):
 `maxₖ |∇ₖf(0)| / wₖ` over the coordinates of iterates like `x` whose weight is
-not zero, with `‖∇_G f(0)‖₂` for the groups of a `GroupNormL2`.
+not zero, with `‖∇_G f(0)‖₂` for the groups of a `GroupNormL2`. The level of
+`Scaled(ElasticNet(α, 1 - α, w), λ)` is its scale `λ`, and its weights are
+`α wₖ`.
 """
 function lambda_max(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, x)
   m = f isa CDModel ? f : cdmodel(f, x)
@@ -79,22 +81,33 @@ function _screened!(x, m::CDModel{T}, g, λprev, grad::AbstractArray, st::_CDSta
 end
 
 """
-    solve!(x, f, g, method::CDSolver; continuation)
+    solve!(x, f, g, method::CDSolver; continuation, continuation_tol, screening)
 
 With `continuation = n > 0`, `x` is set to zero and `f + g` is minimized along
 `n` penalty levels spaced geometrically from [`lambda_max`](@ref) down to the
 level of `g`, then at `g` itself, each warm started from the previous solution.
-With `screening`, each level is screened with the strong rule (see
-[`solve_path`](@ref)); the default screens except on a `SymmetricSparseIterate`,
-whose coordinate steps update the gradient everywhere, so that the optimality
-checks of screening cost more passes than they save. When the level of `g` is
-zero or at least `lambda_max`, `f + g` is minimized from zero directly, and so
-it is for a penalty without a level (`ZeroFunction`, `IndBox`, …), which has
-no path.
+The levels before `g` only give warm starts, so they are solved to the looser
+tolerance `continuation_tol` (`√tol` for the tolerance `tol` of `method`, by
+default), and only `g` to `tol`; `continuation_tol = method.tol` solves every
+level to `tol`. With `screening`, each level is screened with the strong rule
+(see [`solve_path`](@ref)); the default screens except on a
+`SymmetricSparseIterate`, whose coordinate steps update the gradient
+everywhere, so that the optimality checks of screening cost more passes than
+they save. When the level of `g` is zero or at least `lambda_max`, `f + g` is
+minimized from zero directly, and so it is for a penalty without a level
+(`ZeroFunction`, `IndBox`, …), which has no path.
 """
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f::Union{AbstractFunction, CDModel},
                 g::AbstractFunction, method::CDSolver; continuation::Integer,
-                screening::Bool = !(x isa SymmetricSparseIterate))
+                continuation_tol::Real = sqrt(method.tol), screening::Bool = !(x isa SymmetricSparseIterate))
+  continuation_tol >= 0 || throw(ArgumentError("continuation_tol must be nonnegative, but it is $continuation_tol."))
+  tol = max(Float64(continuation_tol), method.tol)
+  _continuation!(x, f, g, method, continuation, screening, k -> tol)
+end
+
+# continuation along n levels, solving level k < n to the tolerance tolk(k)
+# and the last one, g, to method.tol
+function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screening::Bool, tolk)
   continuation >= 0 || throw(ArgumentError("continuation must be nonnegative, but it is $continuation."))
   continuation == 0 && return solve!(x, f, g, method)
   m = f isa CDModel ? f : cdmodel(f, x)
@@ -103,7 +116,7 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
   T = eltype(m)
   fill!(x, zero(T))
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   passes, checks = 0, 0
   path = false
   if _haslevel(g)
@@ -119,10 +132,11 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
     λprev = λmax
     for k in 0:continuation
       gk = k == continuation ? g : _with_level(g, exp(l1 + k * (l2 - l1) / continuation))
+      sk = k == continuation ? method : _with_tol(method, tolk(k))
       if screening
-        checks += _screened!(x, m, gk, λprev, grad, st, method, inS)
+        checks += _screened!(x, m, gk, λprev, grad, st, sk, inS)
       else
-        _cd!(x, m, gk, st, method)
+        _cd!(x, m, gk, st, sk)
       end
       passes += st.passes
       λprev = _level(gk)
@@ -132,8 +146,12 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f:
     passes += st.passes
   end
   _warn_not_converged(st, method)
-  CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks)
+  CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks, st.relgap)
 end
+
+# the solver for the levels before the target, which only give warm starts:
+# the tolerance tol, and no stopping on the duality gap
+_with_tol(s::CDSolver, tol::Real) = _with(s; tol = Float64(tol), gaptol = 0.0)
 
 Base.eltype(::CDModel{T}) where {T} = T
 
@@ -177,7 +195,10 @@ end
     solve_path(f, g, λs, method = CDSolver(); x, screening = true, maxnnz = Inf, callback = nothing)
 
 Minimize `f + gₖ` along the decreasing penalty levels `λs`, where `gₖ` is `g`
-with level `λs[k]`, each warm started from the previous solution. The iterate
+with level `λs[k]`, each warm started from the previous solution. The level of
+`ElasticNet(λ1, λ2, w)` is `λ1`, with `λ2` fixed; for glmnet's elastic-net path
+at a fixed `α`, `λ(α ∑ᵢ wᵢ|xᵢ| + (1 - α)‖x‖²/2)`, take
+`g = Scaled(ElasticNet(α, 1 - α, w), 1)`, whose level is the scale. The iterate
 `x` (a zero `SparseIterate` of the right length when `f` has columns, which
 must otherwise be given) is the starting point and holds the last solution on
 return.
@@ -201,7 +222,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   check_penalty(m, g)
   isempty(λs) || _with_level(g, T(first(λs)))      # a penalty with a level
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   if screening
     grad = _gradient_buffer(x)
     gradient!(grad, m, x)
@@ -213,7 +234,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   for (k, λ) in enumerate(λs)
     gk = _with_level(g, T(λ))
     if screening
-      initialize!(m, x)       # no drift of the cache along the path
+      _initialize!(m, x, false)   # no drift of the cache along the path; the data are the same
       checks = _screened!(x, m, gk, λprev, grad, st, method, inS)
       λprev = T(λ)
     else

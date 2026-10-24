@@ -31,6 +31,16 @@ elastic-net path of glmnet at a fixed mixing ``\alpha`` moves both terms with
 ``\lambda``: it is the path of `Scaled(ElasticNet(α, 1 - α), λ)`, whose level is
 the scale ``\lambda``.
 
+Each of the separable penalties can be restricted to a box,
+`Constrained(g, IndBox(l, u))`, which has the level and the weights of `g`; zero
+must be in the box, ``l \le 0 \le u``, as glmnet requires of its limits. A
+coordinate at zero is then optimal while the part of the gradient that points
+into the box is at most ``\lambda w_k``: ``(-\nabla_k f)_+`` if ``u_k > 0`` and
+``(\nabla_k f)_+`` if ``l_k < 0``. ``\lambda_{\max}`` and the strong rule use
+that part, so that ``\lambda_{\max}`` of the nonnegative lasso,
+`Constrained(NormL1(λ), IndBox(0, Inf))`, is
+``\max_k (-\nabla_k f(0))_+ / w_k``.
+
 ## The largest useful level
 
 Zero minimizes ``f + g_\lambda`` exactly when every penalized coordinate

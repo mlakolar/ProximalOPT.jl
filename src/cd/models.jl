@@ -232,7 +232,7 @@ _with_level(g::ElasticNet, λ) = ElasticNet(λ, g.λ2, g.w)
 _with_level(g::MCP, λ) = MCP(λ, g.a)
 _with_level(g::SCAD, λ) = SCAD(λ, g.a)
 _with_level(g::Scaled{<:ElasticNet}, λ) = Scaled(g.f, λ)
-_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2."))
+_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2, possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 _weight(g::Union{NormL1, NormL1Nonneg}, i::Int) = _entryweight(g.w, i, typeof(g.λ0))
 _weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
@@ -240,7 +240,35 @@ _entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
 _entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
 _weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
 _weight(g::Scaled{<:ElasticNet}, i::Int) = g.f.λ1 * _weight(g.f, i)
-_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2."))
+_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2, possibly on a box (Constrained(g, IndBox(l, u)))."))
+
+# A penalty with a level on a box, Constrained(g, IndBox(l, u)), has the level
+# and the weights of g. Zero must be in the box (l ≤ 0 ≤ u, as glmnet requires
+# of its limits), so that the path starts from it and λmax means what it means
+# for g. A coordinate at zero is then optimal while the gradient over it is at
+# most λ times its weight in the directions the box allows (_screengrad).
+const _BoxConstrained = ProximalBase.BoxConstrained
+_haslevel(c::_BoxConstrained) = _haslevel(c.f)
+_level(c::_BoxConstrained) = _level(c.f)
+_with_level(c::_BoxConstrained, λ) = (_check_zero_in_box(c.box); _BoxConstrained(_with_level(c.f, λ), c.box))
+_weight(c::_BoxConstrained, i::Int) = _weight(c.f, i)
+
+_check_zero_in_box(box::IndBox) =
+  box.zp ? nothing : throw(ArgumentError("a path, λmax and screening on Constrained(g, IndBox(l, u)) need zero in the box, l ≤ 0 ≤ u."))
+
+# the size of the gradient over coordinate k that λ times its weight bounds when
+# the coordinate is optimal at zero: |∇ₖf| (its norm over a group), and on a
+# box, the part of it that points into the box from zero, (-∇ₖf)₊ when uₖ > 0
+# and (∇ₖf)₊ when lₖ < 0. λmax and screening compare it with λwₖ.
+_screengrad(g, grad::AbstractArray, x, k::Int) = _gradnorm(grad, x, k)
+function _screengrad(c::_BoxConstrained, grad::AbstractArray, x::SparseIterate, k::Int)
+  d = grad[k]
+  if d < 0
+    ProximalBase._entry(c.box.u, k) > 0 ? -d : zero(d)
+  else
+    ProximalBase._entry(c.box.l, k) < 0 ? d : zero(d)
+  end
+end
 
 
 # the penalty g goes with iterates like x: it is separable, with a weight or

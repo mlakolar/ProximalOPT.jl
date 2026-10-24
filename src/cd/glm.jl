@@ -535,7 +535,7 @@ function _screened_newton!(x, m::GLMModel{T}, g, λprev, grad::AbstractArray, me
   threshold = 2λ - λprev
   for k in eachindex(inS)
     w = _coordweight(g, x, k)
-    inS[k] = iszero(w) || _isnonzero(x, k) || _gradnorm(grad, x, k) >= threshold * w
+    inS[k] = iszero(w) || _isnonzero(x, k) || _screengrad(g, grad, x, k) >= threshold * w
   end
   passes, checks = 0, 0
   F, converged = T(NaN), false
@@ -546,7 +546,7 @@ function _screened_newton!(x, m::GLMModel{T}, g, λprev, grad::AbstractArray, me
     checks += 1
     violated = false
     for k in eachindex(inS)
-      if !inS[k] && _gradnorm(grad, x, k) > λ * _coordweight(g, x, k)
+      if !inS[k] && _screengrad(g, grad, x, k) > λ * _coordweight(g, x, k)
         inS[k] = true
         violated = true
       end

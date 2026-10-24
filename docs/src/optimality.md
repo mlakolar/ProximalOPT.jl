@@ -125,6 +125,11 @@ weights and iterate types, and an unsupported combination raises an
 `ArgumentError`. A solver asked to use an unavailable
 gap warns and falls back to its usual stopping rule.
 
+For a linear composite, [`CondatVu`](@ref) uses the six-argument
+`duality_gap(f, g, h, D, x, y)` and the same `gaptol`/`gapevery` options.
+See [Primal–dual splitting](@ref) for its feasible dual construction and
+conjugate requirements.
+
 With `gapsafe = true`, coordinate descent also uses the gap to remove
 coordinates proved zero at the optimum. See [Penalty paths and screening](@ref)
 for screening, and Fercoq, Gramfort and Salmon (*Mind the duality gap: safer

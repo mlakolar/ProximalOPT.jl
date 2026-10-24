@@ -31,3 +31,10 @@ the general references and the statistical applications here.
   Guaranteed Stability and Performance. *IEEE Journal of Selected Topics in
   Signal Processing*, 4(2), 2010.
 
+
+- L. Condat. [A primal–dual splitting method for convex optimization involving
+  Lipschitzian, proximable and linear composite terms](https://optimization-online.org/wp-content/uploads/2011/12/3284.pdf).
+  *Journal of Optimization Theory and Applications*, 158(2), 2013.
+- D. Applegate, M. Díaz, O. Hinder, H. Lu, M. Lubin, B. O'Donoghue and W. Schudy.
+  [Practical Large-Scale Linear Programming using Primal-Dual Hybrid Gradient](https://proceedings.neurips.cc/paper_files/paper/2021/hash/a8fbbd3b11424ce032ba813493d95ad7-Abstract.html).
+  *Advances in Neural Information Processing Systems* 34, 2021.

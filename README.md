@@ -80,6 +80,7 @@ path = solve_path(f, NormL1(1.0), λs)
 | Smooth loss and a nonconvex penalty with a proximal operator | `MonotoneAccProxGradDescent`, `ProximalGradientDescent` |
 | Smooth loss, a sparse solution, and supported restrictions to active coordinates | `ActiveAccProxGradDescent` |
 | Two terms with proximal operators | `ADMMSolver` |
+| Convex `f(x) + g(x) + h(D*x)` with smooth `f` | `CondatVu` |
 
 The [solver guide](https://mlakolar.github.io/ProximalSolvers.jl/dev/choosing_solver/)
 states the requirements of each method. In particular, a separable penalty

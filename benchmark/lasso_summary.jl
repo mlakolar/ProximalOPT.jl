@@ -5,7 +5,7 @@
 
 using Printf
 
-const RESULTS = joinpath(@__DIR__, "results")
+const RESULTS = get(ENV, "PROXIMAL_LASSO_OUT", joinpath(@__DIR__, "results"))
 const TARGETS = (1e-6, 1e-10)
 
 # rows of a CSV file written by lasso_bench.jl (no field contains a comma)

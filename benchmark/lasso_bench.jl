@@ -2,7 +2,8 @@
 # CoordinateDescent.jl, with glmnet (GLMNet.jl) and Lasso.jl for reference.
 #
 #     julia --project=benchmark benchmark/lasso_bench.jl            # 1.5 to 3.5 hours
-#     julia --project=benchmark benchmark/lasso_bench.jl --quick    # a minute
+#     julia --project=benchmark benchmark/lasso_bench.jl --quick
+#     julia --project=benchmark benchmark/lasso_bench.jl --smoke    # bounded plumbing check
 #
 # 1. One λ, starting from β = 0: each solver is run over a sweep of its
 #    tolerance, and each run records its time and accuracy. This gives the time
@@ -17,10 +18,12 @@
 include(joinpath(@__DIR__, "lasso_setup.jl"))
 BLAS.set_num_threads(1)
 
-const QUICK = "--quick" in ARGS
-const OUT = joinpath(@__DIR__, "results")
+const SMOKE = "--smoke" in ARGS
+const QUICK = SMOKE || "--quick" in ARGS
+const OUT = get(ENV, "PROXIMAL_LASSO_OUT", joinpath(@__DIR__, "results"))
 
-const SCENARIOS = QUICK ?
+const SCENARIOS = SMOKE ?
+  [(name = "smoke", desc = "n=80 p=120 AR(1) 0.3", n = 80, p = 120, s = 5, ρ = 0.3, common = 0.0, gram = true)] : QUICK ?
   [(name = "A", desc = "n=300 p=1000 independent", n = 300, p = 1000, s = 20, ρ = 0.0, common = 0.0, gram = true)] :
   [(name = "A", desc = "n=500 p=2500 independent",      n = 500,  p = 2500,  s = 50, ρ = 0.0, common = 0.0, gram = true),
    (name = "B", desc = "n=500 p=2500 AR(1) 0.8",        n = 500,  p = 2500,  s = 50, ρ = 0.8, common = 0.0, gram = true),
@@ -28,12 +31,34 @@ const SCENARIOS = QUICK ?
    (name = "D", desc = "n=1000 p=20000 independent",    n = 1000, p = 20000, s = 20, ρ = 0.0, common = 0.0, gram = false),
    (name = "E", desc = "n=500 p=2500 equicorrelated 0.5", n = 500, p = 2500, s = 50, ρ = 0.0, common = 0.5, gram = true)]
 const LAMBDA_FRACS = QUICK ? (0.1,) : (0.1, 0.02)
-const N_LAMBDA = QUICK ? 10 : 50
-const TOLS = QUICK ? 10.0 .^ (-2:-2:-14) : 10.0 .^ (-1:-1:-16)
-const PATH_TOLS = QUICK ? 10.0 .^ (-4:-2:-14) : 10.0 .^ (-3:-1:-14)
+const N_LAMBDA = SMOKE ? 4 : QUICK ? 10 : 50
+const TOLS = SMOKE ? (1e-8,) : QUICK ? 10.0 .^ (-2:-2:-14) : 10.0 .^ (-1:-1:-16)
+const PATH_TOLS = SMOKE ? (1e-8,) : QUICK ? 10.0 .^ (-4:-2:-14) : 10.0 .^ (-3:-1:-14)
 const RUN_CAP = 20.0       # stop a sweep after a run this slow (seconds)
 const SOLVER_CAP = 90.0    # or after this much time on one solver in one case
 const DONE = 1e-11         # or once the relative suboptimality is below this
+
+function bench_timed(run, P, args...; maxreps = 7)
+  timed_solver(run, P, args...; budget = SMOKE ? 0.0 : 0.3,
+               minreps = SMOKE ? 1 : 3, maxreps = SMOKE ? 1 : maxreps)
+end
+
+function check_fit(P, β, λ; accuracy = true)
+  length(β) == P.p || error("A solver returned the wrong coefficient dimension.")
+  all(isfinite, β) && isfinite(objective(P, β, λ)) || error("A solver returned a nonfinite fit.")
+  accuracy && lasso_kkt(P, β, λ) > 1e-3 * max(P.λmax, 1.0) &&
+    error("Smoke fit does not satisfy the lasso KKT conditions.")
+end
+
+function check_smoke_outputs()
+  single = readlines(joinpath(OUT, "single.csv"))
+  paths = readlines(joinpath(OUT, "path.csv"))
+  length(single) - 1 == length(SOLVERS) + length(DEFAULT_RUNS) || error("Smoke run missed a single/default solver.")
+  length(paths) - 1 == length(PATH_SOLVERS) || error("Smoke run missed a path solver.")
+  # A defaults error is written as a NaN row, so fail on it as well.
+  any(line -> occursin("NaN,NaN", line), single[2:end]) && error("Smoke run contains an error row.")
+  println("LASSO_SMOKE_PASSED singles=", length(single) - 1, " paths=", length(paths) - 1)
+end
 
 function warmup()
   P = make_problem("warmup", "warmup"; n = 50, p = 100, s = 5)
@@ -46,7 +71,10 @@ function warmup()
 end
 
 function main()
-  println(env_summary(), QUICK ? " (quick run)" : "")
+  println(env_summary(), SMOKE ? " (smoke run)" : QUICK ? " (quick run)" : "")
+  println("Current packages: ProximalSolvers ", pkgversion(ProximalSolvers),
+          ", ProximalBase ", pkgversion(ProximalBase), ", GLMNet ", pkgversion(GLMNet),
+          ", Lasso ", pkgversion(Lasso))
   warmup()
   mkpath(OUT)
 
@@ -63,13 +91,14 @@ function main()
     for frac in LAMBDA_FRACS
       λ = frac * P.λmax
       tref = @elapsed (βstar, Fstar, kkt) = reference(P, λ)
+      SMOKE && kkt > 1e-9 * max(P.λmax, 1.0) && error("Reference KKT check failed.")
       nnzstar = count(!iszero, βstar)
       @printf "  λ = %.2f λmax: nnz(β*) = %d, KKT residual of the reference %.1e (%.1f s)\n" frac nnzstar kkt tref
 
       row(solver, package, tol, gram_time, β, t) = @printf(single, "%s,%s,%g,%d,%s,%s,%g,%.6g,%.6g,%.6g,%.6g,%d,%d,%.6g\n",
         P.name, P.desc, frac, nnzstar, solver, package, tol, t, gram_time,
         relsubopt(objective(P, β, λ), Fstar), maximum(abs, β - βstar), support_errors(β, βstar),
-        count(!iszero, β), kkt_residual(P, β, λ))
+        count(!iszero, β), lasso_kkt(P, β, λ))
 
       for S in SOLVERS
         (S.needs_gram && P.G === nothing) && continue
@@ -77,8 +106,10 @@ function main()
         for tol in TOLS
           local β, t
           try
-            β, t = timed(() -> S.run(P, λ, tol); budget = 0.3)
+            β, t = bench_timed(S.run, P, λ, tol)
+            SMOKE && check_fit(P, β, λ)
           catch err
+            SMOKE && rethrow()
             @printf "    %-24s tol = %.0e failed: %s\n" S.name tol first(sprint(showerror, err), 120)
             break
           end
@@ -93,9 +124,11 @@ function main()
 
       for (name, run) in DEFAULT_RUNS
         try
-          β, t = timed(() -> run(P, λ); budget = 0.3)
+          β, t = bench_timed(run, P, λ)
+          SMOKE && check_fit(P, β, λ; accuracy = false)
           row(name, "defaults", NaN, 0.0, β, t)
         catch err
+          SMOKE && rethrow()
           # recorded with NaN accuracy, reported as an error
           @printf "    defaults %-15s failed: %s\n" name first(sprint(showerror, err), 120)
           @printf(single, "%s,%s,%g,%d,%s,%s,%g,%.6g,%.6g,%.6g,%.6g,%d,%d,%.6g\n", P.name, P.desc, frac,
@@ -115,8 +148,13 @@ function main()
       for tol in PATH_TOLS
         local B, t
         try
-          B, t = timed(() -> S.run(P, λs, tol); budget = 0.3, maxreps = 3)
+          B, t = bench_timed(S.run, P, λs, tol; maxreps = 3)
+          if SMOKE
+            length(B) == length(λs) || error("Smoke path was truncated.")
+            foreach(k -> check_fit(P, B[k], λs[k]), eachindex(λs))
+          end
         catch err
+          SMOKE && rethrow()
           @printf "    path %-19s tol = %.0e failed: %s\n" S.name tol first(sprint(showerror, err), 120)
           break
         end
@@ -136,6 +174,11 @@ function main()
   end
   close(single)
   close(paths)
+  SMOKE && check_smoke_outputs()
 end
 
-main()
+try
+  main()
+finally
+  close_legacy_worker!()
+end

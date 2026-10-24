@@ -4,7 +4,7 @@
 
 module GapTests
 
-using Test, LinearAlgebra, Random, Statistics
+using Test, LinearAlgebra, Random, SparseArrays, Statistics
 using ProximalBase
 using ProximalSolvers
 const PS = ProximalSolvers
@@ -64,6 +64,19 @@ relgap(dg) = dg.gap / abs(dg.primal)
   dg = duality_gap(m, NormL1(0.1λmax), x)
   @test abs(relgap(dg)) < 1e-10
   @test duality_gap(m, NormL1(0.1λmax), SparseIterate(p)).gap > 0
+
+  # a sparse design with an intercept, whose model keeps a shift of the
+  # residuals apart: the same gap as the dense design
+  Xs = sparse(X .* (rand(rng, n, p) .< 0.3))
+  xr = randpoint(rng, p)
+  for (fs, fd) in (((1 / n) * LeastSquaresLoss(y, Xs), (1 / n) * LeastSquaresLoss(y, Matrix(Xs))),
+                   (GLMLoss(ProximalBase.Squared(), y, Xs; weights = w ./ n, offset = o),
+                    GLMLoss(ProximalBase.Squared(), y, Matrix(Xs); weights = w ./ n, offset = o)))
+    ds = duality_gap(cdmodel(fs, SparseIterate(p); intercept = true), NormL1(0.1λmax), xr)
+    dd = duality_gap(cdmodel(fd, SparseIterate(p); intercept = true), NormL1(0.1λmax), xr)
+    @test ds.primal ≈ dd.primal
+    @test ds.dual ≈ dd.dual
+  end
 
   # Poisson, by proximal Newton
   ycount = Float64.(rand(rng, 0:3, n))
@@ -199,6 +212,16 @@ end
   @test !isempty(screened)
   @test all(k -> !isactive(xref, k) || all(iszero, atom(xref, k)), screened)
   @test norm(Vector(x) - Vector(xref)) <= 1e-5 * max(1, norm(Vector(xref)))
+  # groups on a sparse design with an intercept, whose model keeps a shift of
+  # the residuals apart
+  Xs = sparse(X .* (rand(rng, n, p) .< 0.3))
+  fs, fd = (1 / n) * LeastSquaresLoss(y, Xs), (1 / n) * LeastSquaresLoss(y, Matrix(Xs))
+  gs = GroupNormL2(0.08λmax, groups)
+  xs, xd = AtomIterate(p, groups), AtomIterate(p, groups)
+  solve!(xs, cdmodel(fs, xs; intercept = true), gs, CDSolver(; gapsafe = true, gaptol = 1e-10))
+  solve!(xd, cdmodel(fd, xd; intercept = true), gs, CDSolver(; tol = 1e-14))
+  @test count(!iszero, Vector(xd)) > 0
+  @test norm(Vector(xs) - Vector(xd)) <= 1e-5 * max(1, norm(Vector(xd)))
   # screening keeps to the candidates of the strong rule, and restores them
   x = SparseIterate(p)
   m = cdmodel(ls, x)

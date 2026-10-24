@@ -43,8 +43,6 @@ end
 _hasconjugate(ℓ) = false
 _hasconjugate(::Union{ProximalBase.Squared, ProximalBase.Logistic, ProximalBase.Poisson, ProximalBase.Huber}) = true
 
-@inline _xlogx(p::T) where {T} = iszero(p) ? zero(T) : p * log(p)
-
 # whether p lies in [a, b], up to rounding
 @inline _indomain(p::T, a, b) where {T} = (tol = 8 * eps(T) * max(one(T), abs(p)); a - tol <= p <= b + tol)
 
@@ -124,8 +122,8 @@ _hasgap(m::LSModel, g) = _hasdual(g)
 _hasgap(m::GLMModel, g) = _hasdual(g) && _hasconjugate(m.loss)
 
 # (P(x), D(tθ), t) for a model current for x, writing ∇f(x) into z; nothing
-# without a gap. For least squares θᵢ = -s wᵢ rᵢ with the residuals r = ỹ - Ax,
-# so F*(tθ) = Σᵢ -t s wᵢ rᵢ ỹᵢ + t² s wᵢ rᵢ²/2.
+# without a gap. For least squares θᵢ = -s wᵢ rᵢ with the residuals r = ỹ - Ax
+# (m.r .+ m.δ, see LSModel), so F*(tθ) = Σᵢ -t s wᵢ rᵢ ỹᵢ + t² s wᵢ rᵢ²/2.
 _gap!(z, m::CDModel, g, x) = nothing
 
 function _gap!(z::AbstractVector{T}, m::LSModel{T}, g, x) where {T}
@@ -133,12 +131,13 @@ function _gap!(z::AbstractVector{T}, m::LSModel{T}, g, x) where {T}
   gradient!(z, m, x)
   t = _dualscale(g, z)
   t === nothing && return nothing
-  r, y, o, w, ȳ = m.r, m.y, m.offset, m.w, m.ybar
+  r, δ, y, o, w, ȳ = m.r, m.δ, m.y, m.offset, m.w, m.ybar
   v = zero(T)
   @inbounds for i in eachindex(r)
     wi = w === nothing ? one(T) : w[i]
     ỹ = (o === nothing ? y[i] : y[i] - o[i]) - ȳ
-    v += wi * r[i] * (t * r[i] / 2 - ỹ)
+    ri = r[i] + δ
+    v += wi * ri * (t * ri / 2 - ỹ)
   end
   P = loss_value(m, x) + g(x)
   P, -t * m.s * v - _conjugate_penalty(g, z, t), t
@@ -290,7 +289,7 @@ function _zerocoordinate!(m::LSModel{T}, x::AtomIterate{T}, k::Int) where {T}
     v = x[j]
     iszero(v) && continue
     x[j] = zero(T)
-    _column_axpy!(m.r, m.X, j, m.xbar[j], -v)
+    _residual_axpy!(m, j, -v)
     moved = true
   end
   moved
@@ -354,6 +353,10 @@ function _gapevaluator(f::_LSLoss, g, x::AbstractVector)
   m = cdmodel(f, x)
   _LSGap(m, zeros(eltype(m), length(x)))
 end
+
+# the GLMLoss of f and its scale
+_glm(f::GLMLoss) = (f, 1)
+_glm(f::Scaled{<:GLMLoss}) = (f.f, f.α)
 
 function _gapevaluator(f::Union{GLMLoss, Scaled{<:GLMLoss}}, g, x::AbstractVector)
   glm, α = _glm(f)

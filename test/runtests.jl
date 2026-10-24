@@ -3,15 +3,20 @@ using Test
 
 tests = [
   "prox_solvers",
+  "nonconvex",
   "linesearch",
+  "image_models",
   "call_limits",
   "admm",
+  "product_space",
   "active_set",
   "group_lasso",
   "low_rank",
   "coordinate_descent",
+  "sparse_x",
   "glm",
   "duality_gap",
+  "examples",
   "aqua",
 ]
 

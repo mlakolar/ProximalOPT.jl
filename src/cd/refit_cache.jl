@@ -45,20 +45,20 @@ RefitCache(::Type{T} = Float64) where {T<:AbstractFloat} = RefitCache{T}(nothing
 _has_hessian_columns(::CDModel) = false
 _has_hessian_columns(::Union{LSModel, QuadModel}) = true
 
-# h[q] = H[S[q], j]: s ∑ᵢ wᵢ (Xᵢₖ - x̄ₖ)(Xᵢⱼ - x̄ⱼ) for least squares (there is no
-# intercept, so no centering, with weights) and s A[k, j] for a quadratic
+# h[q] = H[S[q], j]: s ∑ᵢ wᵢ (Xᵢₖ - x̄ₖ)(Xᵢⱼ - x̄ⱼ) for least squares, with the
+# weighted means of an intercept (zero without one), and s A[k, j] for a quadratic
 function _hessian_column!(h, m::LSModel{T}, S, j::Int) where {T}
   X, c, w = m.X, m.xbar, m.w
   @inbounds for (q, k) in enumerate(S)
     acc = zero(T)
+    ck, cj = c[k], c[j]
     if w === nothing
-      ck, cj = c[k], c[j]
       @simd for i in axes(X, 1)
         acc += (X[i, k] - ck) * (X[i, j] - cj)
       end
     else
       @simd for i in axes(X, 1)
-        acc += w[i] * X[i, k] * X[i, j]
+        acc += w[i] * (X[i, k] - ck) * (X[i, j] - cj)
       end
     end
     h[q] = m.s * acc

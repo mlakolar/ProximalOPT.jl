@@ -35,8 +35,9 @@ Optional:
   [`solve_path`](@ref) need it.
 - [`check_penalty`](@ref), for a model that takes only some penalties.
 
-Group penalties (`GroupNormL2` on an `AtomIterate`) work with the built-in
-models only. Momentum (see [`CDSolver`](@ref)) calls `initialize!` at each
+Group penalties (`GroupNormL2`, `GroupNormLinf` and the other group norms of
+ProximalBase, on an `AtomIterate`) work with the built-in least-squares and
+quadratic models only. Momentum (see [`CDSolver`](@ref)) calls `initialize!` at each
 extrapolated point of a new model.
 """
 abstract type CDModel{T} end
@@ -210,11 +211,16 @@ _gradient_buffer(x::AbstractArray{T}) where {T} = similar(Array{T}, axes(x))
 # The penalty level λ of g, g with level λ instead, and the weight of entry i
 # (of group i for a group penalty): a coordinate at zero is optimal while the
 # gradient over it is at most λ times its weight. Paths and screening need these.
+# The level of ElasticNet(λ1, λ2, w) is λ1, with λ2 fixed; that of
+# Scaled(ElasticNet(α, 1 - α, w), λ) is its scale λ, so that both terms move
+# with it, as along glmnet's paths at a fixed α, and the weight of entry i is
+# then α wᵢ.
 _haslevel(g) = false
-_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD}) = true
+_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD, Scaled{<:ElasticNet}}) = true
 _level(g::Union{NormL1, NormL1Nonneg, GroupNormL2}) = g.λ0
 _level(g::ElasticNet) = g.λ1
 _level(g::Union{MCP, SCAD}) = g.λ
+_level(g::Scaled{<:ElasticNet}) = g.α
 
 _with_level(g::NormL1, λ) = NormL1(λ, g.w)
 _with_level(g::NormL1Nonneg, λ) = NormL1Nonneg(λ, g.w)
@@ -222,31 +228,33 @@ _with_level(g::GroupNormL2, λ) = GroupNormL2(λ, g.groups, g.w)
 _with_level(g::ElasticNet, λ) = ElasticNet(λ, g.λ2, g.w)
 _with_level(g::MCP, λ) = MCP(λ, g.a)
 _with_level(g::SCAD, λ) = SCAD(λ, g.a)
-_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, MCP, SCAD or GroupNormL2."))
+_with_level(g::Scaled{<:ElasticNet}, λ) = Scaled(g.f, λ)
+_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2."))
 
 _weight(g::Union{NormL1, NormL1Nonneg}, i::Int) = _entryweight(g.w, i, typeof(g.λ0))
 _weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
 _entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
 _entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
 _weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
-_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, MCP, SCAD or GroupNormL2."))
+_weight(g::Scaled{<:ElasticNet}, i::Int) = g.f.λ1 * _weight(g.f, i)
+_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2."))
 
 
 # the penalty g goes with iterates like x: it is separable, with a weight or
 # bound for every entry of x (the coordinate steps read them unchecked), or a
-# GroupNormL2 on an AtomIterate with its groups
+# group penalty (GroupNormL2, GroupNormLinf, ...) on an AtomIterate with its groups
 function _check_iterate(g::AbstractFunction, x)
   if isseparable(g)
     ProximalBase._checkparams(g, x)
     return nothing
   end
-  if g isa GroupNormL2
-    x isa AtomIterate || throw(ArgumentError("GroupNormL2 needs an AtomIterate with its groups, as in AtomIterate(p, g.groups)."))
+  if g isa ProximalBase.AbstractGroupNorm
+    x isa AtomIterate || throw(ArgumentError("$(nameof(typeof(g))) needs an AtomIterate with its groups, as in AtomIterate(p, g.groups)."))
     x.groups === g.groups || x.groups == g.groups ||
       throw(ArgumentError("The groups of x must be the groups of g, as in AtomIterate(p, g.groups)."))
     return nothing
   end
-  throw(ArgumentError("coordinate descent needs a separable penalty (isseparable(g)) or GroupNormL2, but g is a $(typeof(g))."))
+  throw(ArgumentError("coordinate descent needs a separable penalty (isseparable(g)) or a group penalty (GroupNormL2, GroupNormLinf, ...), but g is a $(typeof(g))."))
 end
 
 # the factor max(1 - c / (L ‖u‖), 0) by which the proximal operator of c‖⋅‖₂

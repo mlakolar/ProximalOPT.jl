@@ -3,7 +3,7 @@
 
 module RefitCacheTests
 
-using Test, LinearAlgebra, Random, Statistics
+using Test, LinearAlgebra, Random, SparseArrays, Statistics
 using ProximalBase
 using ProximalSolvers
 using ProximalSolvers: intercept
@@ -62,6 +62,26 @@ end
       coef = [ones(n) X[:, S]] \ y1
       @test Vector(xc)[S] ≈ coef[2:end] rtol = 1e-8
       @test intercept(m, Vector(xc)) ≈ coef[1] rtol = 1e-8
+    end
+  end
+
+  @testset "weighted least squares with an intercept, and a sparse design" begin
+    w = rand(rng, n) .+ 0.5
+    Xs = sparse(X .* (rand(rng, n, p) .< 0.3))
+    y1 = y .+ 3
+    for (m, A, sw) in ((cdmodel(GLMLoss(ProximalBase.Squared(), y1, X; weights = w), SparseIterate(p); intercept = true),
+                        X, sqrt.(w)),
+                       (cdmodel((1 / n) * LeastSquaresLoss(y1, Xs), SparseIterate(p); intercept = true), Matrix(Xs), ones(n)))
+      cache = RefitCache()
+      for S in walk[1:20]
+        xc, xf = SparseIterate(p), SparseIterate(p)
+        refit!(xc, m; support = S, cache)
+        refit!(xf, m; support = S)
+        @test Vector(xc) ≈ Vector(xf) rtol = 1e-8
+        coef = (sw .* [ones(n) A[:, S]]) \ (sw .* y1)
+        @test Vector(xc)[S] ≈ coef[2:end] rtol = 1e-8
+      end
+      @test cache.updates > 0
     end
   end
 

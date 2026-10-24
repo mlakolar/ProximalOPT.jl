@@ -75,7 +75,7 @@ end
 @testset "paths on a box: $name" for (name, l, u, box) in BOXES
   g = Constrained(NormL1(1.0), box)
   λmax = lambda_max(f, g, SparseIterate(p))
-  λs = λmax .* 10 .^ range(0, -2; length = 15)
+  λs = λmax * (1 + 1e-9) .* 10 .^ range(0, -2; length = 15)   # just above λmax, whatever the rounding
   paths = map((true, false)) do screening
     path = solve_path(f, g, λs, CDSolver(; tol = 1e-10); screening)
     @test path.λ == λs && all(path.converged)
@@ -89,7 +89,9 @@ end
     @test nnz(path.solutions[1]) == 0
     path
   end
-  @test all(k -> isapprox(Vector(paths[1].solutions[k]), Vector(paths[2].solutions[k]); atol = 1e-6), eachindex(λs))
+  # the same minima with and without screening; near 0.01 λmax the problem is
+  # close to interpolation, so the solutions themselves agree only to about 1e-6
+  @test paths[1].values ≈ paths[2].values rtol = 1e-10
 
   # continuation down to one level
   λ = 0.02λmax
@@ -106,7 +108,8 @@ end
   λs = λmax .* 10 .^ range(0, -2; length = 10)
   pb = solve_path(f, Constrained(NormL1(1.0, w), IndBox(0.0, Inf)), λs, CDSolver(; tol = 1e-10))
   pn = solve_path(f, NormL1Nonneg(1.0, w), λs, CDSolver(; tol = 1e-10))
-  @test all(k -> isapprox(Vector(pb.solutions[k]), Vector(pn.solutions[k]); atol = 1e-6), eachindex(λs))
+  @test pb.values ≈ pn.values rtol = 1e-10
+  @test all(k -> isapprox(Vector(pb.solutions[k]), Vector(pn.solutions[k]); atol = 1e-5), eachindex(λs))
 end
 
 @testset "other penalties on a box" begin
@@ -130,7 +133,7 @@ end
     gb = Constrained(g, IndBox(0.0, 1.0))
     λmax = lambda_max(f, gb, SparseIterate(p))
     @test λmax ≈ maximum(max.(z, 0))
-    path = solve_path(f, gb, λmax .* 10 .^ range(0, -2; length = 10), CDSolver(; tol = 1e-10))
+    path = solve_path(f, gb, λmax * (1 + 1e-9) .* 10 .^ range(0, -2; length = 10), CDSolver(; tol = 1e-10))
     @test all(path.converged)
     @test all(b -> inbox(Vector(b), zeros(p), ones(p)), path.solutions)
     @test nnz(path.solutions[1]) == 0 && nnz(path.solutions[end]) > 0

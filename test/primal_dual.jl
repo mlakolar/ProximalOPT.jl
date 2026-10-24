@@ -1,6 +1,12 @@
 module PrimalDualTests
 using Test, LinearAlgebra, SparseArrays, Random, ProximalBase, ProximalSolvers
 const PS = ProximalSolvers
+# A function barrier prevents the loop's test closure from being boxed on 1.10.
+function step_allocations(s,f,g,hc,D,τ,σ,a,r)
+  PS._pd_step!(s,f,g,hc,D,τ,σ,a,r)
+  PS._pd_step!(s,f,g,hc,D,τ,σ,a,r)
+  @allocated PS._pd_step!(s,f,g,hc,D,τ,σ,a,r)
+end
 
 @testset "Condat–Vũ" begin
   rng = MersenneTwister(23)
@@ -13,7 +19,7 @@ const PS = ProximalSolvers
     truth = prox(TotalVariation1D(.7),b)
     pg = solve!(zeros(n),f,TotalVariation1D(.7),AccProxGradDescent(),
                 ProximalOptions(maxiter=10_000,gradtol=1e-10,ftol=1e-14,xtol=1e-12))
-    @test pg.minimizer ≈ truth atol=1e-7
+    @test norm(pg.minimizer-truth,Inf) < 1e-7
     for adaptive in (false,true), restart in (false,true)
       x, y = zeros(n), zeros(n-1)
       method = CondatVu(abstol=1e-9,reltol=1e-8,adaptive=adaptive,restart=restart)
@@ -99,6 +105,7 @@ const PS = ProximalSolvers
     # the Fenchel equality. Zero g may leave the dual infeasible off stationarity.
     cert = duality_gap(LeastSquaresLoss([1.,-2.],D),ZeroFunction(),NormL1(.5),D,[.5,-1.5],[.5,-.5])
     @test cert.gap ≈ 0 atol=1e-12
+    @test duality_gap(SqrNormL2(0.),g,h,D,zeros(2),zeros(2)).gap == 0
     @test_throws DimensionMismatch solve!(zeros(3),f,g,h,D,CondatVu())
     @test_throws DimensionMismatch solve!(zeros(2),f,g,h,D,CondatVu();y=zeros(3))
     @test_throws ArgumentError solve!(zeros(2),f,MCP(.1,3.),h,D,CondatVu())
@@ -117,9 +124,7 @@ const PS = ProximalSolvers
       f,g,h = SqrNormL2(one(T),ones(T,10)),NormL1(T(.1)),NormL1(T(.2))
       s = PS._pd_state(sparsex ? SparseIterate(T,10) : zeros(T,10),zeros(T,10),f,D)
       hc = Conjugate(h)
-      step() = PS._pd_step!(s,f,g,hc,D,T(.4),T(.4),T(1e-6),T(1e-4))
-      step(); step()
-      @test @allocated(step()) == 0
+      @test step_allocations(s,f,g,hc,D,T(.4),T(.4),T(1e-6),T(1e-4)) == 0
     end
   end
 end

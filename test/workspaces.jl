@@ -102,6 +102,17 @@ end
   end
 end
 
+@testset "resizing a shared iterate cannot invalidate scratch storage" begin
+  for method in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent(), ADMMSolver(), CDSolver())
+    f = QuadraticFunction(Matrix{Float64}(I, 3, 3), -ones(3))
+    x = zeros(3)
+    ws = SolverWorkspace(x, f, NormL1(0.1), method)
+    resize!(x, 4)
+    @test_throws DimensionMismatch solve!(ws)
+    @test_throws DimensionMismatch reinit!(ws, zeros(3))
+  end
+end
+
 @testset "coordinate-descent workspace" begin
   rng = Xoshiro(18)
   X, y = randn(rng, 50, 12), randn(rng, 50)

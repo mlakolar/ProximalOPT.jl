@@ -55,13 +55,14 @@ reinit!(ws, zeros(size(X, 2)))
 r3 = solve!(ws)
 ```
 """
-struct SolverWorkspace{X, F, G, M, O, B}
+struct SolverWorkspace{X, F, G, M, O, B, D}
   x::X
   f::F
   g::G
   method::M
   options::O
   buffers::B
+  shape::D
 end
 
 function SolverWorkspace(x::Union{AbstractArray, _Blocks}, f::AbstractFunction,
@@ -72,7 +73,7 @@ function SolverWorkspace(x::Union{AbstractArray, _Blocks}, f::AbstractFunction,
   _workspace_noalias(x)
   state = initial_state(method, options, f, g, x)
   gap = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
-  SolverWorkspace(x, f, g, method, options, _GradientBuffers(state, gap))
+  SolverWorkspace(x, f, g, method, options, _GradientBuffers(state, gap), _size(x))
 end
 
 function SolverWorkspace(x::Union{Array{T}, Tuple{Array{T}, Vararg{Array{T}}}},
@@ -83,7 +84,7 @@ function SolverWorkspace(x::Union{Array{T}, Tuple{Array{T}, Vararg{Array{T}}}},
   _workspace_noalias(x)
   gap = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
   buffers = _ADMMBuffers(_copy(x), _zero(x), _similar(x), _similar(x), T(method.ρ), gap)
-  SolverWorkspace(x, f, g, method, options, buffers)
+  SolverWorkspace(x, f, g, method, options, buffers, _size(x))
 end
 
 _workspace_iterate(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, g) = x
@@ -98,7 +99,7 @@ function SolverWorkspace(x, f::Union{AbstractFunction, CDModel}, g::AbstractFunc
   check_penalty(m, g)
   initialize!(m, xs)
   buffers = _CDBuffers(xs, m, _CDState(eltype(xs), xs, method))
-  SolverWorkspace(x, f, g, method, nothing, buffers)
+  SolverWorkspace(x, f, g, method, nothing, buffers, _size(x))
 end
 
 function SolverWorkspace(x, f, g, method::ProximalSolver, options::ProximalOptions = ProximalOptions())
@@ -106,6 +107,7 @@ function SolverWorkspace(x, f, g, method::ProximalSolver, options::ProximalOptio
 end
 
 function _workspace_penalty(ws::SolverWorkspace, g)
+  _workspace_shape(ws)
   typeof(g) === typeof(ws.g) ||
     throw(ArgumentError("a workspace needs a penalty of type $(typeof(ws.g)); construct a new workspace for $(typeof(g))."))
   groups = _workspace_groups(ws.g)
@@ -113,6 +115,9 @@ function _workspace_penalty(ws::SolverWorkspace, g)
     throw(ArgumentError("a workspace needs the original penalty's group partition."))
   g
 end
+
+_workspace_shape(ws::SolverWorkspace) = _size(ws.x) == ws.shape ||
+  throw(DimensionMismatch("the workspace iterate was resized; construct a new workspace for a different shape."))
 
 _workspace_groups(g) = nothing
 _workspace_groups(g::ProximalBase.AbstractGroupNorm) = g.groups
@@ -128,8 +133,9 @@ Tuple blocks must have separate storage; cross-block source aliases are
 rejected before any block is overwritten.
 """
 function reinit!(ws::SolverWorkspace, x)
+  _workspace_shape(ws)
   typeof(x) === typeof(ws.x) || throw(ArgumentError("the starting point must have type $(typeof(ws.x))."))
-  _size(x) == _size(ws.x) || throw(DimensionMismatch("the starting point must have size $(_size(ws.x))."))
+  _size(x) == ws.shape || throw(DimensionMismatch("the starting point must have size $(ws.shape)."))
   _workspace_partition(ws.x, x)
   _workspace_copyable(ws.x, x)
   _copyto!(ws.x, x)

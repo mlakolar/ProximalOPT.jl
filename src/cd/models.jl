@@ -35,8 +35,9 @@ Optional:
   [`solve_path`](@ref) need it.
 - [`check_penalty`](@ref), for a model that takes only some penalties.
 
-Group penalties (`GroupNormL2` on an `AtomIterate`) work with the built-in
-models only. Momentum (see [`CDSolver`](@ref)) calls `initialize!` at each
+Group penalties (`GroupNormL2`, `GroupNormLinf` and the other group norms of
+ProximalBase, on an `AtomIterate`) work with the built-in least-squares and
+quadratic models only. Momentum (see [`CDSolver`](@ref)) calls `initialize!` at each
 extrapolated point of a new model.
 """
 abstract type CDModel{T} end
@@ -241,19 +242,19 @@ _weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for p
 
 # the penalty g goes with iterates like x: it is separable, with a weight or
 # bound for every entry of x (the coordinate steps read them unchecked), or a
-# GroupNormL2 on an AtomIterate with its groups
+# group penalty (GroupNormL2, GroupNormLinf, ...) on an AtomIterate with its groups
 function _check_iterate(g::AbstractFunction, x)
   if isseparable(g)
     ProximalBase._checkparams(g, x)
     return nothing
   end
-  if g isa GroupNormL2
-    x isa AtomIterate || throw(ArgumentError("GroupNormL2 needs an AtomIterate with its groups, as in AtomIterate(p, g.groups)."))
+  if g isa ProximalBase.AbstractGroupNorm
+    x isa AtomIterate || throw(ArgumentError("$(nameof(typeof(g))) needs an AtomIterate with its groups, as in AtomIterate(p, g.groups)."))
     x.groups === g.groups || x.groups == g.groups ||
       throw(ArgumentError("The groups of x must be the groups of g, as in AtomIterate(p, g.groups)."))
     return nothing
   end
-  throw(ArgumentError("coordinate descent needs a separable penalty (isseparable(g)) or GroupNormL2, but g is a $(typeof(g))."))
+  throw(ArgumentError("coordinate descent needs a separable penalty (isseparable(g)) or a group penalty (GroupNormL2, GroupNormLinf, ...), but g is a $(typeof(g))."))
 end
 
 # the factor max(1 - c / (L ‖u‖), 0) by which the proximal operator of c‖⋅‖₂

@@ -8,8 +8,8 @@ or takes one built beforehand so that many solves share it.
 
 | Loss | Cache | Step | Penalties |
 |:-----|:------|:-----|:----------|
-| `LeastSquaresLoss(y, X)`, `GLMLoss(Squared(), y, X; weights, offset)` | residuals ``y - o - X\beta`` | ``O(n)`` | separable, `GroupNormL2` |
-| `QuadraticFunction(A, b)` | ``Ax`` | ``O(p)`` | separable, `GroupNormL2` |
+| `LeastSquaresLoss(y, X)`, `GLMLoss(Squared(), y, X; weights, offset)` | residuals ``y - o - X\beta`` | ``O(n)`` | separable, group penalties |
+| `QuadraticFunction(A, b)` | ``Ax`` | ``O(p)`` | separable, group penalties |
 | `KronQuadratic(A, B, C)` | ``A\Theta B`` | ``O(pq)`` | separable |
 | `GLMLoss` with `Logistic` or `Huber` | ``\eta = X\beta + o`` | ``O(n)`` | separable |
 | [`SqrtLeastSquaresLoss`](@ref)`(y, X)` | residuals | ``O(n)``, exact | `NormL1` |

@@ -91,6 +91,13 @@ first visit to the group without allocating, and kept for the rest of a path. A 
 when ``\|\nabla_G f(x)\|_2 \le \lambda w_k``, its optimality condition, which is
 checked first: ``L_k`` is never computed for a group that does not move.
 
+Any other group penalty of ProximalBase on the groups of the `AtomIterate`,
+such as `GroupNormLinf` or a sparse group lasso, takes the same majorized
+step through its own proximal operator on the group, `prox_coordinate!`, and a
+separable penalty takes it entry by entry. When ``L_k = 0`` the loss does not
+depend on the group, which goes to the minimizer of the penalty. These steps
+work with the least-squares and quadratic models.
+
 ## Passes and the active set
 
 A pass visits a set of coordinates once each, in a uniformly random order drawn

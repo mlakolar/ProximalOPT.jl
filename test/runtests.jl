@@ -14,6 +14,7 @@ tests = [
   "low_rank",
   "coordinate_descent",
   "sparse_x",
+  "group_penalties",
   "glm",
   "duality_gap",
   "quic",

@@ -199,7 +199,7 @@ function _coordweight(g, x::SymmetricSparseIterate, k::Int)
   r, c = tril_cartesian(x.p, k)
   _weight(g, _entry(x.p, r, c))
 end
-_coordweight(g::GroupNormL2, ::AtomIterate, k::Int) = g.w[k]
+_coordweight(g::Union{GroupNormL2, GroupMCP, GroupSCAD}, ::AtomIterate, k::Int) = g.w[k]
 
 _isnonzero(x::SparseIterate, k::Int) = !iszero(x[k])
 _isnonzero(x::SymmetricSparseIterate, k::Int) = !iszero(coordinates(x)[k])
@@ -217,13 +217,17 @@ _gradient_buffer(x::AbstractArray{T}) where {T} = similar(Array{T}, axes(x))
 # The level of ElasticNet(λ1, λ2, w) is λ1, with λ2 fixed; that of
 # Scaled(ElasticNet(α, 1 - α, w), λ) is its scale λ, so that both terms move
 # with it, as along glmnet's paths at a fixed α, and the weight of entry i is
-# then α wᵢ.
+# then α wᵢ. The capped ℓ1, log and ℓq penalties of ProximalBase have none:
+# their exact coordinate steps can jump away from zero at levels where zero is
+# locally optimal, so the slope at zero would give neither λmax nor a safe
+# screening test.
 _haslevel(g) = false
-_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD, Scaled{<:ElasticNet}}) = true
+_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD, Scaled{<:ElasticNet}, GroupMCP, GroupSCAD}) = true
 _level(g::Union{NormL1, NormL1Nonneg, GroupNormL2}) = g.λ0
 _level(g::ElasticNet) = g.λ1
 _level(g::Union{MCP, SCAD}) = g.λ
 _level(g::Scaled{<:ElasticNet}) = g.α
+_level(g::Union{GroupMCP, GroupSCAD}) = g.λ0
 
 _with_level(g::NormL1, λ) = NormL1(λ, g.w)
 _with_level(g::NormL1Nonneg, λ) = NormL1Nonneg(λ, g.w)
@@ -231,8 +235,10 @@ _with_level(g::GroupNormL2, λ) = GroupNormL2(λ, g.groups, g.w)
 _with_level(g::ElasticNet, λ) = ElasticNet(λ, g.λ2, g.w)
 _with_level(g::MCP, λ) = MCP(λ, g.a)
 _with_level(g::SCAD, λ) = SCAD(λ, g.a)
+_with_level(g::GroupMCP, λ) = GroupMCP(λ, g.groups, g.w; a = g.a)
+_with_level(g::GroupSCAD, λ) = GroupSCAD(λ, g.groups, g.w; a = g.a)
 _with_level(g::Scaled{<:ElasticNet}, λ) = Scaled(g.f, λ)
-_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2, possibly on a box (Constrained(g, IndBox(l, u)))."))
+_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP or GroupSCAD, possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 _weight(g::Union{NormL1, NormL1Nonneg}, i::Int) = _entryweight(g.w, i, typeof(g.λ0))
 _weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
@@ -240,7 +246,7 @@ _entryweight(::Nothing, ::Int, ::Type{T}) where {T} = one(T)
 _entryweight(w::AbstractArray, i::Int, ::Type) = @inbounds w[i]
 _weight(g::Union{MCP{T}, SCAD{T}}, ::Int) where {T} = one(T)
 _weight(g::Scaled{<:ElasticNet}, i::Int) = g.f.λ1 * _weight(g.f, i)
-_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD or GroupNormL2, possibly on a box (Constrained(g, IndBox(l, u)))."))
+_weight(g, ::Int) = throw(ArgumentError("$(typeof(g)) has no penalty level for paths and screening; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP or GroupSCAD, possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 # A penalty with a level on a box, Constrained(g, IndBox(l, u)), has the level
 # and the weights of g. Zero must be in the box (l ≤ 0 ≤ u, as glmnet requires

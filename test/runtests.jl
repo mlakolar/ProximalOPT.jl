@@ -18,6 +18,7 @@ tests = [
   "group_penalties",
   "box_paths",
   "refit_cache",
+  "nonconvex_penalties",
   "glm",
   "duality_gap",
   "quic",

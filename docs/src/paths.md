@@ -19,6 +19,7 @@ These penalties of ProximalBase have a level, and
 | `ElasticNet(λ, λ₂, w)` | ``\lambda\sum_k w_k\lvert x_k\rvert + \tfrac{\lambda_2}{2}\lVert x\rVert^2`` | ``w_k`` |
 | `Scaled(ElasticNet(α, 1 - α, w), λ)` | ``\lambda\big(\alpha\sum_k w_k\lvert x_k\rvert + \tfrac{1 - \alpha}{2}\lVert x\rVert^2\big)`` | ``\alpha w_k`` |
 | `MCP(λ, a)`, `SCAD(λ, a)` | nonconvex, with slope ``\lambda`` at zero | ``1`` |
+| `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | MCP and SCAD of the group norms ``\lVert x_{G_k}\rVert_2``, with slope ``\lambda w_k`` at zero | ``w_k`` |
 | `GroupNormL2(λ, groups, w)` | ``\lambda\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``w_k`` |
 
 In each, a coordinate at zero is optimal (stationary, for MCP and SCAD) while

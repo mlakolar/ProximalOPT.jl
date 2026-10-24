@@ -51,10 +51,10 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
-      # Constrained is on ProximalBase's master, not yet in a release. Julia 1.11
-      # and later take it from [sources] in Project.toml; Julia 1.10 ignores
-      # [sources]. Remove this step and [sources] once ProximalBase 0.5.3 is
-      # registered.
+      # Constrained and the group MCP and SCAD are on ProximalBase's master, not
+      # yet in a release. Julia 1.11 and later take them from [sources] in
+      # Project.toml; Julia 1.10 ignores [sources]. Remove this step and [sources]
+      # once ProximalBase 0.5.3 is registered.
       - name: Add ProximalBase from GitHub on Julia 1.10
         if: matrix.version == 'lts'
         shell: julia --color=yes --project=. {0}

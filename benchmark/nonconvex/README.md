@@ -81,7 +81,12 @@ environment. Its API follows the
 [official MendelIHT source](https://github.com/OpenMendel/MendelIHT.jl/blob/master/src/fit.jl).
 It uses the same centered regression arrays, sparsity and initial-zero option,
 with and without MendelIHT debiasing. Both branches warm before timing, and a
-failed warmup is recorded explicitly. The implicit intercept has its optimum
+failed warmup is recorded explicitly. MendelIHT 1.4.11 requires
+`memory_efficient=false` for debiasing; the adapter uses this setting for the
+debiased branch and retains the default `true` for the other branch. Earlier
+Discovery runs with both branches using the default recorded the debiasing
+error, "Currently debiasing only works with memory_efficient=false". Those
+failed rows remain part of the run record. The implicit intercept has its optimum
 at zero on these centered inputs. Returned coefficients are checked through
 their residual objective and support, rather than comparing likelihood
 normalizations. A missing package or adapter failure remains an explicit

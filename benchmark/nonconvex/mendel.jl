@@ -30,7 +30,8 @@ function main()
         # Keep MendelIHT's documented intercept and record its effect through
         # the independently evaluated residual when the field is exposed.
         fit(debias, max_iter) = Base.invokelatest(getglobal(mendel, :fit_iht), data.y, data.X; k = data.s,
-            debias, verbose = false, init_beta = false, max_iter, tol = 1e-8, max_step = 3)
+            debias, memory_efficient = !debias, verbose = false, init_beta = false,
+            max_iter, tol = 1e-8, max_step = 3)
         warmed = Dict{Bool, Bool}()
         for debias in (false, true)
             try
@@ -41,7 +42,7 @@ function main()
             catch err
                 warmed[debias] = false
                 record(io, ("MendelIHT_debias_$debias", 0, NaN, -1, Inf, "", false,
-                            "warmup_error", sprint(showerror, err)))
+                            "warmup_error", "memory_efficient=$(!debias); " * sprint(showerror, err)))
             end
         end
         for round in 1:ROUNDS, debias in (false, true)
@@ -55,9 +56,10 @@ function main()
                 iterations = hasproperty(result, :iter) ? result.iter :
                              hasproperty(result, :iterations) ? result.iterations : -1
                 record(io, ("MendelIHT_debias_$debias", round, elapsed, iterations, F, join(support, ';'),
-                    support == data.support, "returned", "version=$(pkgversion(mendel)); intercept=$intercept"))
+                    support == data.support, "returned", "version=$(pkgversion(mendel)); memory_efficient=$(!debias); intercept=$intercept"))
             catch err
-                record(io, ("MendelIHT_debias_$debias", round, NaN, -1, Inf, "", false, "error", sprint(showerror, err)))
+                record(io, ("MendelIHT_debias_$debias", round, NaN, -1, Inf, "", false, "error",
+                            "memory_efficient=$(!debias); " * sprint(showerror, err)))
             end
         end
     end

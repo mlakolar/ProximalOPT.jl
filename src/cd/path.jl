@@ -190,36 +190,36 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
   initialize!(m, x)
   _check_convex_steps(m, g, x)
   st = _CDState(T, x, method)
+  _haslevel(g) || return _continuation_direct!(x, m, g, st, method)
+  grad = _gradient_buffer(x)
+  gradient!(grad, m, x)
+  λmax = _lambda_max(x, grad, g)
+  λ = _level(g)::Real
+  zero(λmax) < λ < λmax || return _continuation_direct!(x, m, g, st, method)
   passes, checks = 0, 0
-  path = false
-  if _haslevel(g)
-    grad = _gradient_buffer(x)
-    gradient!(grad, m, x)
-    λmax = _lambda_max(x, grad, g)
-    λ = _level(g)
-    path = zero(λmax) < λ < λmax
-  end
-  if path
-    l1, l2 = log(λmax), log(λ)
-    inS = falses(ncoordinates(x))
-    λprev = λmax
-    for k in 0:continuation
-      gk = k == continuation ? g : _with_level(g, exp(l1 + k * (l2 - l1) / continuation))
-      sk = k == continuation ? method : _with_tol(method, tolk(k))
-      if screening
-        checks += _screened!(x, m, gk, λprev, grad, st, sk, inS)
-      else
-        _cd!(x, m, gk, st, sk)
-      end
-      passes += st.passes
-      λprev = _level(gk)
+  l1, l2 = log(λmax), log(λ)
+  inS = falses(ncoordinates(x))
+  λprev = λmax
+  for k in 0:continuation
+    gk = k == continuation ? g : _with_level(g, exp(l1 + k * (l2 - l1) / continuation))
+    sk = k == continuation ? method : _with_tol(method, tolk(k))
+    if screening
+      checks += _screened!(x, m, gk, λprev, grad, st, sk, inS)
+    else
+      _cd!(x, m, gk, st, sk)
     end
-  else
-    _cd!(x, m, g, st, method)
     passes += st.passes
+    λprev = _level(gk)
   end
   _warn_not_converged(st, method)
   CDResults(x, loss_value(m, x) + g(x), passes, st.converged, st.maxchange, st.tolerance, checks, st.relgap)
+end
+
+# The no-path branch has no gradient or previous penalty level.
+function _continuation_direct!(x, m, g, st, method)
+  _cd!(x, m, g, st, method)
+  _warn_not_converged(st, method)
+  CDResults(x, loss_value(m, x) + g(x), st.passes, st.converged, st.maxchange, st.tolerance, 0, st.relgap)
 end
 
 # the solver for the levels before the target, which only give warm starts:
@@ -292,6 +292,18 @@ function _snapshot(x::SparseIterate{T, 2}) where {T}
   sparse(rows, cols, vals, n, p)
 end
 
+function _screening_state(x, m, g, screening::Bool)
+  T = eltype(m)
+  grad = screening ? _gradient_buffer(x) : T[]
+  inS = falses(screening ? ncoordinates(x) : 0)
+  λprev = zero(T)
+  if screening
+    gradient!(grad, m, x)
+    λprev = _lambda_max(x, grad, g)   # at the possibly nonzero starting point
+  end
+  grad, inS, λprev
+end
+
 """
     solve_path(f, g, λs, method = CDSolver(); x, screening = true, maxnnz = Inf, callback = nothing)
 
@@ -339,12 +351,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   initialize!(m, x)
   _check_convex_steps(m, g, x)
   st = _CDState(T, x, method)
-  if screening
-    grad = _gradient_buffer(x)
-    gradient!(grad, m, x)
-    inS = falses(ncoordinates(x))
-    λprev = _lambda_max(x, grad, g)      # λmax at the starting point, which need not be zero
-  end
+  grad, inS, λprev = _screening_state(x, m, g, screening)
   solutions = Any[]
   out = PathResults(T[], [], T[], Int[], Bool[], Int[], Int[])
   for (k, λ) in enumerate(λs)

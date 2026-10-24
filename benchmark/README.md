@@ -23,7 +23,7 @@ writes `benchmark/results/single.csv` and `path.csv`, which
 
 The environment needs Julia 1.11 or later, because it loads ProximalSolvers from
 this repository through `[sources]` in `Project.toml`. To benchmark a local
-checkout of CoordinateDescent instead of the registered version, run
+checkout of CoordinateDescent instead of its master on GitHub, run
 `Pkg.develop(path = "...")` in the environment. This writes the path into
 `Project.toml`, so don't commit that change.
 
@@ -46,7 +46,7 @@ with a signal-to-noise ratio of 4.
   - Each solver runs over a sweep of its tolerance, from 1e-1 to 1e-16.
   - Each run records its time and its relative suboptimality `(F - F*) / F*`.
   - The tables give the time of the cheapest run that reaches the target.
-  - `F*` comes from coordinate descent run to `optTol = 1e-14`, with a KKT residual of about 1e-14.
+  - `F*` comes from coordinate descent run to `opt_tol = 1e-14`, with a KKT residual of about 1e-14.
 - **Defaults**: each package with its default options.
 - **Path**: 50 λ values from λmax to λmax/100, each warm started from the previous solution. The tables give the time until every λ is within the target.
 - **Timing**: each time is the minimum of at least three runs, with one BLAS thread.
@@ -55,9 +55,9 @@ The solvers:
 
 | row | what runs |
 |---|---|
-| CD random, CD cyclic | `coordinateDescent!` with `randomize = true` (CoordinateDescent's default) or `false` |
-| CD path from λmax | `coordinateDescent!` with `warmStart = false`, which solves along a path of 50 penalties |
-| CD X'X/n | `coordinateDescent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
+| CD random, CD cyclic | `coordinate_descent!` with `randomize = true` (CoordinateDescent's default) or `false` |
+| CD path from λmax | `coordinate_descent!` with `warm_start = false`, which solves along a path of 50 penalties |
+| CD X'X/n | `coordinate_descent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
 | CD LassoPath | `CoordinateDescent.LassoPath` |
 | ProxGrad, AccProxGrad, ActiveAccProxGrad | the solvers of this package on `LeastSquaresLoss` |
 | AccProxGrad X'X/n, ActiveAccProxGrad X'X/n | the same on `QuadraticFunction(X'X/n, -X'y/n)` |
@@ -151,3 +151,7 @@ the other. The solution has 452 nonzeros for A and 302 for E.
   - For accurate solutions, set `ftol`, `xtol` and `gradtol` to about 1e-10 and raise `maxiter`.
   - CoordinateDescent's defaults reach gaps of 4e-10 or smaller, with no support errors, in every case.
 - **glmnet's tolerance is on a different scale.** Its `tol` bounds squared changes in the coefficients, so reaching a gap of 1e-6 at every λ of a path needs a `tol` of about 1e-11. That makes it slow in these tables. At its default `tol`, its paths take a fraction of these times but are only accurate to about 1e-3.
+
+The current lasso comparison uses CoordinateDescent 0.8's `snake_case` API.
+Its source override uses master on GitHub until version 0.8 is registered.
+The pinned `engine/old` and `engine/old-cd` comparisons keep their historical API.

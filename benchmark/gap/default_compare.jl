@@ -8,11 +8,14 @@ using Printf, Statistics
 
 function load(files)
   d = Dict{Tuple{String, String}, Tuple{Vector{Float64}, Int}}()
-  for file in split(files, ","), line in Iterators.drop(eachline(file), 1)
-    a, c, t, n = split(line, ",")
-    key = (String(a), String(c))
-    times, _ = get!(d, key, (Float64[], parse(Int, n)))
-    push!(times, parse(Float64, t))
+  for file in split(files, ",")
+    isfile(file) || (println("skipping missing ", file); continue)
+    for line in Iterators.drop(eachline(file), 1)
+      a, c, t, n = split(line, ",")
+      key = (String(a), String(c))
+      times, _ = get!(d, key, (Float64[], parse(Int, n)))
+      push!(times, parse(Float64, t))
+    end
   end
   d
 end

@@ -55,5 +55,31 @@ its master through `[sources]`, so it needs Julia 1.11 or later.
 
 ## Results
 
-See the table in the pull request of issue #60 (Discovery, AMD EPYC 7513, one
-thread per run).
+Discovery, AMD EPYC 7513, one thread per run, Julia 1.13.2 and R 4.5.3
+(ProximalSolvers #67, run `20261024T1221Z-ps-sgl-bench`).
+
+**Median time of the whole path (s)**, over 3 runs. The `thresh = 1e-6` column is one run, and Julia's runs come after a compiling run.
+
+| problem | α | ProximalSolvers | + gapsafe | sparsegl 1.1.1 | SGL 1.3 | SGL, thresh 1e-6 |
+|---|---|---|---|---|---|---|
+| A | 0.05 | **0.60** | 0.60 | 0.63 | 7.3 | 32 |
+| A | 0.5 | **0.74** | 0.74 | 0.76 | 8.4 | 34 |
+| A | 0.95 | **1.16** | 1.17 | 1.22 | 10.3 | 46 |
+| B | 0.05 | **3.86** | 3.87 | 7.62 | 101 | 349 |
+| B | 0.5 | **4.69** | 4.69 | 8.81 | 102 | 379 |
+| B | 0.95 | **8.02** | 8.04 | 17.6 | 138 | 560 |
+
+**Objective values.** At each level, the objective of each package's solution is compared with the best of all packages. Each cell is the largest relative excess along the path, with the number of the 50 levels where it exceeds 1e-6 in parentheses.
+
+| problem | α | ProximalSolvers | + gapsafe | sparsegl | SGL | SGL, thresh 1e-6 |
+|---|---|---|---|---|---|---|
+| A | 0.05 | 6.0e-9 (0) | 5.2e-9 (0) | 2.3e-6 (5) | 2.6e-3 (34) | 4.9e-3 (36) |
+| A | 0.5 | 4.3e-9 (0) | 4.3e-9 (0) | 3.4e-6 (7) | 2.8e-3 (32) | 5.5e-3 (35) |
+| A | 0.95 | 1.3e-8 (0) | 1.3e-8 (0) | 8.1e-6 (13) | 3.2e-3 (33) | 9.1e-3 (29) |
+| B | 0.05 | 2.0e-9 (0) | 4.0e-9 (0) | 8.5e-7 (0) | 1.0e-2 (36) | 1.9e-2 (39) |
+| B | 0.5 | 5.9e-13 (0) | 5.9e-13 (0) | 1.3e-6 (2) | 1.6e-2 (37) | 2.3e-2 (40) |
+| B | 0.95 | 1.1e-9 (0) | 6.7e-10 (0) | 3.1e-6 (7) | 2.0e-2 (36) | 3.0e-2 (39) |
+
+- **Against sparsegl.** On A, ProximalSolvers takes 0.95–0.97 of sparsegl's time. On B it takes 0.46–0.53, and it is the most accurate everywhere: within 1.3e-8 of the best at every level, against sparsegl's up to 8e-6.
+- **Against SGL.** SGL is 9–26× slower and 0.3–3% above the best objective at most levels. It solves every level from zero (`oneDim` resets `beta.old`). With `thresh = 1e-6` it is 3.5–4.4× slower again and no more accurate; we did not look into its stopping rule.
+- **Gap-safe screening** neither helps nor costs here: after the strong rule, few groups are left for it to remove.

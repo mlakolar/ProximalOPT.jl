@@ -12,9 +12,10 @@
 # `gradient!` (for `lambda_max`, screening and paths) are optional.
 #
 # Here the loss is least squares, s ‖y - Xβ‖² / 2, with a sparse design matrix
-# X. The built-in model reads X by its entries, which costs a search for each
-# entry of a `SparseMatrixCSC`; this one visits the stored entries of a column
-# only, so a coordinate step costs O(nnz(X[:, k])).
+# X. A coordinate step visits only the stored entries of a column and costs
+# O(nnz(X[:, k])). The built-in least-squares model also has sparse column
+# kernels, including with an intercept or observation weights; this small
+# model illustrates the extension interface.
 
 using ProximalBase, ProximalSolvers, LinearAlgebra, Random, SparseArrays, Printf
 

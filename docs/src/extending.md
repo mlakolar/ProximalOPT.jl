@@ -35,10 +35,12 @@ curvature goes to the minimizer of the penalty nearest zero.
 
 ## An example
 
-Least squares with a sparse design matrix,
-``f(\beta) = \frac{s}{2}\|y - X\beta\|^2`` with ``X`` a `SparseMatrixCSC`: the
-built-in model reads ``X`` by its entries, while this one visits the stored
-entries of a column only, so a step costs ``O(\operatorname{nnz}(X_k))``.
+This example implements least squares with a sparse design matrix,
+``f(\beta) = \frac{s}{2}\|y - X\beta\|^2`` with ``X`` a `SparseMatrixCSC`.
+A coordinate step visits only the stored entries of a column, at a cost of
+``O(\operatorname{nnz}(X_k))``. The built-in least-squares model also uses
+sparse column kernels, including with an intercept or observation weights;
+the small model below illustrates the extension interface.
 
 ```julia
 using ProximalBase, ProximalSolvers, SparseArrays, LinearAlgebra

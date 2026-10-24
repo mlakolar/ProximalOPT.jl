@@ -62,7 +62,7 @@ of them passes. [`ADMMSolver`](@ref) has its own tolerances and uses only
 `gaptol` and `gapevery`.
 [`CDSolver`](@ref) and [`ProxNewton`](@ref) take their settings as keywords
 of their constructors instead: `CDSolver(; maxpasses, tol, order, relative,
-anderson, momentum, rng, gaptol, gapsafe)` and `ProxNewton(; inner, maxiter, tol, β)`.
+anderson, momentum, rng, gaptol, gapsafe, workingset)` and `ProxNewton(; inner, maxiter, tol, β)`.
 
 The call limits are checked after each iteration, which always finishes, so a
 count can exceed its limit by the evaluations of one iteration.

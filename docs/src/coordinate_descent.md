@@ -253,7 +253,10 @@ with observation weights.
 
 `CDSolver(; maxpasses = 100_000, tol = 1e-7, order = :random, relative = true,
 anderson = 0, momentum = nothing, rng = Random.default_rng(), gaptol = 0,
-gapsafe = false)`. The random orders are drawn from `rng`. The result, a
+gapsafe = false, workingset = false)`. The random orders are drawn from `rng`.
+With `workingset = true`, a single solve runs its passes on a growing working
+set of the nonzero coordinates and those whose proximal step would move them
+most (Celer, skglm); paths and continuation keep the strong rule instead. The result, a
 [`CDResults`](@ref), reports the passes, whether the stopping rule was met, the
 largest scaled change in the last pass and the tolerance it was compared with,
 and the relative duality gap when `gaptol` or `gapsafe` computed it.

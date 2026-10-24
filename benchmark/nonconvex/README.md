@@ -46,6 +46,75 @@ supports is a universal guarantee. `legacy.tsv` and `native.tsv` also retain
 the maximum objective increase, finite-trace status and final positive
 definiteness. Inspect these fields before making a monotonicity claim.
 
+## Measured legacy comparisons
+
+Discovery job `13377697` ran the primary comparisons with source
+`bcc109d1b3a214430da3f992c89eda001db9cab9`, CovarianceSelection
+`edba5de674855c53fb58f55566028447974c5b1a`, and the recorded ProximalBase
+snapshot. Job `13378012` used source
+`e424ac5fc8e422b50d38ef9cdf238db322d4ba0f` to validate saved legacy
+references and summarize the saved solutions without refitting these models.
+The run record is `20261024T1358Z-ps-issue24`; its raw files include
+`legacy.tsv`, `native.tsv`, `native_vs_legacy.tsv` and
+`legacy_reference_rejections.tsv`.
+
+All 72 legacy/native measurements returned finite, feasible final solutions
+and finite, nonincreasing objective traces (maximum recorded increase `0.0`).
+The 36 native comparisons all achieved a lower objective than the best
+feasible legacy result on the recorded step grid. The table copies final
+objectives from the Discovery summary; the two repetitions produced the same
+objective for each native method.
+
+| Problem | p | Best tuned legacy | PG | Normalized PG | Monotone APG |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D-trace | 10 | -0.9769461998454068 | -1.0099250833695956 | -1.009925083391762 | -1.0099250833883955 |
+| D-trace | 20 | -1.46524567699919 | -1.5982989041839852 | -1.59829890417034 | -1.5984986705725626 |
+| Latent D-trace | 10 | -1.2063557551119475 | -1.2559737266012712 | -1.25597373269155 | -1.2459877471448395 |
+| Latent D-trace | 20 | -1.8415077319766637 | -1.9164684815954574 | -1.9815588001290876 | -1.9157594810973309 |
+| Latent log-det | 10 | 4.667618611571708 | 4.616098919342116 | 4.602665475664798 | 4.626229795120744 |
+| Latent log-det | 20 | 10.899170264366758 | 10.757315328034064 | 10.757315311128721 | 10.763074604842943 |
+
+The same-support criterion failed: none of the 36 native comparisons matched
+the best legacy reference's sparse support. Exact symmetric projection and
+different nonconvex local minima preclude claiming universal equivalence to
+the legacy routines. Lower final objectives in these cases do not establish
+global optimality. For latent D-trace at `p=20`, all three native methods hit
+the 1,000-iteration limit with `converged=false`. For latent log-det at `p=10`,
+PG and monotone APG also hit that limit. Their entries are truncated feasible
+iterates, not converged solutions. The other native entries report
+`converged=true` in `native.tsv`.
+
+These measurements support the stated feasibility and objective-trace checks.
+They do not establish an overall timing advantage for latent models. The
+bounded runs use separate process timing blocks, and iteration limits and
+different attained local solutions prevent an equal-accuracy speed claim.
+
+### Sparse least squares against MendelIHT
+
+The centered `n=200, p=400, s=5` case recovered the planted support in every
+returned run. All six method/configuration pairs agreed in residual objective
+to within `2e-13`. Median seconds over two repetitions were:
+
+| method | seconds |
+|---|---:|
+| PG | 0.0003747335 |
+| Normalized PG | 0.000658416 |
+| Monotone APG | 0.000721920 |
+| Normalized PG with debiasing | 0.0003177265 |
+| MendelIHT, default memory mode, no debiasing | 0.0014670335 |
+| MendelIHT, dense memory mode, debiasing | 0.000700104 |
+
+MendelIHT 1.4.11 was run on the same saved arrays and sparsity. Its two
+configurations passed after the debiasing branch received its required
+`memory_efficient=false` setting. Job **13378106**, source `a131cd1`, warmed
+both configurations before timing and recomputed the summary. Native timings
+come from job **13377697**, source `bcc109d`, and the feasibility-aware
+comparison was rerun in job **13378012**, source `e424ac5`. The final tables
+retain the earlier configuration and warmup failures separately. This is one
+small regression problem with separate process timing blocks, rather than a
+general speed claim. In particular, monotone APG was slightly slower than the
+debiased MendelIHT configuration here.
+
 ## Discovery recipe
 
 All setup, data generation, execution and summarization run under Slurm.
@@ -100,4 +169,6 @@ srun --exclusive --exact -N1 -n1 -c1 "$JULIA" --startup-file=no \
 ```
 
 Retain the raw TSVs, support/solution records, source revisions and Slurm
-output. Benchmark outcomes are pending until the Discovery run is inspected.
+output. The primary legacy and corrected-memory-mode MendelIHT comparisons above
+have been inspected. `nonconvex-summary*.csv` and the raw TSVs retain the
+per-configuration outcomes and earlier failed rows.

@@ -64,6 +64,17 @@ end
   end
 end
 
+@testset "tuple source aliases are rejected before mutation" begin
+  x = (zeros(3), ones(3))
+  f = SeparableSum(SqrNormL2(), SqrNormL2())
+  g = SeparableSum(NormL1(0.1), NormL1(0.1))
+  ws = SolverWorkspace(x, f, g, AccProxGradDescent())
+  @test_throws ArgumentError reinit!(ws, (x[2], x[1]))
+  @test x[1] == zeros(3) && x[2] == ones(3)
+  @test_throws ArgumentError SolverWorkspace((x[1], x[1]), f, g, ADMMSolver())
+  @test_throws ArgumentError SolverWorkspace((x[1], x[1]), f, g, AccProxGradDescent())
+end
+
 @testset "gap and callback configuration is retained" begin
   X, y = Matrix(Diagonal([1., 2., 3.])), ones(3)
   f, g = LeastSquaresLoss(y, X), NormL1(0.1)

@@ -32,7 +32,8 @@ intercept. The workspace shares `x` with the caller.
 
 `solve!(workspace)` starts from its current point. `solve!(workspace, gnew)`
 uses a new penalty of the same concrete type; group partitions must stay the
-same. [`reinit!`](@ref) copies a new starting point into the existing storage.
+same. This does not change the default penalty `workspace.g` supplied at
+construction. [`reinit!`](@ref) copies a new starting point into the existing storage.
 Each call resets iteration history, counters and stopping tests. ADMM resets
 its dual variable and penalty parameter too, unless `warm_start = true` is
 passed to `solve!`, which keeps both from the previous solve.
@@ -68,6 +69,7 @@ function SolverWorkspace(x::Union{AbstractArray, _Blocks}, f::AbstractFunction,
                          options::ProximalOptions = ProximalOptions())
   issmooth(f) || throw(ArgumentError("$(summary(method)) needs a smooth loss."))
   isproximable(g) || throw(ArgumentError("$(summary(method)) needs a proximable penalty."))
+  _workspace_noalias(x)
   state = initial_state(method, options, f, g, x)
   gap = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
   SolverWorkspace(x, f, g, method, options, _GradientBuffers(state, gap))
@@ -78,6 +80,7 @@ function SolverWorkspace(x::Union{Array{T}, Tuple{Array{T}, Vararg{Array{T}}}},
                          options::ProximalOptions = ProximalOptions()) where {T<:AbstractFloat}
   isproximable(f) && isproximable(g) ||
     throw(ArgumentError("ADMM needs a proximable loss and penalty."))
+  _workspace_noalias(x)
   gap = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
   buffers = _ADMMBuffers(_copy(x), _zero(x), _similar(x), _similar(x), T(method.ρ), gap)
   SolverWorkspace(x, f, g, method, options, buffers)
@@ -121,11 +124,14 @@ _workspace_groups(g::Scaled) = _workspace_groups(g.f)
 Copy a new starting point into a workspace without replacing its buffers.
 The type, element type, shape and, for sparse group iterates, partition must
 match. This also clears ADMM's dual warm start. Returns the workspace.
+Tuple blocks must have separate storage; cross-block source aliases are
+rejected before any block is overwritten.
 """
 function reinit!(ws::SolverWorkspace, x)
   typeof(x) === typeof(ws.x) || throw(ArgumentError("the starting point must have type $(typeof(ws.x))."))
   _size(x) == _size(ws.x) || throw(DimensionMismatch("the starting point must have size $(_size(ws.x))."))
   _workspace_partition(ws.x, x)
+  _workspace_copyable(ws.x, x)
   _copyto!(ws.x, x)
   _workspace_reset!(ws.buffers, ws.method)
   ws
@@ -135,6 +141,24 @@ _workspace_partition(x, y) = nothing
 _workspace_partition(x::AtomIterate, y::AtomIterate) =
   x.groups == y.groups || throw(ArgumentError("the starting point must have the workspace's groups."))
 _workspace_partition(x::Tuple, y::Tuple) = foreach(_workspace_partition, x, y)
+
+_workspace_noalias(x) = nothing
+function _workspace_noalias(x::Tuple)
+  for i in eachindex(x), j in eachindex(x)
+    i < j && Base.mightalias(x[i], x[j]) &&
+      throw(ArgumentError("workspace tuple blocks must have separate storage."))
+  end
+  nothing
+end
+
+_workspace_copyable(dest, src) = nothing
+function _workspace_copyable(dest::Tuple, src::Tuple)
+  for i in eachindex(dest), j in eachindex(src)
+    i != j && Base.mightalias(dest[i], src[j]) &&
+      throw(ArgumentError("a starting block must not alias a different workspace block."))
+  end
+  nothing
+end
 
 _workspace_reset!(buffers, method) = nothing
 function _workspace_reset!(buffers::_ADMMBuffers, method)

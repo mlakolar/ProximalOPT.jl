@@ -1,14 +1,17 @@
 ####################################
 #
-#  generalized linear losses  s ∑ᵢ wᵢ ℓ(ηᵢ, yᵢ),  η = Xβ + o
+#  generalized linear losses  s ∑ᵢ wᵢ ℓ(ηᵢ, yᵢ),  η = Xβ + β₀ + o
 #
 ####################################
 
-# The model of a GLMLoss whose scalar loss has a bounded curvature (Logistic,
-# Huber): coordinate steps with the curvature bound s sup ℓ'' ∑ᵢ wᵢ Xᵢₖ²,
-# which majorize the loss along the coordinate. It caches η, so a step costs
-# O(n). ProxNewton converges much faster on these losses, and also handles a
-# loss with an unbounded curvature (Poisson).
+# The model of a GLMLoss: the scalar loss ℓ with its data, and the linear
+# predictor η = Xβ + β₀ + o as the cache. Coordinate descent takes the steps of
+# the curvature bound s sup ℓ'' ∑ᵢ wᵢ Xᵢₖ², which majorize the loss along the
+# coordinate, so that a step costs O(n); it needs a loss with a bounded
+# curvature (Logistic, Huber) and no intercept. ProxNewton converges much
+# faster on these losses, and also takes a loss with an unbounded curvature
+# (Poisson) and an unpenalized intercept β₀ (`intercept = true`), which is zero
+# otherwise.
 mutable struct GLMModel{T<:AbstractFloat, L, MX<:AbstractMatrix{T}, VY<:AbstractVector{T},
                         W<:Union{Nothing, AbstractVector{T}}, O<:Union{Nothing, AbstractVector{T}}} <: CDModel{T}
   loss::L
@@ -17,52 +20,156 @@ mutable struct GLMModel{T<:AbstractFloat, L, MX<:AbstractMatrix{T}, VY<:Abstract
   w::W
   offset::O
   s::T
-  bound::T              # sup ℓ''
-  η::Vector{T}
+  bound::T              # sup ℓ'', Inf for a loss without a bound
+  η::Vector{T}          # Xβ + β₀ + o
   a::Vector{T}          # s sup ℓ'' ∑ᵢ wᵢ Xᵢₖ², NaN until computed
   d::Vector{T}          # wᵢ ℓ'(ηᵢ, yᵢ), for the gradient
+  intercept::Bool       # whether the loss is minimized over an unpenalized β₀ too
+  β0::T
 end
 
-function GLMModel(loss, y, X, w, offset, s)
+function GLMModel(loss, y, X, w, offset, s; intercept::Bool = false)
   T = float(promote_type(eltype(y), eltype(X)))
   bound = T(ProximalBase.curvature(loss))
-  isfinite(bound) || throw(ArgumentError("the curvature of $(typeof(loss)) is unbounded, so coordinate descent has no step size; use ProxNewton."))
   Xt, yt = convert(AbstractMatrix{T}, X), convert(AbstractVector{T}, y)
   wt = w === nothing ? nothing : convert(AbstractVector{T}, w)
   ot = offset === nothing ? nothing : convert(AbstractVector{T}, offset)
   _check_finite(yt, "y"); _check_finite(Xt, "X")
+  intercept && wt !== nothing && !(sum(wt) > 0) &&
+    throw(ArgumentError("an intercept needs weights with a positive sum"))
   n, p = size(Xt)
   GLMModel{T, typeof(loss), typeof(Xt), typeof(yt), typeof(wt), typeof(ot)}(loss, Xt, yt, wt, ot, T(s), bound,
-                                                                             zeros(T, n), fill(T(NaN), p), zeros(T, n))
+                                                                             zeros(T, n), fill(T(NaN), p), zeros(T, n),
+                                                                             intercept, zero(T))
 end
 
-cdmodel(f::GLMLoss, x) = GLMModel(f.loss, f.y, f.X, f.weights, f.offset, 1)
-cdmodel(f::Scaled{<:GLMLoss}, x) = GLMModel(f.f.loss, f.f.y, f.f.X, f.f.weights, f.f.offset, f.α)
+cdmodel(f::GLMLoss, x; intercept::Bool = false) = GLMModel(f.loss, f.y, f.X, f.weights, f.offset, 1; intercept)
+cdmodel(f::Scaled{<:GLMLoss}, x; intercept::Bool = false) =
+  GLMModel(f.f.loss, f.f.y, f.f.X, f.f.weights, f.f.offset, f.α; intercept)
+
+# coordinate descent needs a bounded curvature for its steps, and moves only the
+# coordinates of x, not an intercept
+function check_penalty(m::GLMModel, g)
+  isfinite(m.bound) ||
+    throw(ArgumentError("the curvature of $(typeof(m.loss)) is unbounded, so coordinate descent has no step size; use ProxNewton."))
+  m.intercept && throw(ArgumentError("coordinate descent does not fit the intercept of a GLMModel; use ProxNewton."))
+  nothing
+end
+
+intercept(m::GLMModel, x::AbstractArray) = m.β0
+
+_default_iterate(m::GLMModel{T}) where {T} = SparseIterate(T, size(m.X, 2))
+
+"""
+    linear_predictor(m::CDModel)
+
+The linear predictor `η = Xβ + β₀ + o` of a GLM model, for the iterate it is
+current for.
+"""
+linear_predictor(m::GLMModel) = m.η
+
+"""
+    deviance(m::CDModel)
+
+The deviance `2 ∑ᵢ wᵢ (ℓ(ηᵢ, yᵢ) - minᵤ ℓ(u, yᵢ))` of a GLM model at its linear
+predictor (see [`linear_predictor`](@ref)), with the observation weights `wᵢ`
+but without the scale `s` of the loss: twice the negative log-likelihood ratio
+against the saturated model for the logistic and Poisson losses, twice the
+weighted sum of squares or of the Huber losses for those. `NaN` for a scalar
+loss whose saturated loss is unknown.
+"""
+deviance(m::GLMModel) = _deviance(m, m.η)
+
+"""
+    nulldeviance(m::CDModel)
+
+The [`deviance`](@ref) of the fit with `β = 0`: the offset, plus the intercept
+fitted to it when the model has one.
+"""
+nulldeviance(m::GLMModel) = _null_deviance(m)
 
 @inline _obsweight(::Nothing, i::Int, ::Type{T}) where {T} = one(T)
 @inline _obsweight(w::AbstractVector, i::Int, ::Type{T}) where {T} = @inbounds w[i]
 
-function initialize!(m::GLMModel{T}, x::SparseIterate{T}) where {T}
+# η = Xx + o, without the intercept
+function _predictor!(m::GLMModel{T}, x::SparseIterate{T}) where {T}
   length(x) == size(m.X, 2) || throw(DimensionMismatch("x has length $(length(x)) and X has $(size(m.X, 2)) columns"))
   m.offset === nothing ? fill!(m.η, zero(T)) : copyto!(m.η, m.offset)
   for k in activecoordinates(x)
     v = x[k]
     iszero(v) || _column_axpy!(m.η, m.X, k, zero(T), -v)
   end
+  m.η
+end
+
+# With an intercept, initialize! also fits the intercept for x, from the current
+# one, so that a solution at a level of a path starts from the right β₀
+function initialize!(m::GLMModel{T}, x::SparseIterate{T}) where {T}
+  _predictor!(m, x)
+  if m.intercept
+    m.β0 = _fit_intercept(m, m.β0)
+    m.η .+= m.β0
+  end
   fill!(m.a, T(NaN))
   m
+end
+
+# the minimizer over c of s ∑ᵢ wᵢ ℓ(ηᵢ + c, yᵢ), with η = m.η, by Newton's
+# method with step halving from c; a minimizer at infinity (a logistic response
+# that is all zeros or all ones) gives a large finite c
+function _fit_intercept(m::GLMModel{T}, c::T) where {T}
+  loss, y, w, η = m.loss, m.y, m.w, m.η
+  φ(c) = _glmvalue(loss, y, w, one(T), η, c)
+  fc = φ(c)
+  for _ in 1:100
+    G, H = zero(T), zero(T)
+    @inbounds for i in eachindex(η)
+      wi = _obsweight(w, i, T)
+      G += wi * T(ProximalBase.deriv(loss, η[i] + c, y[i]))
+      H += wi * T(ProximalBase.deriv2(loss, η[i] + c, y[i]))
+    end
+    (H > 0 && isfinite(G) && isfinite(H)) || break
+    step = G / H
+    t = one(T)
+    cnew = c - step
+    fnew = φ(cnew)
+    while !(fnew <= fc) && t > 1e-10
+      t /= 2
+      cnew = c - t * step
+      fnew = φ(cnew)
+    end
+    t > 1e-10 || break
+    done = abs(cnew - c) <= 10 * eps(T) * max(abs(cnew), one(T))
+    c, fc = cnew, fnew
+    done && break
+  end
+  c
 end
 
 function _curvaturebound!(m::GLMModel{T}, k::Int) where {T}
   a = m.a[k]
   if isnan(a)
-    a = zero(T)
-    X = m.X
-    @inbounds for i in axes(X, 1)
-      a += _obsweight(m.w, i, T) * X[i, k] * X[i, k]
-    end
+    a = _weighted_sqnorm(m.X, m.w, k)
     a *= m.s * m.bound
     m.a[k] = a
+  end
+  a
+end
+
+# ∑ᵢ wᵢ Xᵢₖ², over the nonzeros for a sparse X
+function _weighted_sqnorm(X::AbstractMatrix{T}, w, k::Int) where {T}
+  a = zero(T)
+  @inbounds for i in axes(X, 1)
+    a += _obsweight(w, i, T) * X[i, k] * X[i, k]
+  end
+  a
+end
+
+function _weighted_sqnorm(X::SparseMatrixCSC{T}, w, k::Int) where {T}
+  rows, vals = rowvals(X), nonzeros(X)
+  a = zero(T)
+  @inbounds for j in nzrange(X, k)
+    a += _obsweight(w, rows[j], T) * vals[j] * vals[j]
   end
   a
 end
@@ -72,6 +179,18 @@ end
   G = zero(T)
   @inbounds for i in eachindex(η)
     G += _obsweight(m.w, i, T) * T(ProximalBase.deriv(m.loss, η[i], y[i])) * X[i, k]
+  end
+  m.s * G, _curvaturebound!(m, k)
+end
+
+# a sparse X: ℓ' only at the nonzeros of the column
+@inline function coordinate_derivatives(m::GLMModel{T, L, <:SparseMatrixCSC}, x::SparseIterate{T}, k::Int) where {T<:AbstractFloat, L}
+  X, η, y = m.X, m.η, m.y
+  rows, vals = rowvals(X), nonzeros(X)
+  G = zero(T)
+  @inbounds for j in nzrange(X, k)
+    i = rows[j]
+    G += _obsweight(m.w, i, T) * T(ProximalBase.deriv(m.loss, η[i], y[i])) * vals[j]
   end
   m.s * G, _curvaturebound!(m, k)
 end
@@ -126,6 +245,12 @@ along the step on `f + g`, shrinking it by `β`, until the objective decreases.
 It stops when the objective changes by less than `tol` relative to its value,
 or after `maxiter` steps. Use with [`solve!`](@ref) on a `SparseIterate`;
 returns [`CDResults`](@ref), whose `passes` sum the inner passes.
+
+`f` may also be the model of a `GLMLoss` built with
+`cdmodel(f, x; intercept = true)`, which fits an unpenalized intercept `β₀`
+as well, as the intercept of the weighted least-squares model of each step:
+`η = Xβ + β₀ + o`. The model keeps `β₀` (read it with `intercept(m, x)`) and
+starts the next solve from it. [`solve_path`](@ref) takes `ProxNewton` too.
 """
 struct ProxNewton <: ProximalSolver
   inner::CDSolver
@@ -144,17 +269,49 @@ end
 
 Base.summary(::ProxNewton) = "Proximal Newton"
 
-_glm(f::GLMLoss) = (f, 1)
-_glm(f::Scaled{<:GLMLoss}) = (f.f, f.α)
-_glm(f) = throw(ArgumentError("ProxNewton needs a GLMLoss, but f is a $(typeof(f))."))
+# the model that proximal Newton runs on: any GLMLoss, with any curvature
+_newton_model(m::GLMModel) = m
+_newton_model(f::GLMLoss) = GLMModel(f.loss, f.y, f.X, f.weights, f.offset, 1)
+_newton_model(f::Scaled{<:GLMLoss}) = GLMModel(f.f.loss, f.f.y, f.f.X, f.f.weights, f.f.offset, f.α)
+_newton_model(f) = throw(ArgumentError("ProxNewton needs a GLMLoss, but f is a $(typeof(f))."))
 
-# s ∑ᵢ wᵢ ℓ(ηᵢ, yᵢ)
-function _glmvalue(loss, y, w, s::T, η::Vector{T}) where {T}
+# s ∑ᵢ wᵢ ℓ(ηᵢ + c, yᵢ)
+function _glmvalue(loss, y, w, s::T, η::Vector{T}, c::T = zero(T)) where {T}
   v = zero(T)
   @inbounds for i in eachindex(η)
-    v += _obsweight(w, i, T) * T(loss(η[i], y[i]))
+    v += _obsweight(w, i, T) * T(loss(η[i] + c, y[i]))
   end
   s * v
+end
+
+# minᵤ ℓ(u, y), the loss of the saturated model, for the deviance; NaN for a
+# loss without a known one
+_saturated(::ProximalBase.Squared, y::T) where {T} = zero(T)
+_saturated(::ProximalBase.Huber, y::T) where {T} = zero(T)
+_saturated(::ProximalBase.Logistic, y::T) where {T} = -(_xlogx(y) + _xlogx(1 - y))
+_saturated(::ProximalBase.Poisson, y::T) where {T} = y - _xlogx(y)
+_saturated(loss, y::T) where {T} = T(NaN)
+_xlogx(t::T) where {T} = t > 0 ? t * log(t) : zero(T)
+
+# the deviance 2 ∑ᵢ wᵢ (ℓ(ηᵢ, yᵢ) - minᵤ ℓ(u, yᵢ)) at the linear predictor η
+function _deviance(m::GLMModel{T}, η::AbstractVector{T}) where {T}
+  v = zero(T)
+  @inbounds for i in eachindex(η)
+    v += _obsweight(m.w, i, T) * (T(m.loss(η[i], m.y[i])) - _saturated(m.loss, m.y[i]))
+  end
+  2v
+end
+
+# the deviance of the fit with β = 0: the offset, plus the intercept fitted to it
+function _null_deviance(m::GLMModel{T}) where {T}
+  η = m.η
+  saved = copy(η)
+  m.offset === nothing ? fill!(η, zero(T)) : copyto!(η, m.offset)
+  c = m.intercept ? _fit_intercept(m, m.β0) : zero(T)
+  η .+= c
+  D = _deviance(m, η)
+  copyto!(η, saved)
+  D
 end
 
 # x = x0 + t (x1 - x0)
@@ -169,60 +326,99 @@ function _interpolate!(x::SparseIterate{T}, x0::SparseIterate{T}, x1::SparseIter
   x
 end
 
-function solve!(x::SparseIterate{T}, f::AbstractFunction, g::AbstractFunction, method::ProxNewton) where {T}
-  isseparable(g) || throw(ArgumentError("ProxNewton needs a separable penalty, but g is a $(typeof(g))."))
-  glm, α = _glm(f)
-  loss, y, X, w, o = glm.loss, glm.y, glm.X, glm.weights, glm.offset
-  n, p = size(X)
-  length(x) == p || throw(DimensionMismatch("x has length $(length(x)) and X has $p columns"))
-  s = T(α)
+# The buffers of proximal Newton for a model and iterates like x: the weights v
+# and working responses z of the quadratic model, which the weighted
+# least-squares model `model` shares, the linear predictors and iterates at the
+# start and the end of a step, and the state of the inner coordinate descent.
+# The weighted column means that center the columns for an intercept change
+# with v; `constant` marks the constant columns, whose mean is set exactly.
+struct _NewtonWorkspace{T, M<:LSModel{T}, S<:_CDState{T}}
+  v::Vector{T}
+  z::Vector{T}
+  η0::Vector{T}
+  η1::Vector{T}
+  x0::SparseIterate{T, 1}
+  x1::SparseIterate{T, 1}
+  model::M
+  st::S
+  constant::BitVector
+end
 
-  # η = Xx + o, and the objective at x
-  η = zeros(T, n)
-  o === nothing || copyto!(η, o)
-  for k in activecoordinates(x)
-    _column_axpy!(η, X, k, zero(T), -x[k])
-  end
-  F = _glmvalue(loss, y, w, s, η) + g(x)
-
-  # the quadratic model at x: weights v, responses z (working responses minus
-  # the offset), updated in place
+function _NewtonWorkspace(m::GLMModel{T}, x::SparseIterate{T}, inner::CDSolver) where {T}
+  n, p = size(m.X)
   v, z = zeros(T, n), zeros(T, n)
-  model = LSModel(z, X, v, nothing, s)
-  η0, η1 = similar(η), similar(η)
-  x0, x1 = copy(x), copy(x)
-  passes, converged, inner_converged, iterations = 0, false, true, 0
-  for it in 1:method.maxiter
-    iterations = it
+  model = LSModel(z, m.X, v, nothing, m.s)
+  constant = m.intercept ? BitVector(n > 0 && all(==(m.X[1, k]), view(m.X, :, k)) for k in 1:p) : falses(0)
+  _NewtonWorkspace(v, z, zeros(T, n), zeros(T, n), copy(x), copy(x), model, _CDState(T, x, inner), constant)
+end
+
+# the weighted means of the columns and of z that center the least-squares model
+# of a step for the intercept
+function _center!(ws::_NewtonWorkspace{T}) where {T}
+  model, v, X = ws.model, ws.v, ws.model.X
+  sv = sum(v)
+  mul!(model.xbar, transpose(X), v)
+  model.xbar ./= sv
+  @inbounds for k in eachindex(ws.constant)
+    ws.constant[k] && (model.xbar[k] = X[1, k])
+  end
+  model.ybar = dot(v, ws.z) / sv
+  model.wsum = sv
+  ws
+end
+
+# Proximal Newton steps on f + g from x, with m.η = Xx + β₀ + o current; with
+# `candidates`, the inner coordinate descent visits only those coordinates (and
+# the active ones), as screening does. Returns (f + g, passes, converged).
+function _proxnewton!(x::SparseIterate{T}, m::GLMModel{T}, g, method::ProxNewton, ws::_NewtonWorkspace{T},
+                      candidates::Union{Nothing, Vector{Int}}) where {T}
+  loss, y, w, o, s = m.loss, m.y, m.w, m.offset, m.s
+  η, v, z, model = m.η, ws.v, ws.z, ws.model
+  n = length(η)
+  F = _glmvalue(loss, y, w, s, η) + g(x)
+  passes, converged, inner_converged = 0, false, true
+  for _ in 1:method.maxiter
+    # the quadratic model at x: weights v, responses z (working responses minus
+    # the offset), updated in place
     @inbounds for i in 1:n
       d1 = T(ProximalBase.deriv(loss, η[i], y[i]))
       d2 = max(T(ProximalBase.deriv2(loss, η[i], y[i])), sqrt(eps(T)))
       v[i] = _obsweight(w, i, T) * d2
       z[i] = η[i] - d1 / d2 - (o === nothing ? zero(T) : o[i])
     end
-    copyto!(x0, x)
-    copyto!(η0, η)
-    r = solve!(x, model, g, method.inner)
-    passes += r.passes
-    inner_converged &= r.converged
-    copyto!(x1, x)
-    # Xx + o at the full step, from the residuals z - Xx of the model
+    m.intercept && _center!(ws)
+    copyto!(ws.x0, x)
+    copyto!(ws.η0, η)
+    b0 = m.β0
+    initialize!(model, x)
+    ws.st.candidates = candidates
+    _cd!(x, model, g, ws.st, method.inner)
+    _warn_not_converged(ws.st, method.inner)
+    passes += ws.st.passes
+    inner_converged &= ws.st.converged
+    copyto!(ws.x1, x)
+    b1 = m.intercept ? intercept(model, x) : zero(T)
+    # Xx + β₀ + o at the full step, from the residuals z - β₀ - Xx of the model,
+    # which are model.r .+ model.δ (δ is zero but for a sparse X with an intercept)
+    δ = model.δ
     @inbounds for i in 1:n
-      η1[i] = z[i] - model.r[i] + (o === nothing ? zero(T) : o[i])
+      ws.η1[i] = z[i] - (model.r[i] + δ) + (o === nothing ? zero(T) : o[i])
     end
 
     # backtracking along the step: x0 + t (x1 - x0), η0 + t (η1 - η0)
     t = one(T)
-    copyto!(η, η1)
+    copyto!(η, ws.η1)
+    m.β0 = b1
     Fnew = _glmvalue(loss, y, w, s, η) + g(x)
     while !(Fnew <= F + 10 * eps(T) * abs(F))
       t *= T(method.β)
       if t < 1e-10           # no decrease along the step: stay at x0
-        copyto!(x, x0); copyto!(η, η0); Fnew = F
+        copyto!(x, ws.x0); copyto!(η, ws.η0); m.β0 = b0; Fnew = F
         break
       end
-      _interpolate!(x, x0, x1, t)
-      @. η = η0 + t * (η1 - η0)
+      _interpolate!(x, ws.x0, ws.x1, t)
+      @. η = ws.η0 + t * (ws.η1 - ws.η0)
+      m.β0 = b0 + t * (b1 - b0)
       Fnew = _glmvalue(loss, y, w, s, η) + g(x)
     end
     dropzeros!(x)
@@ -233,5 +429,113 @@ function solve!(x::SparseIterate{T}, f::AbstractFunction, g::AbstractFunction, m
       break
     end
   end
-  CDResults(x, F, passes, converged && inner_converged, T(NaN), T(method.tol), 0)
+  ws.st.candidates = nothing
+  F, passes, converged && inner_converged
+end
+
+solve!(x::SparseIterate, f::AbstractFunction, g::AbstractFunction, method::ProxNewton) = _solve_newton!(x, f, g, method)
+solve!(x::SparseIterate, m::GLMModel, g::AbstractFunction, method::ProxNewton) = _solve_newton!(x, m, g, method)
+
+function _solve_newton!(x::SparseIterate{T}, f, g::AbstractFunction, method::ProxNewton) where {T}
+  isseparable(g) || throw(ArgumentError("ProxNewton needs a separable penalty, but g is a $(typeof(g))."))
+  m = _newton_model(f)
+  eltype(m) === T || throw(ArgumentError("x has element type $T and the model $(eltype(m))"))
+  _check_iterate(g, x)
+  _predictor!(m, x)
+  m.intercept && (m.η .+= m.β0)          # warm started from the intercept of the model
+  ws = _NewtonWorkspace(m, x, method.inner)
+  F, passes, converged = _proxnewton!(x, m, g, method, ws, nothing)
+  CDResults(x, F, passes, converged, T(NaN), T(method.tol), 0)
+end
+
+"""
+    solve_path(f, g, λs, method::ProxNewton; x, screening = true, maxnnz = Inf, callback = nothing, devmax = 0.999)
+
+The path of [`ProxNewton`](@ref) solutions along the decreasing levels `λs`,
+for a `GLMLoss` `f` or its model with an intercept (`cdmodel(f, x;
+intercept = true)`), as [`solve_path`](@ref) computes it for coordinate
+descent: each level is warm started from the previous solution and its
+intercept, with the sequential strong rule and checks of the optimality
+conditions when `screening`, and the path stops after more than `maxnnz`
+nonzero coordinates or when `callback(k, λ, x, m)` returns `true`. With an
+intercept, the starting intercept is fitted to the starting `x` (zero by
+default), so that the first level can be λmax from [`lambda_max`](@ref) of the
+same model.
+
+The path also stops once the fraction of the null deviance that the fit
+explains, `1 - D/D₀`, reaches `devmax`, as glmnet's does: `D` is the deviance
+`2 ∑ᵢ wᵢ (ℓ(ηᵢ, yᵢ) - minᵤ ℓ(u, yᵢ))` and `D₀` that of the fit with `β = 0`.
+Along a logistic path on separable data the coefficients grow without bound,
+and the explained fraction tends to one. `devmax = 1` never stops; the rule is
+off for a scalar loss whose saturated loss is unknown.
+"""
+function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λs::AbstractVector{<:Real},
+                    method::ProxNewton; x = _default_iterate(f), screening::Bool = true, maxnnz::Real = Inf,
+                    callback = nothing, devmax::Real = 0.999)
+  all(λ -> λ >= 0, λs) || throw(ArgumentError("The penalty levels must be nonnegative."))
+  issorted(λs; rev = true) || throw(ArgumentError("The penalty levels must be decreasing."))
+  isseparable(g) || throw(ArgumentError("ProxNewton needs a separable penalty, but g is a $(typeof(g))."))
+  m = _newton_model(f)
+  T = eltype(m)
+  _check_iterate(g, x)
+  isempty(λs) || _with_level(g, T(first(λs)))      # a penalty with a level
+  initialize!(m, x)
+  ws = _NewtonWorkspace(m, x, method.inner)
+  D0 = devmax < 1 ? _null_deviance(m) : T(NaN)
+  if screening
+    grad = _gradient_buffer(x)
+    gradient!(grad, m, x)
+    inS = falses(ncoordinates(x))
+    λprev = _lambda_max(x, grad, g)      # λmax at the starting point, which need not be zero
+  end
+  solutions = Any[]
+  out = PathResults(T[], [], T[], Int[], Bool[], Int[])
+  for (k, λ) in enumerate(λs)
+    gk = _with_level(g, T(λ))
+    if screening
+      F, passes, converged, checks = _screened_newton!(x, m, gk, λprev, grad, method, ws, inS)
+      λprev = T(λ)
+    else
+      F, passes, converged = _proxnewton!(x, m, gk, method, ws, nothing)
+      checks = 0
+    end
+    push!(out.λ, T(λ)); push!(solutions, _snapshot(x)); push!(out.values, F)
+    push!(out.passes, passes); push!(out.converged, converged); push!(out.kkt_checks, checks)
+    (callback !== nothing && callback(k, T(λ), x, m) === true) && break
+    nactive(x) > maxnnz && break
+    D0 > 0 && 1 - _deviance(m, m.η) / D0 >= devmax && break
+  end
+  S = isempty(solutions) ? Any : typeof(first(solutions))
+  PathResults{S, T}(out.λ, convert(Vector{S}, solutions), out.values, out.passes, out.converged, out.kkt_checks)
+end
+
+# _screened! for proximal Newton: the strong rule for the step from λprev to the
+# level of g selects the coordinates of the inner solves, and the optimality
+# conditions of the others are checked at the solution; violators are added and
+# the level solved again. grad holds the gradient at x on entry and on return.
+function _screened_newton!(x, m::GLMModel{T}, g, λprev, grad::AbstractArray, method::ProxNewton,
+                           ws::_NewtonWorkspace{T}, inS::BitVector) where {T}
+  λ = _level(g)
+  threshold = 2λ - λprev
+  for k in eachindex(inS)
+    w = _coordweight(g, x, k)
+    inS[k] = iszero(w) || _isnonzero(x, k) || _gradnorm(grad, x, k) >= threshold * w
+  end
+  passes, checks = 0, 0
+  F, converged = T(NaN), false
+  while true
+    F, p, converged = _proxnewton!(x, m, g, method, ws, findall(inS))
+    passes += p
+    gradient!(grad, m, x)
+    checks += 1
+    violated = false
+    for k in eachindex(inS)
+      if !inS[k] && _gradnorm(grad, x, k) > λ * _coordweight(g, x, k)
+        inS[k] = true
+        violated = true
+      end
+    end
+    violated || break
+  end
+  F, passes, converged, checks
 end

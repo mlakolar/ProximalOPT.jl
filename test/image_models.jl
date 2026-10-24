@@ -68,7 +68,7 @@ end
 # that parted are compared at convergence in "solutions" below
 same_objective(s1, s2, same) = !same || isapprox(s1.f_x + s1.g_x, s2.f_x + s2.g_x; rtol = 1e-10)
 
-solvers = (ProximalGradientDescent(), AccProxGradDescent())
+solvers = (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent())
 
 @testset "products per iteration $(summary(method))" for method in solvers
   X, y = data()
@@ -161,6 +161,59 @@ end
   @test bytes((1 / n) * LeastSquaresLoss(y, X), g, method, zeros(p)) == 0
   yb = Float64.(rand(Xoshiro(12), n) .< 0.5)
   @test bytes((1 / n) * LogisticLoss(yb, X), g, method, zeros(p)) == 0
+end
+
+@testset "monotone images follow both candidates and the accepted point" begin
+  for T in (Float32, Float64), δ in (1e-3, 1e3)
+    X, y = data(Xoshiro(14))
+    X, y = T.(X), T.(y)
+    n, p = size(X)
+    C = CountingMatrix(X)
+    f, g = (one(T) / n) * LeastSquaresLoss(y, C), NormL1(T(0.05))
+    method = MonotoneAccProxGradDescent(; δ)
+    state = PS.initial_state(method, ProximalOptions(), f, g, zeros(T, p))
+    previous = state.f_x + state.g_x
+    for k in 1:60
+      PS.update_state!(f, g, state, method)
+      @test state.z_x ≈ X * state.x rtol = 100eps(T) atol = 100eps(T)
+      @test state.z_previous ≈ X * state.x_previous rtol = 100eps(T) atol = 100eps(T)
+      @test state.z_y ≈ X * state.y rtol = 100eps(T) atol = 100eps(T)
+      @test state.z_z ≈ X * state.z rtol = 100eps(T) atol = 100eps(T)
+      @test state.f_x ≈ f(state.x) rtol = 100eps(T) atol = 100eps(T)
+      objective = state.f_x + state.g_x
+      @test objective <= previous + 100eps(T) * max(one(T), abs(previous))
+      previous = objective
+    end
+    # A stricter sufficient-decrease test makes the plain branch run too.
+    δ == 1e3 && @test state.grad_calls > 60
+    @test state.prox_calls == state.backtrack_steps
+  end
+end
+
+@testset "monotone cache reset reuses the images" begin
+  X, y = data(Xoshiro(15))
+  n, p = size(X)
+  f, g = (1 / n) * LeastSquaresLoss(y, X), NormL1(0.05)
+  method = MonotoneAccProxGradDescent()
+  state = PS.initial_state(method, ProximalOptions(), f, g, zeros(p))
+  for _ in 1:8
+    PS.update_state!(f, g, state, method)
+  end
+  buffers = (state.z_x, state.z_previous, state.z_y, state.z_z, state.z_v, state.dz)
+  # Buffer swaps are permitted; restarting does not allocate new image arrays.
+  fill!(state.x, 0.0)
+  PS.reinitialize_state!(state, f, g, method)
+  @test all(image -> any(buffer -> image === buffer, buffers),
+            (state.z_x, state.z_previous, state.z_y, state.z_z, state.z_v, state.dz))
+  @test (state.f_calls, state.grad_calls, state.prox_calls, state.accelerated) == (1, 0, 0, 0)
+  fresh = PS.initial_state(method, ProximalOptions(), f, g, zeros(p))
+  for _ in 1:5
+    PS.update_state!(f, g, state, method)
+    PS.update_state!(f, g, fresh, method)
+    @test state.x == fresh.x
+    @test state.z_x == fresh.z_x
+    @test state.f_x == fresh.f_x
+  end
 end
 
 end

@@ -46,8 +46,9 @@ end
 
 # the iterates have the type of the starting point x0; the gradients are dense.
 # After each iteration y and grad_f_y hold the point the kept step was taken
-# from and the gradient there, for the stopping rules.
-mutable struct MonotoneAccProxGradDescentState{T, X<:Union{AbstractArray{T}, _Blocks{T}}, G<:Union{AbstractArray{T}, _Blocks{T}}}
+# from and the gradient there, for the stopping rules. The images of both
+# candidates are retained: the next extrapolation uses z even when x kept v.
+mutable struct MonotoneAccProxGradDescentState{T, X<:Union{AbstractArray{T}, _Blocks{T}}, G<:Union{AbstractArray{T}, _Blocks{T}}, M, Z}
     x::X
     f_x::T
     g_x::T
@@ -74,11 +75,20 @@ mutable struct MonotoneAccProxGradDescentState{T, X<:Union{AbstractArray{T}, _Bl
     f_calls::Int
     grad_calls::Int
     prox_calls::Int
+    model::M
+    z_x::Z            # A x
+    z_previous::Z     # A x_previous
+    z_y::Z            # A y
+    z_z::Z            # A z, the extrapolated candidate
+    z_v::Z            # A v, the plain candidate
+    dz::Z             # F' at the point of the gradient evaluation
 end
 
 function initial_state(method::MonotoneAccProxGradDescent, options, f, g,
                        x0::Union{AbstractArray{T}, _Blocks{T}}) where T
-    f_x = f(x0)
+    model = _image_model(f)
+    z_x = model === nothing ? nothing : _image_buffer(model)
+    f_x = _value!(f, x0, model, z_x)
     _check_start(f_x)
     g_x = g(x0)
     MonotoneAccProxGradDescentState(
@@ -92,7 +102,13 @@ function initial_state(method::MonotoneAccProxGradDescent, options, f, g,
         one(T),                           # L
         one(T), zero(T),                  # t₁ = 1, t₀ = 0
         T(-Inf),                          # maxResidual
-        0, 0, 1, 0, 0)
+        0, 0, 1, 0, 0,
+        model, z_x,
+        z_x === nothing ? nothing : copy(z_x),
+        z_x === nothing ? nothing : similar(z_x),
+        z_x === nothing ? nothing : copy(z_x),
+        z_x === nothing ? nothing : similar(z_x),
+        z_x === nothing ? nothing : similar(z_x))
 end
 
 function update_state!(f, g, state::MonotoneAccProxGradDescentState{T}, method::MonotoneAccProxGradDescent) where T
@@ -101,29 +117,37 @@ function update_state!(f, g, state::MonotoneAccProxGradDescentState{T}, method::
     state.L *= T(method.α)
     _extrapolate_point!(state.y, state.x, state.z, state.x_previous, a, b)
     _drop!(state.y)
+    _monotone_extrapolate_image!(state, state.model, a, b)
 
     _copyto!(state.x_previous, state.x)
     state.f_x_previous = state.f_x
     state.g_x_previous = state.g_x
     F_x = state.f_x + state.g_x
+    _shift_image!(state, state.model)
 
-    state.f_z, state.g_z = _prox_grad_step!(state.z, state.grad_f_y, f, g, state.y, state, method)
+    state.f_z, state.g_z = _prox_grad_step!(state.z, state.grad_f_y, f, g, state.y, state, method,
+                                         state.z_y, state.z_z)
     F_z = state.f_z + state.g_z
     if F_z <= F_x - T(method.δ) * state.L * _norm_diff(state.z, state.y, 2)^2
-      _keep!(state, state.z, state.f_z, state.g_z)
+      _keep!(state, state.z, state.f_z, state.g_z, state.z_z)
       state.accelerated += 1
     else
       # a plain step from x, which decreases F when f is finite at x
-      state.f_v, state.g_v = _prox_grad_step!(state.v, state.grad_f_x, f, g, state.x_previous, state, method)
+      state.f_v, state.g_v = _prox_grad_step!(state.v, state.grad_f_x, f, g, state.x_previous, state, method,
+                                           state.z_previous, state.z_v)
       if F_z <= state.f_v + state.g_v
-        _keep!(state, state.z, state.f_z, state.g_z)
+        _keep!(state, state.z, state.f_z, state.g_z, state.z_z)
       else
-        _keep!(state, state.v, state.f_v, state.g_v)
+        _keep!(state, state.v, state.f_v, state.g_v, state.z_v)
         _copyto!(state.y, state.x_previous)
         _copyto!(state.grad_f_y, state.grad_f_x)
+        _restart_image!(state, state.model)
         # with y off the domain of f there was no step from y: extrapolate from
         # the new iterate alone next time
-        isfinite(F_z) || _copyto!(state.z, state.x)
+        if !isfinite(F_z)
+          _copyto!(state.z, state.x)
+          _monotone_reset_candidate_image!(state, state.model)
+        end
       end
     end
 
@@ -133,8 +157,9 @@ function update_state!(f, g, state::MonotoneAccProxGradDescentState{T}, method::
     state
 end
 
-function _keep!(state::MonotoneAccProxGradDescentState, w, f_w, g_w)
+function _keep!(state::MonotoneAccProxGradDescentState, w, f_w, g_w, image)
     _copyto!(state.x, w)
+    state.model === nothing || copyto!(state.z_x, image)
     state.f_x = f_w
     state.g_x = g_w
 end
@@ -143,8 +168,8 @@ end
 # f(w) <= f(u) + <∇f(u), w - u> + L/2 ‖w - u‖²; returns f(w) and g(w), and
 # Inf when f is not finite at u (no step exists from u)
 function _prox_grad_step!(w, grad, f, g, u, state::MonotoneAccProxGradDescentState{T},
-                          method::MonotoneAccProxGradDescent) where T
-    f_u = value_and_gradient!(grad, f, u)
+                          method::MonotoneAccProxGradDescent, image_u, image_w) where T
+    f_u = _value_and_gradient!(grad, f, u, state.model, image_u, state.dz)
     state.f_calls += 1
     state.grad_calls += 1
     isfinite(f_u) || return T(Inf), T(Inf)
@@ -152,7 +177,7 @@ function _prox_grad_step!(w, grad, f, g, u, state::MonotoneAccProxGradDescentSta
       _step!(state.xhat, u, grad, state.L)
       g_w = value_and_prox!(w, g, state.xhat, one(T) / state.L)
       _drop!(w)
-      f_w = f(w)
+      f_w = _value!(f, w, state.model, image_w)
       state.prox_calls += 1
       state.f_calls += 1
 
@@ -163,4 +188,37 @@ function _prox_grad_step!(w, grad, f, g, u, state::MonotoneAccProxGradDescentSta
       isfinite(f_w) && f_w <= upper + 10 * eps(T) * max(abs(f_u), one(T)) && return f_w, T(g_w)
       state.L /= method.β
     end
+end
+
+_monotone_extrapolate_image!(state, ::Nothing, a, b) = state
+function _monotone_extrapolate_image!(state, model, a, b)
+    zx, zz, zp = state.z_x, state.z_z, state.z_previous
+    @. state.z_y = zx + a * (zz - zx) + b * (zx - zp)
+    state
+end
+
+_monotone_reset_candidate_image!(state, ::Nothing) = state
+_monotone_reset_candidate_image!(state, model) = (copyto!(state.z_z, state.z_x); state)
+
+# Reset a compatible workspace after its x buffer has received a new start.
+# Scratch buffers are overwritten before they are read, as in initial_state.
+function reinitialize_state!(state::MonotoneAccProxGradDescentState{T}, f, g,
+                             method::MonotoneAccProxGradDescent) where T
+    state.f_x = _value!(f, state.x, state.model, state.z_x)
+    _check_start(state.f_x)
+    state.g_x = g(state.x)
+    _copyto!(state.x_previous, state.x)
+    _copyto!(state.z, state.x)
+    if state.model !== nothing
+      copyto!(state.z_previous, state.z_x)
+      copyto!(state.z_z, state.z_x)
+    end
+    state.f_x_previous = state.g_x_previous = T(NaN)
+    state.f_z = state.g_z = state.f_v = state.g_v = T(NaN)
+    state.L = state.t = one(T)
+    state.t_previous = zero(T)
+    state.maxResidual = T(-Inf)
+    state.accelerated = state.backtrack_steps = state.grad_calls = state.prox_calls = 0
+    state.f_calls = 1
+    state
 end

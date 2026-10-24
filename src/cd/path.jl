@@ -31,7 +31,11 @@ of `g` replaced by `λ` (`NormL1(λ, w)` for `g = NormL1(λ0, w)`, and so on):
 `maxₖ |∇ₖf(0)| / wₖ` over the coordinates of iterates like `x` whose weight is
 not zero, with `‖∇_G f(0)‖₂` for the groups of a `GroupNormL2`. The level of
 `Scaled(ElasticNet(α, 1 - α, w), λ)` is its scale `λ`, and its weights are
-`α wₖ`. On a box, `Constrained(g, IndBox(l, u))` with `l ≤ 0 ≤ u`, only the
+`α wₖ`. So is the level of the sparse group lasso at a fixed mixture,
+`Scaled(SparseGroupNormL2(α, 1 - α, groups, w), λ)`: group `G` is zero at the
+level `λ` when `‖soft(∇_G f(0), αλ)‖₂ ≤ (1 - α)λ w_G`, and `λmax` is the largest
+of the levels at which this starts to hold, each the exact root of a quadratic.
+On a box, `Constrained(g, IndBox(l, u))` with `l ≤ 0 ≤ u`, only the
 part of the gradient that points into the box counts: `(-∇ₖf(0))₊` when
 `uₖ > 0` and `(∇ₖf(0))₊` when `lₖ < 0`, so that `λmax` of the nonnegative
 lasso, `Constrained(NormL1(λ), IndBox(0, Inf))`, is `maxₖ (-∇ₖf(0))₊ / wₖ`.
@@ -61,7 +65,7 @@ function _screened!(x, m::CDModel{T}, g, λprev, grad::AbstractArray, st::_CDSta
   threshold = 2λ - λprev
   for k in eachindex(inS)
     w = _coordweight(g, x, k)
-    inS[k] = iszero(w) || _isnonzero(x, k) || _screengrad(g, grad, x, k) >= threshold * w
+    inS[k] = iszero(w) || _isnonzero(x, k) || _strongkeep(g, grad, x, k, threshold, w)
   end
   passes, checks = 0, 0
   while true
@@ -72,7 +76,7 @@ function _screened!(x, m::CDModel{T}, g, λprev, grad::AbstractArray, st::_CDSta
     checks += 1
     violated = false
     for k in eachindex(inS)
-      if !inS[k] && _screengrad(g, grad, x, k) > λ * _coordweight(g, x, k)
+      if !inS[k] && _kktviolated(g, grad, x, k, λ)
         inS[k] = true
         violated = true
       end
@@ -202,7 +206,10 @@ Minimize `f + gₖ` along the decreasing penalty levels `λs`, where `gₖ` is `
 with level `λs[k]`, each warm started from the previous solution. The level of
 `ElasticNet(λ1, λ2, w)` is `λ1`, with `λ2` fixed; for glmnet's elastic-net path
 at a fixed `α`, `λ(α ∑ᵢ wᵢ|xᵢ| + (1 - α)‖x‖²/2)`, take
-`g = Scaled(ElasticNet(α, 1 - α, w), 1)`, whose level is the scale. The iterate
+`g = Scaled(ElasticNet(α, 1 - α, w), 1)`, whose level is the scale; for the
+sparse group lasso path of R's SGL and sparsegl,
+`λ(α‖x‖₁ + (1 - α)Σₖ wₖ‖x_Gₖ‖₂)`, take
+`g = Scaled(SparseGroupNormL2(α, 1 - α, groups, w), 1)` and `x = AtomIterate(p, groups)`. The iterate
 `x` (a zero `SparseIterate` of the right length when `f` has columns, which
 must otherwise be given) is the starting point and holds the last solution on
 return.

@@ -74,7 +74,10 @@ tightened tenfold and the passes go on. This needs a loss of a linear map with a
 conjugate (`LeastSquaresLoss`, a `GLMLoss` with the squared, logistic or Huber
 loss, possibly scaled, with or without an intercept) and a convex penalty with
 a known conjugate (`NormL1`, `NormL1Nonneg` and `ElasticNet` with positive
-weights, and `GroupNormL2` on an `AtomIterate` with positive weights); with
+weights, `GroupNormL2` on an `AtomIterate` with positive weights, and the
+sparse group lasso, `SparseGroupNormL2` or its scaled form, on an
+`AtomIterate`, whose screening uses its dual norm as in Ndiaye, Fercoq,
+Gramfort and Salmon, 2016); with
 other losses and penalties the rule on the changes applies, and `gaptol` is
 ignored. With `gapsafe = true` and such a loss and penalty, each gap
 evaluation also screens the coordinates by the gap-safe rule of Fercoq,

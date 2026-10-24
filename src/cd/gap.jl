@@ -233,7 +233,11 @@ function _gapcheck!(gs::_GapState{T}, x, m, g, st::_CDState{T}, s::CDSolver) whe
   gap = max(P - D, zero(T))
   st.relgap = gap / max(abs(P), floatmin(T))
   certified = s.gaptol > 0 && st.relgap <= s.gaptol
-  moved = s.gapsafe && !certified && _gapscreen!(gs, m, g, x, st, t, gap)
+  # P - D carries rounding errors of the order of eps |P|: near the solution it
+  # can come out zero, and a sphere of radius zero would remove the coordinates
+  # whose dual constraint is tight up to rounding, the nonzero ones among them;
+  # screening takes the gap as at least 4 eps |P|
+  moved = s.gapsafe && !certified && _gapscreen!(gs, m, g, x, st, t, gap + 4 * eps(T) * abs(P))
   true, certified, moved
 end
 
@@ -252,11 +256,7 @@ function _gapscreen!(gs::_GapState{T}, m, g, x, st::_CDState{T}, t::T, gap::T) w
   moved, screened = false, false
   for k in eachindex(keep)
     keep[k] || continue
-    c = T(_level(g)) * T(_coordweight(g, x, k))
-    c > 0 || continue
-    a = t * _screenstat(g, z, x, k)
-    a < c || continue
-    a + sqrt(2 * gap * _screencurvature(m, x, k)) < c || continue
+    _safezero(g, m, z, x, k, t, gap) || continue
     keep[k] = false
     screened = true
     moved |= _zerocoordinate!(m, x, k)
@@ -264,6 +264,16 @@ function _gapscreen!(gs::_GapState{T}, m, g, x, st::_CDState{T}, t::T, gap::T) w
   moved && dropzeros!(x)
   screened && _setcandidates!(gs, st)
   moved
+end
+
+# whether the test above proves coordinate k zero at the solution; the sparse
+# group lasso has its own (sparsegroup.jl)
+@inline function _safezero(g, m, z::AbstractVector, x, k::Int, t::T, gap::T) where {T}
+  c = T(_level(g)) * T(_coordweight(g, x, k))
+  c > 0 || return false
+  a = t * _screenstat(g, z, x, k)
+  a < c || return false
+  a + sqrt(2 * gap * _screencurvature(m, x, k)) < c
 end
 
 _screenstat(g, z::AbstractVector, x, k::Int) = _gradnorm(z, x, k)
@@ -488,9 +498,11 @@ domain of the conjugate of `g` (Fercoq, Gramfort and Salmon, 2015).
 Available for:
 - `f` a `LeastSquaresLoss` with a vector `y`, or a `GLMLoss` with the squared,
   logistic, Poisson or Huber loss, possibly scaled, and `g` one of `NormL1`,
-  `NormL1Nonneg` and `ElasticNet` with positive weights, or a `GroupNormL2`
-  with positive weights whose groups cover `x`. Here `x` is a vector, a
-  `SparseIterate` or, for a `GroupNormL2`, an `AtomIterate`. A coordinate
+  `NormL1Nonneg` and `ElasticNet` with positive weights, or a `GroupNormL2`,
+  `SparseGroupNormL2` or `Scaled(SparseGroupNormL2(α, 1 - α, groups, w), λ)`
+  whose groups cover `x`, with positive weights for the `GroupNormL2`. Here
+  `x` is a vector, a `SparseIterate` or, for the group penalties, an
+  `AtomIterate`. A coordinate
   without penalty has no dual bound, so with one the gap exists only where its
   gradient is zero.
 - `f` a [`CDModel`](@ref) of such a loss, as from [`cdmodel`](@ref), for

@@ -217,16 +217,19 @@ _gradient_buffer(x::AbstractArray{T}) where {T} = similar(Array{T}, axes(x))
 # The level of ElasticNet(λ1, λ2, w) is λ1, with λ2 fixed; that of
 # Scaled(ElasticNet(α, 1 - α, w), λ) is its scale λ, so that both terms move
 # with it, as along glmnet's paths at a fixed α, and the weight of entry i is
-# then α wᵢ. The capped ℓ1, log and ℓq penalties of ProximalBase have none:
+# then α wᵢ. Likewise the level of the sparse group lasso at a fixed mixture,
+# Scaled(SparseGroupNormL2(α, 1 - α, groups, w), λ), is λ (see sparsegroup.jl
+# for its screening). The capped ℓ1, log and ℓq penalties of ProximalBase have none:
 # their exact coordinate steps can jump away from zero at levels where zero is
 # locally optimal, so the slope at zero would give neither λmax nor a safe
 # screening test.
 _haslevel(g) = false
-_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD, Scaled{<:ElasticNet}, GroupMCP, GroupSCAD}) = true
+_haslevel(::Union{NormL1, NormL1Nonneg, GroupNormL2, ElasticNet, MCP, SCAD, Scaled{<:ElasticNet}, GroupMCP, GroupSCAD,
+                  Scaled{<:SparseGroupNormL2}}) = true
 _level(g::Union{NormL1, NormL1Nonneg, GroupNormL2}) = g.λ0
 _level(g::ElasticNet) = g.λ1
 _level(g::Union{MCP, SCAD}) = g.λ
-_level(g::Scaled{<:ElasticNet}) = g.α
+_level(g::Union{Scaled{<:ElasticNet}, Scaled{<:SparseGroupNormL2}}) = g.α
 _level(g::Union{GroupMCP, GroupSCAD}) = g.λ0
 
 _with_level(g::NormL1, λ) = NormL1(λ, g.w)
@@ -237,8 +240,8 @@ _with_level(g::MCP, λ) = MCP(λ, g.a)
 _with_level(g::SCAD, λ) = SCAD(λ, g.a)
 _with_level(g::GroupMCP, λ) = GroupMCP(λ, g.groups, g.w; a = g.a)
 _with_level(g::GroupSCAD, λ) = GroupSCAD(λ, g.groups, g.w; a = g.a)
-_with_level(g::Scaled{<:ElasticNet}, λ) = Scaled(g.f, λ)
-_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP or GroupSCAD, possibly on a box (Constrained(g, IndBox(l, u)))."))
+_with_level(g::Union{Scaled{<:ElasticNet}, Scaled{<:SparseGroupNormL2}}, λ) = Scaled(g.f, λ)
+_with_level(g, λ) = throw(ArgumentError("$(typeof(g)) has no penalty level for a path; use NormL1, ElasticNet, Scaled(ElasticNet(α, 1 - α), λ), MCP, SCAD, GroupNormL2, GroupMCP, GroupSCAD or Scaled(SparseGroupNormL2(α, 1 - α, groups), λ), the separable ones possibly on a box (Constrained(g, IndBox(l, u)))."))
 
 _weight(g::Union{NormL1, NormL1Nonneg}, i::Int) = _entryweight(g.w, i, typeof(g.λ0))
 _weight(g::ElasticNet, i::Int) = _entryweight(g.w, i, typeof(g.λ1))
@@ -276,10 +279,19 @@ function _screengrad(c::_BoxConstrained, grad::AbstractArray, x::SparseIterate, 
   end
 end
 
+# The tests of screening at a level μ, for coordinate k with weight w > 0: the
+# strong rule keeps it when the statistic reaches μw, and it violates the
+# optimality condition of a coordinate at zero at the level λ when the statistic
+# exceeds λw. The sparse group lasso has methods of its own (sparsegroup.jl).
+@inline _strongkeep(g, grad::AbstractArray, x, k::Int, μ, w) = _screengrad(g, grad, x, k) >= μ * w
+@inline _kktviolated(g, grad::AbstractArray, x, k::Int, λ) = _screengrad(g, grad, x, k) > λ * _coordweight(g, x, k)
+
 
 # the penalty g goes with iterates like x: it is separable, with a weight or
 # bound for every entry of x (the coordinate steps read them unchecked), or a
-# group penalty (GroupNormL2, GroupNormLinf, ...) on an AtomIterate with its groups
+# group penalty (GroupNormL2, GroupNormLinf, ...) on an AtomIterate with its
+# groups; a scaled penalty goes with the iterates of the penalty it scales
+_check_iterate(g::Scaled, x) = _check_iterate(g.f, x)
 function _check_iterate(g::AbstractFunction, x)
   if isseparable(g)
     ProximalBase._checkparams(g, x)

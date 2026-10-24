@@ -25,8 +25,8 @@ import MathOptInterface as MOI
 
 function hypatia_solution(S::Matrix{Float64}, Λ::Matrix{Float64}, w::Float64)
   p = size(S, 1)
-  model = Model(() -> Hypatia.Optimizer(; verbose = false, tol_rel_opt = 1e-9,
-                                        tol_abs_opt = 1e-9, tol_feas = 1e-9))
+  model = Model(() -> Hypatia.Optimizer(; verbose = false, tol_rel_opt = 1e-12,
+                                        tol_abs_opt = 1e-12, tol_feas = 1e-12))
   @variable(model, Θ[1:p, 1:p], Symmetric)
   @variable(model, t)
   # At u = 1 this is t <= logdet(Θ). The scaled MOI cone uses the upper

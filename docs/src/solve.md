@@ -79,12 +79,13 @@ count can exceed its limit by the evaluations of one iteration.
 | [`reweight!`](@ref), `solve!` with [`LLA`](@ref) | [`ReweightResults`](@ref) | `minimizer`, `penalty`, `next`, `iterations`, `converged`, `change`, `passes`, `cd_converged` |
 
 `minimum` is ``f + g`` at the minimizer, and `gap` the relative duality gap
-there when it was computed, `NaN` otherwise. For the gradient solvers,
-`converged(result)` reports the selected criterion: with `gaptol > 0` and a
+there when it was computed, `NaN` otherwise. For the gradient solvers and ADMM,
+`result.converged` reports the selected criterion: with `gaptol > 0` and a
 computable gap, the final gap must meet `gaptol`, including when a run stops
 at a limit or a callback. The `x_converged`, `f_converged` and `grad_converged`
 flags remain diagnostics of the individual residual tests. Without a
-computable gap, those tests determine convergence. Printing a result shows a summary.
+computable gap, those tests determine gradient solver convergence, and ADMM
+uses its primal and dual residual tests. Printing a result shows a summary.
 
 ## Duality gaps
 

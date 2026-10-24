@@ -263,6 +263,16 @@ end
       @test r.iterations == (gapevery == 1 ? 1 : options.maxiter)
     end
 
+    # A call limit also triggers a final gap check before its scheduled check.
+    for gaptol in (1e-14, 1e6)
+      options = ProximalOptions(; maxiter = 2, ftol = 1.0, gaptol,
+                               gapevery = 3, prox_calls_limit = 1)
+      r = solve!(zeros(2), f, g, method, options)
+      @test r.iterations == 1
+      @test r.call_limit_reached
+      @test r.converged == PS.converged(r) == (r.gap <= gaptol) == (gaptol == 1e6)
+    end
+
     # A known gap may be unavailable at the returned point: a zero penalty
     # weight leaves no feasible dual scaling while its gradient is nonzero.
     # In that case the residual tests remain in charge, as for no gap.
@@ -278,6 +288,38 @@ end
     @test PS.converged(r) == (r.x_converged || r.f_converged || r.grad_converged)
     @test PS.converged(r)
   end
+end
+
+@testset "ADMM result convergence uses the final gap" begin
+  X, y = [1.0 0.0; 0.0 3.0], [1.0, 1.0]
+  f, g = LeastSquaresLoss(y, X), NormL1(0.1)
+  method = ADMMSolver(; abstol = 1e-14, reltol = 1e-14)
+  for cutoff in (:iterations, :prox_calls), gaptol in (1e-14, 1e6)
+    options = ProximalOptions(; maxiter = 2, gaptol, gapevery = 3,
+                             prox_calls_limit = cutoff === :prox_calls ? 2 : 0)
+    r = solve!(zeros(2), f, g, method, options)
+    @test r.iterations == (cutoff === :prox_calls ? 1 : options.maxiter)
+    @test r.call_limit_reached == (cutoff === :prox_calls)
+    @test r.r_norm > r.eps_pri || r.s_norm > r.eps_dual
+    @test r.converged == PS.converged(r) == (r.gap <= gaptol) == (gaptol == 1e6)
+  end
+
+  # With an unpenalized coordinate the dual scaling can be unavailable.
+  # Both passing and failing residual tests must still be reported correctly.
+  g = NormL1(0.1, [0.0, 1.0])
+  options = ProximalOptions(; maxiter = 2, gaptol = 1e-14, gapevery = 3)
+  for abstol in (1e-14, 10.0)
+    r = solve!(zeros(2), f, g, ADMMSolver(; abstol, reltol = 0.0), options)
+    @test isnan(r.gap)
+    @test r.converged == (r.r_norm <= r.eps_pri && r.s_norm <= r.eps_dual) == (abstol == 10.0)
+  end
+
+  # No iteration means the infinite residual placeholders certify nothing.
+  options = ProximalOptions(; maxiter = 2, gaptol = 1e-14, time_limit = -1.0)
+  r = solve!(zeros(2), f, g, method, options)
+  @test r.iterations == 0
+  @test isnan(r.gap)
+  @test !r.converged
 end
 
 @testset "gaptol in the gradient solvers and ADMM" begin

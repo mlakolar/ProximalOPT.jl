@@ -84,7 +84,10 @@ evaluations: `f_calls` of the value of
 of the proximal operators of `f` and `g`. `call_limit_reached` is `true` when
 the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)), and
 `gap` is the relative duality gap at the minimizer when `gaptol > 0`, `NaN`
-otherwise.
+otherwise. With a computable gap, `converged` reports whether the final gap
+meets `gaptol`, including a final check between scheduled checks after a
+limit stops the solve. If the gap cannot be computed, convergence uses the
+primal and dual residual tests.
 """
 struct ADMMResults{T,X}
     minimizer::X
@@ -239,6 +242,12 @@ function solve!(
   end
 
   gapev === nothing || relgap_iteration == iteration || (relgap = _relgap!(gapev, f, g, z))
+  if gapev !== nothing
+    # A limit can stop before the next scheduled gap check. Certify the returned
+    # point from its final gap, or from its residuals when that gap is unavailable.
+    # Before any iteration the Inf placeholders do not provide a residual test.
+    converged = isnan(relgap) ? iteration > 0 && r_norm <= eps_pri && s_norm <= eps_dual : relgap <= options.gaptol
+  end
 
   # f(z) for the minimum is one more call
   ADMMResults(z, f(z) + g(z), iteration, converged,

@@ -37,6 +37,12 @@ end
 
 ProximalBase.value_and_prox!(y::Tuple, f::PairFused, x::Tuple, γ::Real) = (prox!(y, f, x, γ); f(y))
 
+# the sum of the Euclidean norms of the blocks, with a method for the difference
+# of two tuples
+struct BlockNorm end
+(::BlockNorm)(x::Tuple) = sum(LinearAlgebra.norm, x)
+(::BlockNorm)(x::Tuple, y::Tuple) = sum(map(norm_diff, x, y))
+
 solvers = (ProximalGradientDescent(), AccProxGradDescent())
 
 @testset "a tuple of one array is the array $(summary(method))" for method in solvers
@@ -128,6 +134,32 @@ end
   # warm start from the result
   r2 = solve!(map(copy, x), f, g, ADMMSolver(; ρ = r.ρ, α = 1.5, abstol = 1e-9, reltol = 1e-9), ProximalOptions(; maxiter = 50_000); u = map(copy, r.u))
   @test r2.iterations < r.iterations
+
+  # residuals in the sum of the norms of the blocks (the norm of CovarianceSelection's
+  # fusedGraphicalLasso! loop), and the same norm with a method for differences
+  blocknorm = x -> sum(LinearAlgebra.norm, x)
+  admm(nrm) = ADMMSolver(; α = 1.5, adaptive = true, abstol = 1e-9, reltol = 1e-9, norm = nrm)
+  rs = solve!((Matrix(1.0I, p, p), Matrix(1.0I, p, p)), f, g, admm(blocknorm), ProximalOptions(; maxiter = 50_000))
+  @test ProximalSolvers.converged(rs)
+  @test rs.minimum ≈ r.minimum rtol = 1e-8
+  rd = solve!((Matrix(1.0I, p, p), Matrix(1.0I, p, p)), f, g, admm(BlockNorm()), ProximalOptions(; maxiter = 50_000))
+  @test rd.iterations == rs.iterations
+  @test rd.minimizer[1] ≈ rs.minimizer[1] rtol = 1e-12
+end
+
+@testset "a tuple of one array is the array: ADMM with a norm" begin
+  rng = Xoshiro(7)
+  n, p = 60, 20
+  X, y = randn(rng, n, p), randn(rng, n)
+  f, g = LeastSquaresLoss(y, X), NormL1(0.5)
+  method = ADMMSolver(; adaptive = true, norm = x -> 2 * LinearAlgebra.norm(x))
+  tmethod = ADMMSolver(; adaptive = true, norm = x -> 2 * LinearAlgebra.norm(x[1]))
+  x = zeros(p)
+  r1 = solve!(x, f, g, method)
+  xt = (zeros(p),)
+  r2 = solve!(xt, SeparableSum(f), SeparableSum(g), tmethod)
+  @test x == xt[1]
+  @test (r1.iterations, r1.ρ, r1.r_norm, r1.s_norm) == (r2.iterations, r2.ρ, r2.r_norm, r2.s_norm)
 end
 
 @testset "Float32 blocks" begin

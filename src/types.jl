@@ -31,7 +31,7 @@ returns `true`.
 - `show_trace = false`: print the progress every `printEvery` iterations.
 - `extended_trace = false`: also store the iterate and gradient in each state.
 - `printEvery = 1`: how often to print, store and call `callback`.
-- `callback = nothing`: a function called every `printEvery` iterations with
+- `callback = nothing`: a callable object called every `printEvery` iterations with
   the trace (if `store_trace`) or the current state; return `true` to stop.
 - `time_limit = Inf`: maximum run time in seconds.
 - `f_calls_limit = 0`, `grad_calls_limit = 0`, `prox_calls_limit = 0`: stop
@@ -56,7 +56,7 @@ as `Float64`. Tolerances below its precision, such as `ftol = 1e-8` in
 `Float32` (`eps(Float32) ≈ 1.2e-7`), cannot be met: the solver then stops when
 rounding makes the objective increase, with `converged` false.
 """
-struct ProximalOptions{TCallback <: Union{Nothing, Function}}
+struct ProximalOptions{TCallback}
   maxiter::Int64
   ftol::Float64
   xtol::Float64

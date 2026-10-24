@@ -14,15 +14,18 @@ _check_start(f_x) = isfinite(f_x) ||
 
 Minimize `f(x) + g(x)` starting from `x`, and overwrite `x` with the solution.
 
-For [`ProximalGradientDescent`](@ref) and [`AccProxGradDescent`](@ref), `f` is
-a smooth function of ProximalBase (`issmooth(f)`) and `g` a proximable one
-(`isproximable(g)`), and `x` is an array of any shape that they accept, such as
-the `p × k` coefficient matrix of a `LeastSquaresLoss` with `k` responses and a
+For [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
+[`MonotoneAccProxGradDescent`](@ref), `f` is a smooth function of ProximalBase
+(`issmooth(f)`) and `g` a proximable one (`isproximable(g)`), possibly
+nonconvex, and `x` is an array of any shape that they accept, such as the
+`p × k` coefficient matrix of a `LeastSquaresLoss` with `k` responses and a
 `NuclearNorm` penalty; the result is an [`OptimizationResults`](@ref). There `x`
-may also be a `SparseIterate`, or for the group lasso `GroupNormL2` an
-`AtomIterate` that shares the groups of `g` (`AtomIterate(x, g.groups)`): the
-iterates keep its type, zeros are dropped after each step, and products by the
-iterates touch only their stored entries or active groups. For
+may also be a `SparseIterate`, a `SymmetricSparseIterate` (a symmetric matrix,
+as for `KronQuadratic`, `LogDetLoss` and `IndBallL0(s; diagonal = false)`), or
+for the group lasso `GroupNormL2` an `AtomIterate` that shares the groups of `g`
+(`AtomIterate(x, g.groups)`): the iterates keep its type, zeros are dropped
+after each step, and products by the iterates touch only their stored entries
+or active groups. For
 [`ActiveAccProxGradDescent`](@ref), `x` is a vector, a `SparseIterate` or an
 `AtomIterate`, and the result is an `ActiveSetResults`. For
 [`ADMMSolver`](@ref), both `f` and `g` are proximable and the result is an

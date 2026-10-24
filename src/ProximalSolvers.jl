@@ -3,8 +3,9 @@
 
 Solvers for `minimize f(x) + g(x)`, built on the functions and proximal
 operators of ProximalBase: [`ProximalGradientDescent`](@ref),
-[`AccProxGradDescent`](@ref), [`ActiveAccProxGradDescent`](@ref) and
-[`ADMMSolver`](@ref) for a proximable `g`, and coordinate descent
+[`AccProxGradDescent`](@ref), [`MonotoneAccProxGradDescent`](@ref),
+[`ActiveAccProxGradDescent`](@ref) and [`ADMMSolver`](@ref) for a proximable
+`g`, and coordinate descent
 ([`CDSolver`](@ref), [`ProxNewton`](@ref)) for a separable one, all called
 through [`solve!`](@ref). Before its first release the package was called
 ProximalOPT.
@@ -26,6 +27,7 @@ export
   # proximal minimization algorithms
   ProximalGradientDescent,
   AccProxGradDescent,
+  MonotoneAccProxGradDescent,
   ActiveAccProxGradDescent,
   ADMMSolver,
   CDSolver,
@@ -58,6 +60,7 @@ include("solve.jl")
 # Solvers
 include("solvers/proximal_gradient_descent.jl")
 include("solvers/accelerated_proximal_gradient_descent.jl")
+include("solvers/monotone_accelerated_proximal_gradient_descent.jl")
 include("solvers/active_accelerated_proximal_gradient_descent.jl")
 include("solvers/admm.jl")
 

@@ -3,6 +3,7 @@ using Test
 
 tests = [
   "prox_solvers",
+  "nonconvex",
   "linesearch",
   "call_limits",
   "admm",

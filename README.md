@@ -274,8 +274,9 @@ res.converged, res.iterations
 
 | Solver | Problem | Method |
 |---|---|---|
-| `ProximalGradientDescent()` | `f` smooth, `g` proximable | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2) |
+| `ProximalGradientDescent(; normalized, debias)` | `f` smooth, `g` proximable, possibly nonconvex | Proximal gradient with TFOCS backtracking (Parikh and Boyd, §4.2); with `g = IndBallL0(s)` it is iterative hard thresholding with a line search, and the options start each backtracking from the normalized step (Blumensath and Davies) and refit `f` on a support that stopped changing (`debias = k`) |
 | `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient (Parikh and Boyd, §4.3) with backtracking that also lets the step grow (`α`), and adaptive restart |
+| `MonotoneAccProxGradDescent(; β, α, δ = 1e-3)` | `f` smooth, `g` proximable, possibly nonconvex (`IndBallL0`, `MCP`, ...) | Monotone accelerated proximal gradient (Li and Lin, 2015): keeps the extrapolated step when it decreases the objective by `δ L ‖z - y‖²`, otherwise the better of it and a plain step from `x`, so every limit point is a critical point |
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
 | `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
@@ -354,6 +355,11 @@ replaces in CoordinateDescent,
   *Biometrika*, 101(2), 2014.
 - T. Sun and C.-H. Zhang. Sparse Matrix Inversion with Scaled Lasso. *Journal
   of Machine Learning Research*, 14, 2013.
+- H. Li and Z. Lin. Accelerated Proximal Gradient Methods for Nonconvex
+  Programming. *Advances in Neural Information Processing Systems* 28, 2015.
+- T. Blumensath and M. E. Davies. Normalized Iterative Hard Thresholding:
+  Guaranteed Stability and Performance. *IEEE Journal of Selected Topics in
+  Signal Processing*, 4(2), 2010.
 
 ## License
 

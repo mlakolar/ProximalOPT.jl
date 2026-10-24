@@ -16,7 +16,7 @@ mutable struct QuadModel{T<:AbstractFloat, B<:Union{Nothing, AbstractVector{T}}}
   s::T
   u::Vector{T}          # A x
   L::Vector{T}          # curvatures of the groups of an AtomIterate, NaN until computed
-  tmp::Vector{T}
+  gbuf::Vector{T}       # scratch space of the group steps, grown to the largest need
   eig::_GroupEig{T}     # workspace of the group curvatures
 end
 
@@ -146,8 +146,7 @@ function _groupstep!(m::QuadModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int,
   A, u = m.A, m.u
   G = x.groups[k]
   c = T(g.λ0 * g.w[k])
-  length(m.tmp) < length(G) && resize!(m.tmp, length(G))
-  v = m.tmp
+  v = _groupbuffer!(m, length(G))
 
   # v = ∇_G f(x) = s (Ax + b)[G]; a group at zero stays there if ‖v‖ ≤ c
   t = zero(T)
@@ -181,3 +180,6 @@ function _groupstep!(m::QuadModel{T}, g::GroupNormL2, x::AtomIterate{T}, k::Int,
   end
   maxh
 end
+
+# a buffer of at least n entries for the group steps, kept in the model
+_groupbuffer!(m::QuadModel{T}, n::Int) where {T} = (length(m.gbuf) < n && resize!(m.gbuf, n); m.gbuf)

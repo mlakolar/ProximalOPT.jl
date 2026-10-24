@@ -14,11 +14,15 @@ Run inside the compute allocation, with one BLAS thread:
 
 ```sh
 julia --startup-file=no benchmark/instantiate_lasso.jl
+julia --startup-file=no benchmark/test_lasso_legacy_client.jl
 julia --startup-file=no --project=benchmark benchmark/lasso_bench.jl --smoke
 julia --startup-file=no --project=benchmark benchmark/lasso_bench.jl --quick
 julia --startup-file=no --project=benchmark benchmark/lasso_bench.jl
 julia --startup-file=no --project=benchmark benchmark/lasso_summary.jl
 ```
+
+`test_lasso_legacy_client.jl` is a short stdlib-only check of normal shutdown,
+failed handshakes, and cleanup after a closed worker input pipe.
 
 `--smoke` is a bounded end-to-end check on an 80 × 120 design: one tolerance,
 four penalty levels, and one timed repetition. It checks every single/default

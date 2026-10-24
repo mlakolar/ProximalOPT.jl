@@ -19,11 +19,37 @@ function legacy_worker()
   cmd = addenv(`$(Base.julia_cmd()) --startup-file=no --project=$env $script`,
                "JULIA_LOAD_PATH" => loadpath)
   worker = open(cmd, "r+")
-  hello = deserialize(worker)
-  hello.ok || error(hello.error)
-  println("Historical worker: ", hello.environment)
+  initialize_legacy_worker!(worker)
+end
+
+function initialize_legacy_worker!(worker)
   LEGACY_WORKER[] = worker
+  try
+    hello = deserialize(worker)
+    hello.ok || error(hello.error)
+    println("Historical worker: ", hello.environment)
+  catch
+    # A startup failure must retain its original error even if cleanup fails.
+    try
+      close_legacy_worker!()
+    catch
+    end
+    rethrow()
+  end
   worker
+end
+
+function close_legacy_process!(worker)
+  try
+    close(worker)
+  catch
+    try
+      wait(worker)
+    catch
+    end
+    rethrow()
+  end
+  wait(worker)
 end
 
 function close_legacy_worker!()
@@ -31,12 +57,20 @@ function close_legacy_worker!()
   worker === nothing && return nothing
   LEGACY_WORKER[] = nothing
   empty!(LEGACY_PROBLEMS)
-  if process_running(worker)
-    serialize(worker, (operation = :stop,))
-    flush(worker)
+  try
+    if process_running(worker)
+      serialize(worker, (operation = :stop,))
+      flush(worker)
+    end
+  catch
+    # A broken input pipe must still close the remaining pipes and reap the child.
+    try
+      close_legacy_process!(worker)
+    catch
+    end
+    rethrow()
   end
-  close(worker)
-  wait(worker)
+  close_legacy_process!(worker)
   success(worker) || error("Historical coordinate-descent worker failed.")
   nothing
 end

@@ -60,7 +60,7 @@ the same pass.
 | dtrace | CovSel's direct difference estimator at p = 20, 50, 100 (`CDDirectDifferenceLoss` / `KronQuadratic` on a `SymmetricSparseIterate`), and a path of 20 levels |
 | refit | CovSel's `differencePrecisionRefit`, by coordinate descent with the entries off the support penalized by 1e10 / `refit!`, exact |
 | diffprectest | the first stages of DiffPrecTest's inverse Hessians at fixed weights (`CDInverseKroneckerLoss`, `CDInverseReducedSymKroneckerLoss` / `KronQuadratic` on vec Θ and on a symmetric Θ) |
-| proxgrad, admm | the gradient solvers and ADMM of ProximalOPT 0.1 and of this package, before and after the port to ProximalBase 0.5 |
+| proxgrad, admm | the gradient solvers and ADMM of ProximalOPT 0.1 and of this package, before and after the port to ProximalBase 0.5. The new side also times `AccProxGradDescent` and `ActiveAccProxGradDescent` on designs A–E at 0.1 and 0.02 λmax, 500 iterations of `ProximalGradientDescent`, the logistic lasso on design A, and warm-started paths of 20 levels on designs A and D |
 
 | iht | CovSel's `differencePrecisionIHT` (fixed step) / `ProximalGradientDescent` with `IndBallL0` on a `SymmetricSparseIterate` (backtracking) |
 

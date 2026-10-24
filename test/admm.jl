@@ -8,6 +8,11 @@ using ProximalSolvers
 
 Random.seed!(1)
 
+# 1000 times the Euclidean norm, with a method for the difference of two arrays
+struct Big1000 end
+(::Big1000)(x) = 1e3 * LinearAlgebra.norm(x)
+(::Big1000)(x, y) = 1e3 * norm_diff(x, y)
+
 @testset "ADMM" begin
 
   opt = ProximalOptions(; maxiter = 5000)
@@ -92,6 +97,11 @@ Random.seed!(1)
       @test big.converged
       @test big.iterations > ref.iterations
       @test big.r_norm <= big.eps_pri && big.s_norm <= big.eps_dual
+      # a norm with a method for the difference of two arrays measures the
+      # residuals with it, and takes the same iterations
+      diff = solve!(copy(X0), LogDetLoss(S), NormL1(λ), ADMMSolver(; adaptive, abs_only..., norm = Big1000()), opt)
+      @test diff.iterations == big.iterations
+      @test diff.minimizer ≈ big.minimizer rtol = 1e-12
     end
   end
 

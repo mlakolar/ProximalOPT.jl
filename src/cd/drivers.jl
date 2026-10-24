@@ -114,8 +114,8 @@ end
 # an intercept, weighted by √w), so the step solves min ‖√w (r - X_S δ)‖
 function _refit_step(m::LSModel{T}, x::SparseIterate{T}, S::Vector{Int}) where {T}
   isempty(S) && return T[]
-  XS = m.X[:, S] .- transpose(m.xbar[S])
-  r = copy(m.r)
+  XS = _support_columns(m.X, S) .- transpose(m.xbar[S])
+  r = copy(residuals(m))
   if m.w !== nothing
     sw = sqrt.(m.w)
     XS .*= sw
@@ -123,6 +123,10 @@ function _refit_step(m::LSModel{T}, x::SparseIterate{T}, S::Vector{Int}) where {
   end
   qr(XS, ColumnNorm()) \ r
 end
+
+# the columns S of X as a dense matrix, which the pivoted QR factorization needs
+_support_columns(X::AbstractMatrix, S) = X[:, S]
+_support_columns(X::SparseMatrixCSC, S) = Matrix(X[:, S])
 
 # the Hessian of f over the coordinates S, column by column from the changes of
 # the derivatives after a unit step: exact for a quadratic, up to rounding

@@ -27,10 +27,20 @@ tolerance, is more than ten times the dual one, halves in the opposite case,
 and stays fixed after 50 changes, which keeps the convergence guarantee of a
 fixed `ρ`.
 
+`x` is an `Array`, or a tuple of arrays for a problem over several blocks:
+with `f = SeparableSum(f1, …, fK)` the x-update is K independent proximal
+steps, and `g` may couple the blocks, as the fused graphical lasso does for a
+pair of precision matrices. `n` is the total number of entries, and a tuple of
+one array computes exactly what the array does.
+
 `norm` is the norm in which the residuals and `‖x‖`, `‖z‖` and `‖u‖` are
-measured, a function of an array; `nothing` is the Euclidean norm. A stacked
-array of K blocks, for example, can be measured by the sum of the norms of its
-slices, `x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`.
+measured, a function of an iterate (an array, or a tuple of arrays); `nothing`
+is the Euclidean norm, over all the blocks of a tuple. The K blocks of a stacked
+array, for example, can be measured by the sum of the norms of its slices,
+`x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`, and those
+of a tuple by `x -> sum(LinearAlgebra.norm, x)`. If `norm` also has a method
+`norm(x, y)` for the norm of `x - y`, the residuals are measured with it,
+without forming the differences.
 
 Of the [`ProximalOptions`](@ref), only `maxiter`, `time_limit`,
 `prox_calls_limit`, `show_trace` and `printEvery` are used. Use with
@@ -64,14 +74,15 @@ end
 Returned by [`solve!`](@ref) with an [`ADMMSolver`](@ref): `minimizer`,
 `minimum` (`f + g` at the minimizer), `iterations`, `converged`, the final
 primal and dual residuals `r_norm`, `s_norm` with their tolerances `eps_pri`,
-`eps_dual`, the scaled dual variable `u` and the final penalty parameter `ρ`
-(for a warm start), and the number of evaluations: `f_calls` of the value of
+`eps_dual`, the scaled dual variable `u` (an array, or a tuple like `x`) and
+the final penalty parameter `ρ` (for a warm start), and the number of
+evaluations: `f_calls` of the value of
 `f` (for the trace and `minimum`), `grad_calls` (always `0`) and `prox_calls`
 of the proximal operators of `f` and `g`. `call_limit_reached` is `true` when
 the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)).
 """
-struct ADMMResults{T,N}
-    minimizer::Array{T,N}
+struct ADMMResults{T,X}
+    minimizer::X
     minimum::T
     iterations::Int
     converged::Bool
@@ -79,7 +90,7 @@ struct ADMMResults{T,N}
     s_norm::T     # dual residual ρ‖z - z_previous‖
     eps_pri::T
     eps_dual::T
-    u::Array{T,N} # scaled dual variable
+    u::X          # scaled dual variable
     ρ::T          # final penalty parameter
     f_calls::Int
     grad_calls::Int
@@ -115,13 +126,13 @@ end
 
 # ‖x - z‖, ‖z - z_previous‖, max(‖x‖, ‖z‖) and ‖u‖, in the Euclidean norm or in
 # the norm `nrm`; tmp is a buffer, free after the u-update
-_admm_norms(::Nothing, x, z, z_previous, u, tmp) = (norm_diff(x, z), norm_diff(z, z_previous), max(norm(x), norm(z)), norm(u))
-function _admm_norms(nrm, x, z, z_previous, u, tmp)
-  @. tmp = x - z
-  r = nrm(tmp)
-  @. tmp = z - z_previous
-  r, nrm(tmp), max(nrm(x), nrm(z)), nrm(u)
-end
+_admm_norms(::Nothing, x, z, z_previous, u, tmp) = (_norm_diff(x, z), _norm_diff(z, z_previous), max(_norm(x), _norm(z)), _norm(u))
+_admm_norms(nrm, x, z, z_previous, u, tmp) =
+  (_normdiff(nrm, x, z, tmp), _normdiff(nrm, z, z_previous, tmp), max(nrm(x), nrm(z)), nrm(u))
+
+# ‖a - b‖ in the norm nrm: from its method of two arrays (or tuples) if it has
+# one, otherwise from the difference formed in tmp
+_normdiff(nrm, a, b, tmp) = applicable(nrm, a, b) ? nrm(a, b) : nrm(_sub!(tmp, a, b))
 
 # residual balancing: the factor by which to multiply ρ, with each residual
 # relative to its tolerance; ρ stays fixed after _max_ρ_changes changes
@@ -136,26 +147,26 @@ end
 # x is the starting point for z and is overwritten with the solution; u, when
 # given, is the starting scaled dual variable, which is overwritten too
 function solve!(
-    x::Array{T},
+    x::Union{Array{T}, Tuple{Array{T}, Vararg{Array{T}}}},
     f::AbstractFunction,
     g::AbstractFunction,
     method::ADMMSolver,
     options::ProximalOptions = ProximalOptions();
-    u::Union{Nothing, Array{T}} = nothing
+    u::Union{Nothing, Array{T}, Tuple{Array{T}, Vararg{Array{T}}}} = nothing
     ) where {T<:AbstractFloat}
 
   isproximable(f) || throw(ArgumentError("ADMM needs a proximable f (isproximable(f)), but f is a $(typeof(f))."))
   isproximable(g) || throw(ArgumentError("ADMM needs a proximable g (isproximable(g)), but g is a $(typeof(g))."))
-  u === nothing || size(u) == size(x) || throw(DimensionMismatch("u must have the size of x"))
+  u === nothing || (typeof(u) == typeof(x) && _size(u) == _size(x)) || throw(DimensionMismatch("u must have the size of x"))
   t0 = time()
   ρ, α = T(method.ρ), T(method.α)
-  sqrt_n = sqrt(T(length(x)))
+  sqrt_n = sqrt(T(_length(x)))
 
   z = x
-  xk = copy(x)
-  u = u === nothing ? zero(x) : u
-  z_previous = similar(x)
-  tmp = similar(x)
+  xk = _copy(x)
+  u = u === nothing ? _zero(x) : u
+  z_previous = _similar(x)
+  tmp = _similar(x)
 
   r_norm = s_norm = eps_pri = eps_dual = T(Inf)
   converged = false
@@ -170,16 +181,16 @@ function solve!(
     γ = one(T) / ρ
 
     # x-update: x = prox_{f/ρ}(z - u)
-    @. tmp = z - u
+    _sub!(tmp, z, u)
     prox!(xk, f, tmp, γ)
 
     # z-update with relaxation: z = prox_{g/ρ}(α x + (1 - α) z + u)
-    copyto!(z_previous, z)
-    @. tmp = α * xk + (one(T) - α) * z_previous + u
+    _copyto!(z_previous, z)
+    _relax!(tmp, α, xk, z_previous, u)
     prox!(z, g, tmp, γ)
 
     # u-update
-    @. u = tmp - z
+    _sub!(u, tmp, z)
     prox_calls += 2
 
     # check convergence
@@ -200,7 +211,7 @@ function solve!(
       c = _ρ_factor(r_norm, eps_pri, s_norm, eps_dual, changes)
       if c != 1
         ρ *= c
-        u ./= c
+        _rdiv!(u, c)
         changes += 1
       end
     end

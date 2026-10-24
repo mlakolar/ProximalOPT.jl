@@ -80,7 +80,15 @@ ours_runs(f, g, x0; methods) = [Run(name, "ProximalSolvers",
                                     k -> ours_iters(m, f, g, x0, k))
                                 for (name, m) in methods]
 
-const GRAD_METHODS = [("ProxGrad", ProximalGradientDescent()), ("AccProxGrad", AccProxGradDescent())]
+const GRAD_METHODS = Any[("ProxGrad", ProximalGradientDescent()), ("AccProxGrad", AccProxGradDescent())]
+# the nonconvex methods of issue #24, when the checked-out ProximalSolvers has them
+isdefined(ProximalSolvers, :MonotoneAccProxGradDescent) &&
+  push!(GRAD_METHODS, ("MonotoneAccProxGrad", ProximalSolvers.MonotoneAccProxGradDescent()))
+const IHT_OPTIONS = hasfield(ProximalGradientDescent, :normalized) ?
+  Any[("ProxGrad normalized", ProximalGradientDescent(; normalized = true))] : Any[]
+const DEBIAS_OPTIONS = hasfield(ProximalGradientDescent, :debias) ?
+  Any[("ProxGrad debias", ProximalGradientDescent(; debias = 5)),
+      ("ProxGrad normalized + debias", ProximalGradientDescent(; normalized = true, debias = 5))] : Any[]
 
 # largest eigenvalue of X'X / n, by the power method
 function sqopnorm(X; iters = 500)
@@ -130,7 +138,7 @@ function iht_ls(; n = 500, p = 2000, s = 20, snr = 4.0, seed = 2)
   L = sqopnorm(X) / n
   x0 = zeros(p)
   F(β) = f(β) + g(β)
-  runs = vcat(ours_runs(f, g, x0; methods = GRAD_METHODS),
+  runs = vcat(ours_runs(f, g, x0; methods = [GRAD_METHODS; IHT_OPTIONS; DEBIAS_OPTIONS]),
               pa_runs(f, g, x0; algs = [FB_ALGS[1:4]; ("LiLin", PA.LiLin, (; gamma = 1 / L))]))
   Problem("IHT", "IHT least squares n=$n p=$p s=$s", false, F, runs, nothing)
 end
@@ -155,7 +163,7 @@ function iht_dtrace(; p = 30, n = 300, s = 10, seed = 3)
   L = opnorm(Σx) * opnorm(Σy)
   x0 = zeros(p, p)
   F(Δ) = f(Δ) + g(Δ)
-  runs = vcat(ours_runs(f, g, x0; methods = GRAD_METHODS),
+  runs = vcat(ours_runs(f, g, x0; methods = [GRAD_METHODS; IHT_OPTIONS]),
               pa_runs(f, g, x0; algs = [FB_ALGS[1:4]; ("LiLin", PA.LiLin, (; gamma = 1 / L))]))
   Problem("IHT", "IHT D-trace p=$p s=$s", false, F, runs, nothing)
 end

@@ -25,6 +25,8 @@ const RUN_CAP = QUICK ? 5.0 : 30.0       # stop a sweep after a run this slow (s
 const SOLVER_CAP = QUICK ? 15.0 : 150.0  # or after this much time on one solver and problem
 const DONE = 1e-10                       # or once the relative suboptimality is below this
 const K1, K2 = QUICK ? (5, 25) : (20, 220)
+# PROXALG_ONLY="IHT,MCP,probe" runs only those problem families (and the probe)
+const ONLY = split(get(ENV, "PROXALG_ONLY", ""), ','; keepempty = false)
 TIME_LIMIT[] = QUICK ? 5.0 : 60.0
 
 problems() = QUICK ?
@@ -132,6 +134,7 @@ function main()
                     ls_mcp(n = 40, p = 80, s = 3), quantile_l1(n = 40, p = 10, s = 2), tv_denoise(n = 100)])
 
   for P in problems()
+    isempty(ONLY) || P.family in ONLY || continue
     @printf "\n### %s\n" P.name
     Fstar = NaN
     if P.reference !== nothing
@@ -145,6 +148,7 @@ function main()
     flush(stdout)
   end
 
+  isempty(ONLY) || "probe" in ONLY || return (close(sw); close(al); close(pr))
   println("\n### graphical lasso from an infeasible first step")
   for (p, γ0s) in (QUICK ? ((20, (1.0, 10.0)),) : ((50, (1.0, 10.0)), (200, (1.0,))))
     inf_probe(pr, p; γ0s)

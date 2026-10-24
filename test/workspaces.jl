@@ -196,7 +196,7 @@ end
     @test workspace_bytes(ws, start) < 20_000
   end
   fq = QuadraticFunction(Matrix{Float64}(I, 12, 12), -ones(12))
-  wc = SolverWorkspace(zeros(12), fq, g, CDSolver(; order = :cyclic, maxpasses = 2))
+  wc = SolverWorkspace(zeros(12), fq, g, CDSolver(; order = :cyclic, maxpasses = 100))
   @test workspace_bytes(wc, zeros(12)) < 5_000
   @test_throws ArgumentError SolverWorkspace(zeros(12), fq, g, ActiveAccProxGradDescent())
 end

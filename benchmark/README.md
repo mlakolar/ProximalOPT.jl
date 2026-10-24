@@ -4,28 +4,80 @@
 
     minimize  ‖y - Xβ‖² / (2n) + λ ‖β‖₁
 
-against coordinate descent from
-[CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl), with
-glmnet (through GLMNet.jl) and Lasso.jl as outside references.
+against the current CoordinateDescent 0.8 API and an independent historical
+CoordinateDescent 0.5.6 implementation, with glmnet (through GLMNet.jl) and
+Lasso.jl as outside references.
 
 ## Running
 
-```
-julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
-julia --project=benchmark benchmark/lasso_bench.jl --quick   # about 30 seconds
-julia --project=benchmark benchmark/lasso_bench.jl           # 1.5 to 3.5 hours
-julia --project=benchmark benchmark/lasso_summary.jl         # tables; --raw adds every run
+Run inside the compute allocation, with one BLAS thread:
+
+```sh
+julia --startup-file=no benchmark/instantiate_lasso.jl
+julia --startup-file=no benchmark/test_lasso_legacy_client.jl
+julia --startup-file=no --project=benchmark benchmark/lasso_bench.jl --smoke
+julia --startup-file=no --project=benchmark benchmark/lasso_bench.jl --quick
+julia --startup-file=no --project=benchmark benchmark/lasso_bench.jl
+julia --startup-file=no --project=benchmark benchmark/lasso_summary.jl
 ```
 
-The quick run checks that everything works on one small problem. The full run
-writes `benchmark/results/single.csv` and `path.csv`, which
-`lasso_summary.jl` turns into the tables below.
+`test_lasso_legacy_client.jl` is a short stdlib-only check of normal shutdown,
+failed handshakes, and cleanup after a closed worker input pipe.
 
-The environment needs Julia 1.11 or later, because it loads ProximalSolvers from
-this repository through `[sources]` in `Project.toml`. To benchmark a local
-checkout of CoordinateDescent instead of its master on GitHub, run
-`Pkg.develop(path = "...")` in the environment. This writes the path into
-`Project.toml`, so don't commit that change.
+`--smoke` is a bounded end-to-end check on an 80 × 120 design: one tolerance,
+four penalty levels, and one timed repetition. It checks every single/default
+and path solver, the coefficient dimensions, finite objectives, the reference
+KKT residual, and the fitted KKT residuals at the requested tolerance. A solver
+error or truncated path makes it fail. Its timing is a plumbing check.
+`--quick` keeps the original 300 × 1000 problem and tolerance sweep; the full
+run uses the five designs below and can take 1.5 to 3.5 hours.
+
+The run writes `benchmark/results/single.csv` and `path.csv`, which
+`lasso_summary.jl` turns into the tables below. Set `PROXIMAL_LASSO_OUT` to
+write a check into a separate output directory.
+
+The two environments are intentionally separate. `benchmark/Project.toml`
+loads the current ProximalSolvers checkout, ProximalBase 0.5.3,
+CoordinateDescent 0.8, GLMNet, and Lasso. Its CoordinateDescent source override
+uses [master on GitHub](https://github.com/mlakolar/CoordinateDescent.jl) until
+0.8 is registered. `benchmark/legacy_cd/Project.toml` pins the independent historical
+baseline to CoordinateDescent 0.5.6 and ProximalBase 0.4.0. Their incompatible
+ProximalBase requirements cannot be satisfied in one Julia environment.
+`instantiate_lasso.jl` prepares both and requires Julia 1.10.8 or later
+(`[sources]` needs explicit setup on 1.10). It maintains separate native
+`Manifest-v1.10.toml`, `Manifest-v1.13.toml`, etc. locks in each environment,
+so rerun setup when switching Julia minor versions. Existing versioned locks
+are reused. An existing shared `Manifest.toml` seeds the new lock when its
+Julia minor matches; otherwise it is preserved and the new runtime resolves
+its own lock from `Project.toml`. This avoids incompatible Statistics entries
+when switching runtimes without updating the other runtime's locked packages.
+Set `PROXIMAL_BASE_PATH` and/or `COORDINATE_DESCENT_PATH` when instantiating to
+use existing local checkouts instead of their development URLs. These optional
+settings are useful for immutable cluster source snapshots; the normal commands
+above use the development URLs directly. On Julia 1.10, setup develops
+CoordinateDescent, ProximalBase, and the local ProximalSolvers together because
+that runtime does not apply `[sources]`.
+
+The historical baseline runs in one persistent Julia child process with one BLAS thread.
+Each generated design, response, and Gram matrix is serialized to it once,
+so it uses the same actual data as the current solvers. Timing is performed
+inside that worker after a warm-up call: startup, compilation, serialization,
+and IPC are excluded from the solver times. Both package versions and the
+runtime/BLAS configuration are printed. The full run still records errors
+and unattained accuracy targets as before; `--smoke` makes errors fatal.
+Set `PROXIMAL_LEGACY_CD_PROJECT` to use another checkout of the same pinned
+historical environment.
+Do not point it at the current CoordinateDescent package, which delegates to
+the current solver and would change the independence of the baseline.
+
+Rows labeled `CD 0.5.6` use that historical worker. Rows labeled `CD 0.8` use
+the modern package's `snake_case` API in the main process; the CSV package
+column and startup log record its exact version. Modern CoordinateDescent
+delegates to ProximalSolvers, so those rows measure its current API and path
+handling rather than an independent optimization engine. Both sets use the
+same generated data and reproducible random coordinate orders. The reference
+solution remains the independent historical fit. The smoke check compares row
+identities with the solver lists, including both versions.
 
 ## What is measured
 
@@ -46,7 +98,7 @@ with a signal-to-noise ratio of 4.
   - Each solver runs over a sweep of its tolerance, from 1e-1 to 1e-16.
   - Each run records its time and its relative suboptimality `(F - F*) / F*`.
   - The tables give the time of the cheapest run that reaches the target.
-  - `F*` comes from coordinate descent run to `opt_tol = 1e-14`, with a KKT residual of about 1e-14.
+  - `F*` comes from the isolated historical coordinate descent run to `optTol = 1e-14`; the smoke check verifies its KKT residual.
 - **Defaults**: each package with its default options.
 - **Path**: 50 λ values from λmax to λmax/100, each warm started from the previous solution. The tables give the time until every λ is within the target.
 - **Timing**: each time is the minimum of at least three runs, with one BLAS thread.
@@ -55,19 +107,20 @@ The solvers:
 
 | row | what runs |
 |---|---|
-| CD random, CD cyclic | `coordinate_descent!` with `randomize = true` (CoordinateDescent's default) or `false` |
-| CD path from λmax | `coordinate_descent!` with `warm_start = false`, which solves along a path of 50 penalties |
-| CD X'X/n | `coordinate_descent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
-| CD LassoPath | `CoordinateDescent.LassoPath` |
+| CD 0.5.6 random, cyclic, path from λmax, X'X/n | Historical `coordinateDescent!`, with `randomize` and `warmStart`, on residuals or the supplied Gram matrix |
+| CD 0.8 random, CD 0.8 cyclic | `coordinate_descent!` with `order = :random` or `:cyclic` |
+| CD 0.8 path from λmax | `coordinate_descent!` with `warm_start = false`, solving along a path of 50 penalties |
+| CD 0.8 X'X/n | `coordinate_descent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
+| CD 0.5.6 LassoPath, CD 0.8 LassoPath | Each package's `LassoPath`; 0.8 keeps its automatic Gram choice and includes any construction in the timed call |
 | ProxGrad, AccProxGrad, ActiveAccProxGrad | the solvers of this package on `LeastSquaresLoss` |
 | AccProxGrad X'X/n, ActiveAccProxGrad X'X/n | the same on `QuadraticFunction(X'X/n, -X'y/n)` |
 | glmnet, Lasso.jl | `GLMNet.glmnet` and `Lasso.fit(LassoPath, ...)` |
 
 ## Results
 
-These results are from 22 October 2026, on one core of an AMD EPYC 7513 (a
+These historical results are from 22 October 2026, on one core of an AMD EPYC 7513 (a
 compute node of USC's Discovery cluster) with Julia 1.13.2 and one BLAS
-thread. The full run took 76 minutes. Package versions:
+thread. They predate the isolated-worker repair and use CoordinateDescent 0.5.1 rather than the now-pinned 0.5.6 baseline. They contain no modern CoordinateDescent 0.8 measurements. The full run took 76 minutes. Package versions:
 
 - this package, then called ProximalOPT, at `8674288`
 - ProximalBase 0.4.0
@@ -151,7 +204,3 @@ the other. The solution has 452 nonzeros for A and 302 for E.
   - For accurate solutions, set `ftol`, `xtol` and `gradtol` to about 1e-10 and raise `maxiter`.
   - CoordinateDescent's defaults reach gaps of 4e-10 or smaller, with no support errors, in every case.
 - **glmnet's tolerance is on a different scale.** Its `tol` bounds squared changes in the coefficients, so reaching a gap of 1e-6 at every λ of a path needs a `tol` of about 1e-11. That makes it slow in these tables. At its default `tol`, its paths take a fraction of these times but are only accurate to about 1e-3.
-
-The current lasso comparison uses CoordinateDescent 0.8's `snake_case` API.
-Its source override uses master on GitHub until version 0.8 is registered.
-The pinned `engine/old` and `engine/old-cd` comparisons keep their historical API.

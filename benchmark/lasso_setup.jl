@@ -10,106 +10,38 @@
 # the constant ‖y‖²/(2n).
 
 using LinearAlgebra, Random, Statistics, SparseArrays, Printf
-using ProximalBase, CoordinateDescent, ProximalSolvers
-import GLMNet, Lasso
+using ProximalBase, ProximalSolvers
+using Serialization
 
-################################################################################
-# problems
-
-struct LassoProblem
-  name::String
-  desc::String
-  X::Matrix{Float64}
-  y::Vector{Float64}
-  Xs::Matrix{Float64}                  # X / √n
-  ys::Vector{Float64}                  # y / √n
-  n::Int
-  p::Int
-  λmax::Float64                        # smallest λ whose solution is zero
-  G::Union{Nothing, Matrix{Float64}}   # X'X / n
-  mc::Vector{Float64}                  # -X'y / n
-  gram_time::Float64                   # seconds to form G
-end
-
-"""
-Gaussian design with AR(1) correlation ρ between neighboring columns, or with
-correlation `common` between every pair of columns (a common factor), columns
-scaled so that ‖Xⱼ‖² = n, s nonzero coefficients ±1 at random positions, and
-noise with signal-to-noise ratio `snr`. X'X/n is formed when `gram` is true.
-"""
-function make_problem(name, desc; n, p, s, ρ = 0.0, common = 0.0, snr = 4.0, seed = 1, gram = true)
-  rng = Xoshiro(seed)
-  X = randn(rng, n, p)
-  if ρ > 0
-    c = sqrt(1 - ρ^2)
-    for j in 2:p
-      @views X[:, j] .= ρ .* X[:, j-1] .+ c .* X[:, j]
-    end
-  end
-  if common > 0
-    X .= sqrt(1 - common) .* X .+ sqrt(common) .* randn(rng, n)
-  end
-  for j in 1:p
-    @views X[:, j] ./= sqrt(sum(abs2, X[:, j]) / n)
-  end
-  β = zeros(p)
-  β[randperm(rng, p)[1:s]] .= rand(rng, (-1.0, 1.0), s)
-  signal = X * β
-  σ = sqrt(sum(abs2, signal) / n / snr)
-  y = signal .+ σ .* randn(rng, n)
-
-  mc = -(X' * y) ./ n
-  G, gram_time = nothing, NaN
-  if gram
-    gram_time = @elapsed begin
-      G = X' * X
-      G ./= n
-    end
-  end
-  LassoProblem(name, desc, X, y, X ./ sqrt(n), y ./ sqrt(n), n, p, maximum(abs, mc), G, mc, gram_time)
-end
-
-objective(P::LassoProblem, β, λ) = sum(abs2, P.y - P.X * β) / (2 * P.n) + λ * sum(abs, β)
-
-# largest violation of the optimality conditions ∇f(β) + λ ∂‖β‖₁ ∋ 0
-function kkt_residual(P::LassoProblem, β, λ)
-  g = P.X' * (P.X * β - P.y) ./ P.n
-  r = 0.0
-  for j in eachindex(β)
-    r = max(r, β[j] == 0 ? max(abs(g[j]) - λ, 0.0) : abs(g[j] + λ * sign(β[j])))
-  end
-  r
-end
-
-# relative suboptimality (F - F*) / F*
-relsubopt(F, Fstar) = max((F - Fstar) / abs(Fstar), 0.0)
-
-# coordinates whose zero pattern differs from the reference
-support_errors(β, βstar) = count(j -> iszero(β[j]) != iszero(βstar[j]), eachindex(β))
+include(joinpath(@__DIR__, "lasso_common.jl"))
+include(joinpath(@__DIR__, "lasso_legacy_client.jl"))
+import CoordinateDescent, GLMNet, Lasso
 
 ################################################################################
 # solvers at one λ: (P, λ, tol) -> dense β, solved from β = 0
 
-struct Solver
+struct Solver{F}
   name::String
   package::String
-  run::Function
+  run::F
   needs_gram::Bool
 end
 
-cd_options(tol; kw...) = CDOptions(; opt_tol = Float64(tol), max_iter = 1_000_000, kw...)
+cd_options(tol; kwargs...) = CoordinateDescent.CDOptions(; opt_tol = Float64(tol), max_iter = 1_000_000, kwargs...)
 prox_options(tol) = ProximalOptions(; maxiter = 1_000_000, ftol = tol, xtol = tol, gradtol = tol,
                                     time_limit = 60.0)
 
-function run_cd(P, λ, tol; kw...)
+function run_cd(P, λ, tol; kwargs...)
   x = SparseIterate(P.p)
-  coordinate_descent!(x, CDLeastSquaresLoss(P.y, P.X), NormL1(λ), cd_options(tol; kw...))
+  CoordinateDescent.coordinate_descent!(x, CoordinateDescent.CDLeastSquaresLoss(P.y, P.X),
+    NormL1(λ), cd_options(tol; kwargs...); rng = Xoshiro(20261024))
   Vector(x)
 end
 
 function run_cd_gram(P, λ, tol)
   x = SparseIterate(P.p)
-  coordinate_descent!(x, CDQuadraticLoss(P.G, P.mc), NormL1(λ), cd_options(tol; randomize = true))
+  CoordinateDescent.coordinate_descent!(x, CoordinateDescent.CDQuadraticLoss(P.G, P.mc),
+    NormL1(λ), cd_options(tol; order = :random); rng = Xoshiro(20261024))
   Vector(x)
 end
 
@@ -134,10 +66,14 @@ function run_lassojl(P, λ, tol)
 end
 
 const SOLVERS = [
-  Solver("CD cyclic",               "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = false), false),
-  Solver("CD random",               "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true), false),
-  Solver("CD path from λmax",       "CoordinateDescent", (P, λ, t) -> run_cd(P, λ, t; randomize = true, warm_start = false), false),
-  Solver("CD X'X/n",                "CoordinateDescent", run_cd_gram, true),
+  Solver("CD 0.5.6 cyclic",         "CoordinateDescent 0.5.6", LegacyRun(:cyclic), false),
+  Solver("CD 0.5.6 random",         "CoordinateDescent 0.5.6", LegacyRun(:random), false),
+  Solver("CD 0.5.6 path from λmax", "CoordinateDescent 0.5.6", LegacyRun(:continuation), false),
+  Solver("CD 0.5.6 X'X/n",          "CoordinateDescent 0.5.6", LegacyRun(:gram), true),
+  Solver("CD 0.8 cyclic",           "CoordinateDescent $(pkgversion(CoordinateDescent))", (P, λ, t) -> run_cd(P, λ, t; order = :cyclic), false),
+  Solver("CD 0.8 random",           "CoordinateDescent $(pkgversion(CoordinateDescent))", (P, λ, t) -> run_cd(P, λ, t; order = :random), false),
+  Solver("CD 0.8 path from λmax",   "CoordinateDescent $(pkgversion(CoordinateDescent))", (P, λ, t) -> run_cd(P, λ, t; order = :random, warm_start = false), false),
+  Solver("CD 0.8 X'X/n",            "CoordinateDescent $(pkgversion(CoordinateDescent))", run_cd_gram, true),
   Solver("ProxGrad",                "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, ProximalGradientDescent()), false),
   Solver("AccProxGrad",             "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, AccProxGradDescent()), false),
   Solver("ActiveAccProxGrad",       "ProximalSolvers", (P, λ, t) -> run_prox(P, λ, t, ActiveAccProxGradDescent()), false),
@@ -149,7 +85,8 @@ const SOLVERS = [
 
 # each package at its default options
 const DEFAULT_RUNS = [
-  ("CD lasso()",        (P, λ) -> Vector(lasso(P.X, P.y, λ).x)),
+  ("CD 0.5.6 lasso()",  LegacyRun(:default)),
+  ("CD 0.8 lasso()",    (P, λ) -> Vector(CoordinateDescent.lasso(P.X, P.y, λ; rng = Xoshiro(20261024)).x)),
   ("ProxGrad",          (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), NormL1(λ), ProximalGradientDescent()); x)),
   ("AccProxGrad",       (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), NormL1(λ), AccProxGradDescent()); x)),
   ("ActiveAccProxGrad", (P, λ) -> (x = zeros(P.p); solve!(x, LeastSquaresLoss(P.ys, P.Xs), NormL1(λ), ActiveAccProxGradDescent()); x)),
@@ -162,14 +99,17 @@ const DEFAULT_RUNS = [
 # (P, λs, tol) -> vector of dense solutions
 
 function path_cd(P, λs, tol)
-  path = CoordinateDescent.LassoPath(P.X, P.y, λs, cd_options(tol; randomize = true); standardize_x = false)
+  path = CoordinateDescent.LassoPath(P.X, P.y, λs, cd_options(tol; order = :random);
+    standardize_x = false, rng = Xoshiro(20261024))
   [Vector(b) for b in path.βpath]
 end
 
 function path_cd_gram(P, λs, tol)
   x = SparseIterate(P.p)
-  f = CDQuadraticLoss(P.G, P.mc)
-  [(coordinate_descent!(x, f, NormL1(λ), cd_options(tol; randomize = true)); Vector(x)) for λ in λs]
+  f = CoordinateDescent.CDQuadraticLoss(P.G, P.mc)
+  options = cd_options(tol; order = :random)
+  rng = Xoshiro(20261024)
+  [(CoordinateDescent.coordinate_descent!(x, f, NormL1(λ), options; rng); Vector(x)) for λ in λs]
 end
 
 function path_prox(P, λs, tol, method; gram = false)
@@ -193,8 +133,10 @@ function path_lassojl(P, λs, tol)
 end
 
 const PATH_SOLVERS = [
-  Solver("CD LassoPath",            "CoordinateDescent", path_cd, false),
-  Solver("CD X'X/n",                "CoordinateDescent", path_cd_gram, true),
+  Solver("CD 0.5.6 LassoPath",      "CoordinateDescent 0.5.6", LegacyRun(:path), false),
+  Solver("CD 0.5.6 X'X/n",          "CoordinateDescent 0.5.6", LegacyRun(:path_gram), true),
+  Solver("CD 0.8 LassoPath",        "CoordinateDescent $(pkgversion(CoordinateDescent))", path_cd, false),
+  Solver("CD 0.8 X'X/n",            "CoordinateDescent $(pkgversion(CoordinateDescent))", path_cd_gram, true),
   Solver("ProxGrad",                "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, ProximalGradientDescent()), false),
   Solver("AccProxGrad",             "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, AccProxGradDescent()), false),
   Solver("ActiveAccProxGrad",       "ProximalSolvers", (P, λs, t) -> path_prox(P, λs, t, ActiveAccProxGradDescent()), false),
@@ -206,32 +148,10 @@ const PATH_SOLVERS = [
 ################################################################################
 # timing and reference solutions
 
-"""
-Run `f()` at least `minreps` times, and more until the total time reaches
-`budget` seconds (at most `maxreps` runs). Returns the first output and the
-minimum time: other load on the machine only ever adds time.
-"""
-function timed(f; budget = 1.0, minreps = 3, maxreps = 7)
-  t = @elapsed out = f()
-  times = [t]
-  while length(times) < minreps || (sum(times) < budget && length(times) < maxreps)
-    push!(times, @elapsed f())
-  end
-  out, minimum(times)
-end
-
-# coordinate descent run to opt_tol = 1e-14, in random order: the order 1, 2, …
-# can be very slow when all columns share a common factor
+# Reference solutions come from the same isolated historical implementation.
 function reference(P, λ)
-  β = run_cd(P, λ, 1e-14; randomize = true)
-  β, objective(P, β, λ), kkt_residual(P, β, λ)
+  β = LegacyRun(:random)(P, λ, 1e-14)
+  β, objective(P, β, λ), lasso_kkt(P, β, λ)
 end
 
-function path_reference(P, λs)
-  x = SparseIterate(P.p)
-  f = CDLeastSquaresLoss(P.y, P.X)
-  [(coordinate_descent!(x, f, NormL1(λ), cd_options(1e-14; randomize = true)); Vector(x)) for λ in λs]
-end
-
-env_summary() = string("Julia ", VERSION, ", ", Sys.cpu_info()[1].model, ", BLAS threads = ",
-                       BLAS.get_num_threads(), ", ", basename(BLAS.get_config().loaded_libs[1].libname))
+path_reference(P, λs) = LegacyRun(:path_reference)(P, λs, 1e-14)

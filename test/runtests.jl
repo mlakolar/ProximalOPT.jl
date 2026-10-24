@@ -12,6 +12,7 @@ tests = [
   "coordinate_descent",
   "sparse_x",
   "glm",
+  "examples",
   "aqua",
 ]
 

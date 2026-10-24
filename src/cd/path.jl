@@ -29,7 +29,9 @@ end
 The smallest penalty level `λ` for which zero minimizes `f + g` with the level
 of `g` replaced by `λ` (`NormL1(λ, w)` for `g = NormL1(λ0, w)`, and so on):
 `maxₖ |∇ₖf(0)| / wₖ` over the coordinates of iterates like `x` whose weight is
-not zero, with `‖∇_G f(0)‖₂` for the groups of a `GroupNormL2`.
+not zero, with `‖∇_G f(0)‖₂` for the groups of a `GroupNormL2`. The level of
+`Scaled(ElasticNet(α, 1 - α, w), λ)` is its scale `λ`, and its weights are
+`α wₖ`.
 """
 function lambda_max(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, x)
   m = f isa CDModel ? f : cdmodel(f, x)
@@ -114,7 +116,7 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
   T = eltype(m)
   fill!(x, zero(T))
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   passes, checks = 0, 0
   path = false
   if _haslevel(g)
@@ -148,7 +150,7 @@ function _continuation!(x, f, g, method::CDSolver, continuation::Integer, screen
 end
 
 # the solver with another tolerance
-_with_tol(s::CDSolver, tol::Real) = CDSolver(s.maxpasses, Float64(tol), s.random, s.relative, s.anderson, s.momentum)
+_with_tol(s::CDSolver, tol::Real) = CDSolver(s.maxpasses, Float64(tol), s.random, s.relative, s.anderson, s.momentum, s.rng)
 
 Base.eltype(::CDModel{T}) where {T} = T
 
@@ -192,7 +194,10 @@ end
     solve_path(f, g, λs, method = CDSolver(); x, screening = true, maxnnz = Inf, callback = nothing)
 
 Minimize `f + gₖ` along the decreasing penalty levels `λs`, where `gₖ` is `g`
-with level `λs[k]`, each warm started from the previous solution. The iterate
+with level `λs[k]`, each warm started from the previous solution. The level of
+`ElasticNet(λ1, λ2, w)` is `λ1`, with `λ2` fixed; for glmnet's elastic-net path
+at a fixed `α`, `λ(α ∑ᵢ wᵢ|xᵢ| + (1 - α)‖x‖²/2)`, take
+`g = Scaled(ElasticNet(α, 1 - α, w), 1)`, whose level is the scale. The iterate
 `x` (a zero `SparseIterate` of the right length when `f` has columns, which
 must otherwise be given) is the starting point and holds the last solution on
 return.
@@ -216,7 +221,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   check_penalty(m, g)
   isempty(λs) || _with_level(g, T(first(λs)))      # a penalty with a level
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   if screening
     grad = _gradient_buffer(x)
     gradient!(grad, m, x)

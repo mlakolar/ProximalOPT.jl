@@ -6,7 +6,7 @@
 
 """
     CDSolver(; maxpasses = 100_000, tol = 1e-7, order = :random, relative = true, anderson = 0,
-               momentum = nothing)
+               momentum = nothing, rng = Random.default_rng())
 
 Coordinate descent for `f(x) + g(x)`, where `g` is separable
 (`isseparable(g)`: `NormL1`, `ElasticNet`, `MCP`, `SCAD`, `IndBox`, …) or a
@@ -15,16 +15,16 @@ group penalty such as `GroupNormL2` on an `AtomIterate` with its groups, and
 a least-squares `GLMLoss`, `QuadraticFunction`, [`KronQuadratic`](@ref), or one
 of these scaled, as in `(1/n) * LeastSquaresLoss(y, X)`.
 
-Each pass visits the coordinates once, in random order (`order = :random`, from
-the global random number generator) or in the order `1, 2, …`
-(`order = :cyclic`). Passes over all coordinates alternate with passes over the
-active ones (the stored entries of the iterate); the method stops after a full
-pass followed by a pass in which no coordinate changes by more than `tol`, or
-after `maxpasses` passes. With `relative`, the change of coordinate `k` is
-measured as `|Δxₖ| √aₖ`, where `aₖ` is the curvature of `f` along the
-coordinate, and compared with `tol` times a scale of the data, so that the
-tolerance does not depend on the units of the data (for least squares,
-`‖X[:, k]‖ √s` and `‖y‖ √s` for `f = s ‖y - Xβ‖² / 2`).
+Each pass visits the coordinates once, in random order (`order = :random`, drawn
+from `rng`) or in the order `1, 2, …` (`order = :cyclic`). The first pass visits
+all coordinates. After a full pass that changes some coordinate by more than
+`tol`, passes over the active ones (the stored entries of the iterate) follow
+until one changes none by more than `tol`, and then another full pass. The method stops after a full pass in which
+no coordinate changes by more than `tol`, or after `maxpasses` passes. With
+`relative`, the change of coordinate `k` is measured as `|Δxₖ| √aₖ`, where `aₖ`
+is the curvature of `f` along the coordinate, and compared with `tol` times a
+scale of the data, so that the tolerance does not depend on the units of the
+data (for least squares, `‖X[:, k]‖ √s` and `‖y‖ √s` for `f = s ‖y - Xβ‖² / 2`).
 
 With `anderson = K > 0` and `order = :cyclic`, the passes over an unchanged
 active set are accelerated by Anderson extrapolation (Bertrand and Massias,
@@ -53,25 +53,35 @@ model on a `SparseIterate` or a `SymmetricSparseIterate`, such as
 [`KronQuadratic`](@ref); `momentum = false` turns it off. With the cyclic order
 it can stall far from the minimizer, so `order = :cyclic` refuses
 `momentum = true`.
+
+The random order is drawn from `rng`, by default the task-local generator of
+`Random.default_rng()`, which draws exactly as the global generator does, so
+that `Random.seed!` makes a run reproducible. A generator of its own, such as
+`Xoshiro(1)`, makes the passes reproducible without reseeding the global one,
+and separate generators give parallel solves independent streams. The solver
+keeps a reference to `rng`, so solves with the same solver advance the same
+generator; don't share one generator between tasks.
 """
-struct CDSolver <: ProximalSolver
+struct CDSolver{R<:AbstractRNG} <: ProximalSolver
   maxpasses::Int
   tol::Float64
   random::Bool
   relative::Bool
   anderson::Int
   momentum::Union{Nothing, Bool}
+  rng::R
 end
 
 function CDSolver(; maxpasses::Integer = 100_000, tol::Real = 1e-7, order::Symbol = :random,
-                  relative::Bool = true, anderson::Integer = 0, momentum::Union{Nothing, Bool} = nothing)
+                  relative::Bool = true, anderson::Integer = 0, momentum::Union{Nothing, Bool} = nothing,
+                  rng::AbstractRNG = default_rng())
   maxpasses >= 0 || throw(ArgumentError("maxpasses must be nonnegative, but it is $maxpasses."))
   tol >= 0 || throw(ArgumentError("tol must be nonnegative, but it is $tol."))
   order in (:random, :cyclic) || throw(ArgumentError("order must be :random or :cyclic, but it is :$order."))
   anderson >= 0 || throw(ArgumentError("anderson must be nonnegative, but it is $anderson."))
   momentum === true && order === :cyclic &&
     throw(ArgumentError("momentum needs order = :random; with the cyclic order it can stall far from the minimizer."))
-  CDSolver(Int(maxpasses), Float64(tol), order === :random, relative, Int(anderson), momentum)
+  CDSolver(Int(maxpasses), Float64(tol), order === :random, relative, Int(anderson), momentum, rng)
 end
 
 Base.summary(::CDSolver) = "Coordinate Descent"
@@ -138,8 +148,9 @@ _Momentum{T}() where {T} = _Momentum{T}(T[], T[], T[], T[], T[], 0, 1, false)
 
 # the state of one run: the coordinate order, the momentum, and what the passes
 # report
-mutable struct _CDState{T}
+mutable struct _CDState{T, R<:AbstractRNG}
   random::Bool
+  rng::R                                 # the random orders are drawn from it
   order::Vector{Int}                     # buffer for random orders
   candidates::Union{Nothing, Vector{Int}}  # the coordinates of full passes, nothing for all
   momentum::_Momentum{T}
@@ -149,19 +160,22 @@ mutable struct _CDState{T}
   tolerance::T
 end
 
-_CDState(::Type{T}, x, random::Bool) where {T} =
-  _CDState{T}(random, Vector{Int}(undef, random ? ncoordinates(x) : 0), nothing, _Momentum{T}(), 0, false,
-              T(NaN), T(NaN))
+_CDState(::Type{T}, x, s::CDSolver) where {T} =
+  _CDState{T, typeof(s.rng)}(s.random, s.rng, Vector{Int}(undef, s.random ? ncoordinates(x) : 0), nothing,
+                             _Momentum{T}(), 0, false, T(NaN), T(NaN))
 
-# a uniformly random order of 1:n in order[1:n] (Fisher–Yates), drawn from the
-# global random number generator with the calls of CoordinateDescent.jl, so that
-# a seeded run visits the coordinates in the same order
-function _shuffle!(order::Vector{Int}, n::Int)
+# the state of a run whose random orders come from the default generator
+_CDState(::Type{T}, x, random::Bool) where {T} = _CDState(T, x, CDSolver(; order = random ? :random : :cyclic))
+
+# a uniformly random order of 1:n in order[1:n] (Fisher–Yates), drawn from rng
+# with the calls of CoordinateDescent.jl, so that a seeded run visits the
+# coordinates in the same order
+function _shuffle!(order::Vector{Int}, n::Int, rng::AbstractRNG)
   @inbounds for i in 1:n
     order[i] = i
   end
   @inbounds for i in 1:n-1
-    j = rand(i:n)
+    j = rand(rng, i:n)
     order[i], order[j] = order[j], order[i]
   end
   order
@@ -183,7 +197,7 @@ function _fullpass!(x, m, g, st::_CDState{T}, scaled::Bool) where {T}
   n = ncoordinates(x)
   maxh = zero(T)
   if st.random
-    order = _shuffle!(st.order, n)
+    order = _shuffle!(st.order, n, st.rng)
     for i in 1:n
       h = _visit!(m, g, x, @inbounds(order[i]), scaled)
       h > maxh && (maxh = h)
@@ -201,7 +215,7 @@ function _candidatepass!(x, m, g, st::_CDState{T}, cand::Vector{Int}, scaled::Bo
   n = length(cand)
   maxh = zero(T)
   if st.random
-    order = _shuffle!(st.order, n)
+    order = _shuffle!(st.order, n, st.rng)
     for i in 1:n
       h = _visit!(m, g, x, @inbounds(cand[order[i]]), scaled)
       h > maxh && (maxh = h)
@@ -222,7 +236,7 @@ function _activepass!(x, m, g, st::_CDState{T}, scaled::Bool) where {T}
   act = activecoordinates(x)
   maxh = zero(T)
   if st.random
-    order = _shuffle!(st.order, n)
+    order = _shuffle!(st.order, n, st.rng)
     for i in 1:n
       h = _visit!(m, g, x, @inbounds(act[order[i]]), scaled)
       h > maxh && (maxh = h)
@@ -236,10 +250,9 @@ function _activepass!(x, m, g, st::_CDState{T}, scaled::Bool) where {T}
   maxh
 end
 
-# Alternates full passes with passes over the active set; stops after two
-# consecutive passes below the tolerance, the first of which is a full pass, so
-# that the active set is checked against all coordinates before stopping. The
-# model m must be current for x.
+# Passes over the active set until one is below the tolerance, then a full pass;
+# stops after a full pass below the tolerance, so that the active set is checked
+# against all coordinates before stopping. The model m must be current for x.
 function _cd!(x, m, g, st::_CDState{T}, s::CDSolver) where {T}
   s.anderson > 0 && !s.random && !(x isa AtomIterate) && return _cd_anderson!(x, m, g, st, s)
   _usemomentum(s, x, m) && return _cd_momentum!(x, m, g, st, s)
@@ -507,7 +520,7 @@ function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, m:
   _check_iterate(g, x)
   check_penalty(m, g)
   initialize!(m, x)
-  st = _CDState(T, x, method.random)
+  st = _CDState(T, x, method)
   _cd!(x, m, g, st, method)
   _warn_not_converged(st, method)
   CDResults(x, loss_value(m, x) + g(x), st.passes, st.converged, st.maxchange, st.tolerance, 0)

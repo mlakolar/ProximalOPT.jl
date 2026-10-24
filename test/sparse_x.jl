@@ -38,7 +38,7 @@ end
   @test nnz(Xs[:, 3]) == n && nnz(Xs[:, 4]) == 0
   λ = 0.1 * norm(X' * (y .- mean(y)), Inf) / n
   w = rand(Xoshiro(2), n) .+ 0.5
-  for (intercept, weights) in ((false, false), (true, false), (false, true)),
+  for (intercept, weights) in ((false, false), (true, false), (false, true), (true, true)),
       solver in (CDSolver(; order = :cyclic), CDSolver(), CDSolver(; order = :cyclic, anderson = 5), CDSolver(; momentum = false))
     d, s = both() do kind
       A = kind === :dense ? X : Xs
@@ -68,9 +68,10 @@ end
   Xs, y = sparsedata(rng)
   X = Matrix(Xs)
   n, p = size(X)
-  for intercept in (false, true)
+  wq = rand(Xoshiro(6), n) .+ 0.5
+  for intercept in (false, true), weights in (nothing, wq)
     d, s = both() do kind
-      f = SqrtLeastSquaresLoss(y, kind === :dense ? X : Xs)
+      f = SqrtLeastSquaresLoss(y, kind === :dense ? X : Xs; weights)
       x = SparseIterate(p)
       m = cdmodel(f, x; intercept)
       Random.seed!(3)
@@ -99,6 +100,19 @@ end
   @test d.passes == s.passes
   @test d.x1 ≈ s.x1 atol = 1e-12
   @test d.x2 ≈ s.x2 atol = 1e-10
+  # proximal Newton with an intercept: its inner weighted least-squares model is
+  # centered at weighted means, so the sparse X keeps its residuals as r .+ δ
+  d, s = both() do kind
+    A = kind === :dense ? X : Xs
+    f = (1 / n) * LogisticLoss(yb, A; weights = w, offset = o)
+    x = SparseIterate(p)
+    m = PS.cdmodel(f, x; intercept = true)
+    solve!(x, m, NormL1(0.02), ProxNewton(; tol = 1e-12, inner = CDSolver(; tol = 1e-12)))
+    (x = Vector(x), β0 = PS.intercept(m, x))
+  end
+  # the two take different roundings, so they agree to the accuracy of the solves
+  @test d.x ≈ s.x atol = 1e-8
+  @test d.β0 ≈ s.β0 atol = 1e-8
 end
 
 @testset "paths, refits, groups and Float32" begin

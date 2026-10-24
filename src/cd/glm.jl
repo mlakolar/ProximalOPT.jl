@@ -149,13 +149,27 @@ end
 function _curvaturebound!(m::GLMModel{T}, k::Int) where {T}
   a = m.a[k]
   if isnan(a)
-    a = zero(T)
-    X = m.X
-    @inbounds for i in axes(X, 1)
-      a += _obsweight(m.w, i, T) * X[i, k] * X[i, k]
-    end
+    a = _weighted_sqnorm(m.X, m.w, k)
     a *= m.s * m.bound
     m.a[k] = a
+  end
+  a
+end
+
+# ∑ᵢ wᵢ Xᵢₖ², over the nonzeros for a sparse X
+function _weighted_sqnorm(X::AbstractMatrix{T}, w, k::Int) where {T}
+  a = zero(T)
+  @inbounds for i in axes(X, 1)
+    a += _obsweight(w, i, T) * X[i, k] * X[i, k]
+  end
+  a
+end
+
+function _weighted_sqnorm(X::SparseMatrixCSC{T}, w, k::Int) where {T}
+  rows, vals = rowvals(X), nonzeros(X)
+  a = zero(T)
+  @inbounds for j in nzrange(X, k)
+    a += _obsweight(w, rows[j], T) * vals[j] * vals[j]
   end
   a
 end
@@ -165,6 +179,18 @@ end
   G = zero(T)
   @inbounds for i in eachindex(η)
     G += _obsweight(m.w, i, T) * T(ProximalBase.deriv(m.loss, η[i], y[i])) * X[i, k]
+  end
+  m.s * G, _curvaturebound!(m, k)
+end
+
+# a sparse X: ℓ' only at the nonzeros of the column
+@inline function coordinate_derivatives(m::GLMModel{T, L, <:SparseMatrixCSC}, x::SparseIterate{T}, k::Int) where {T<:AbstractFloat, L}
+  X, η, y = m.X, m.η, m.y
+  rows, vals = rowvals(X), nonzeros(X)
+  G = zero(T)
+  @inbounds for j in nzrange(X, k)
+    i = rows[j]
+    G += _obsweight(m.w, i, T) * T(ProximalBase.deriv(m.loss, η[i], y[i])) * vals[j]
   end
   m.s * G, _curvaturebound!(m, k)
 end
@@ -337,6 +363,7 @@ function _center!(ws::_NewtonWorkspace{T}) where {T}
     ws.constant[k] && (model.xbar[k] = X[1, k])
   end
   model.ybar = dot(v, ws.z) / sv
+  model.wsum = sv
   ws
 end
 
@@ -371,9 +398,11 @@ function _proxnewton!(x::SparseIterate{T}, m::GLMModel{T}, g, method::ProxNewton
     inner_converged &= ws.st.converged
     copyto!(ws.x1, x)
     b1 = m.intercept ? intercept(model, x) : zero(T)
-    # Xx + β₀ + o at the full step, from the residuals z - β₀ - Xx of the model
+    # Xx + β₀ + o at the full step, from the residuals z - β₀ - Xx of the model,
+    # which are model.r .+ model.δ (δ is zero but for a sparse X with an intercept)
+    δ = model.δ
     @inbounds for i in 1:n
-      ws.η1[i] = z[i] - model.r[i] + (o === nothing ? zero(T) : o[i])
+      ws.η1[i] = z[i] - (model.r[i] + δ) + (o === nothing ? zero(T) : o[i])
     end
 
     # backtracking along the step: x0 + t (x1 - x0), η0 + t (η1 - η0)

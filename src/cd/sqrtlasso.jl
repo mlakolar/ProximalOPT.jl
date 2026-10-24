@@ -42,6 +42,8 @@ function (f::SqrtLeastSquaresLoss)(β::AbstractVector)
   f.w === nothing ? norm(f.tmp) : sqrt(sum(i -> f.w[i] * f.tmp[i]^2, eachindex(f.tmp)))
 end
 
+# As LSModel, a sparse X is read at its nonzeros, and with an intercept the
+# residuals are r .+ δ. ‖r‖ is computed at every step, in O(n), as for a dense X.
 mutable struct SqrtLSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T},
                            W<:Union{Nothing, AbstractVector{T}}} <: CDModel{T}
   X::MX
@@ -53,6 +55,8 @@ mutable struct SqrtLSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:Abstract
   ybar::T               # (weighted) mean of y with an intercept, otherwise zero
   N::T                  # n, or ∑ᵢ wᵢ: the scales of the stopping rule are per observation
   tmp::Vector{T}        # wᵢ rᵢ, for the gradient of a weighted loss
+  δ::T                  # the residuals are r .+ δ (a sparse X with an intercept)
+  rbuf::Vector{T}       # r .+ δ, for residuals(m)
 end
 
 function cdmodel(f::SqrtLeastSquaresLoss{T}, x; intercept::Bool = false) where {T}
@@ -65,21 +69,31 @@ function cdmodel(f::SqrtLeastSquaresLoss{T}, x; intercept::Bool = false) where {
   SqrtLSModel{T, typeof(X), typeof(y), typeof(w)}(X, y, w, zeros(T, length(y)), fill(T(NaN), p),
                                                   intercept ? _column_means(X, w) : zeros(T, p),
                                                   intercept ? _mean_response(y, nothing, w) : zero(T), N,
-                                                  w === nothing ? T[] : zeros(T, length(y)))
+                                                  w === nothing ? T[] : zeros(T, length(y)), zero(T), T[])
 end
 
 intercept(m::SqrtLSModel, x::AbstractArray) = m.ybar - dot(m.xbar, x)
 residuals(m::SqrtLSModel) = m.r
+residuals(m::SqrtLSModel{T, <:SparseMatrixCSC}) where {T<:AbstractFloat} = _shifted_residuals!(m.rbuf, m.r, m.δ)
 
 function initialize!(m::SqrtLSModel{T}, x::SparseIterate{T}) where {T}
   length(x) == size(m.X, 2) || throw(DimensionMismatch("x has length $(length(x)) and X has $(size(m.X, 2)) columns"))
   m.r .= m.y .- m.ybar
+  m.δ = zero(T)
   for k in activecoordinates(x)
     v = x[k]
-    iszero(v) || _column_axpy!(m.r, m.X, k, m.xbar[k], v)
+    iszero(v) || _residual_axpy!(m, k, v)
   end
   fill!(m.a, T(NaN))
   m
+end
+
+# the residuals after a step h of coordinate k, as for LSModel
+@inline _residual_axpy!(m::SqrtLSModel{T}, k::Int, h::T) where {T} = _column_axpy!(m.r, m.X, k, m.xbar[k], h)
+@inline function _residual_axpy!(m::SqrtLSModel{T, <:SparseMatrixCSC}, k::Int, h::T) where {T<:AbstractFloat}
+  _column_axpy!(m.r, m.X, k, zero(T), h)
+  m.δ += h * m.xbar[k]
+  m.r
 end
 
 # (a, s, ρ) with s = (X[:, k] - c)' r, ρ = r' r and a = ‖X[:, k] - c‖², which
@@ -139,20 +153,45 @@ end
   a, s, ρ
 end
 
+# the same for a sparse X and the residuals r .+ δ, which sum to zero with an
+# intercept: s = X[:, k]' r + n c δ over the nonzeros, ρ = ‖r .+ δ‖² over all
+@inline function _column_dot_rsqr(X::SparseMatrixCSC{T}, r::AbstractVector{T}, k::Int, c::T, a::T, δ::T) where {T}
+  a, s = _column_dot(X, r, k, c, a, δ)
+  ρ = zero(T)
+  @inbounds @simd for i in eachindex(r)
+    ρ += (r[i] + δ) * (r[i] + δ)
+  end
+  a, s, ρ
+end
+
+# the same with weights, whose weighted residuals sum to zero with an intercept:
+# s = ∑ᵢ wᵢ Xᵢₖ rᵢ + W c δ over the nonzeros, with W = ∑ᵢ wᵢ, ρ = ∑ᵢ wᵢ (rᵢ + δ)²
+@inline function _column_dot_rsqr(X::SparseMatrixCSC{T}, r::AbstractVector{T}, w::AbstractVector{T}, k::Int, c::T,
+                                  a::T, δ::T, W::T) where {T}
+  a, s = _column_dot(X, r, w, k, c, a, δ, W)
+  ρ = zero(T)
+  @inbounds @simd for i in eachindex(r)
+    ρ += w[i] * (r[i] + δ) * (r[i] + δ)
+  end
+  a, s, ρ
+end
+
 @inline _column_dot_rsqr(m::SqrtLSModel, ::Nothing, k::Int) = _column_dot_rsqr(m.X, m.r, k, m.xbar[k], m.a[k])
 @inline _column_dot_rsqr(m::SqrtLSModel, w::AbstractVector, k::Int) = _column_dot_rsqr(m.X, m.r, w, k, m.xbar[k], m.a[k])
+@inline _column_dot_rsqr(m::SqrtLSModel{T, <:SparseMatrixCSC}, ::Nothing, k::Int) where {T<:AbstractFloat} =
+  _column_dot_rsqr(m.X, m.r, k, m.xbar[k], m.a[k], m.δ)
+@inline _column_dot_rsqr(m::SqrtLSModel{T, <:SparseMatrixCSC}, w::AbstractVector, k::Int) where {T<:AbstractFloat} =
+  _column_dot_rsqr(m.X, m.r, w, k, m.xbar[k], m.a[k], m.δ, m.N)
 
 # the exact minimizer of ‖r - X[:,k] t‖ + λ|t| over the coordinate, with the
 # columns centered at their means when the model fits an intercept, and the
 # inner products weighted by w if the loss has weights
 function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
   T = eltype(m)
-  X, r = m.X, m.r
-  c = m.xbar[k]
 
   # partial residuals with coordinate k removed: r = y - X*x + X[:,k]*x[k]
   old = x[k]
-  iszero(old) || _column_axpy!(r, X, k, c, -old)
+  iszero(old) || _residual_axpy!(m, k, -old)
 
   xsqr, s, rsqr = _column_dot_rsqr(m, m.w, k)
   m.a[k] = xsqr
@@ -169,12 +208,14 @@ function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
     (s - copysign(λ / sqrt(q) * sqrt(max(rsqr - s^2 / xsqr, zero(T))), s)) / xsqr
   end
 
-  iszero(new) || _column_axpy!(r, X, k, c, new)
+  iszero(new) || _residual_axpy!(m, k, new)
   new != old && (x[k] = new)
   new - old
 end
 
 _cache(m::SqrtLSModel) = m.r
+_cache_moved!(m::SqrtLSModel{T, <:SparseMatrixCSC}, x::SparseIterate{T}) where {T<:AbstractFloat} =
+  (m.δ = _dot_active(m.xbar, x); m)
 
 check_penalty(::SqrtLSModel, g) = g isa NormL1 ||
   throw(ArgumentError("coordinate descent on SqrtLeastSquaresLoss needs a NormL1 penalty, but g is a $(typeof(g))."))
@@ -182,17 +223,7 @@ check_penalty(::SqrtLSModel, g) = g isa NormL1 ||
 function _sqnorm!(m::SqrtLSModel{T}, k::Int) where {T}
   a = m.a[k]
   if isnan(a)
-    a = zero(T)
-    X, c, w = m.X, m.xbar[k], m.w
-    if w === nothing
-      @inbounds @simd for i in axes(X, 1)
-        a += (X[i, k] - c) * (X[i, k] - c)
-      end
-    else
-      @inbounds @simd for i in axes(X, 1)
-        a += (X[i, k] - c) * (X[i, k] - c) * w[i]
-      end
-    end
+    a = _column_sqnorm(m.X, k, m.xbar[k], m.w, m.N)
     m.a[k] = a
   end
   a
@@ -211,6 +242,9 @@ end
 
 loss_value(m::SqrtLSModel{T}, x) where {T} =
   m.w === nothing ? norm(m.r) : sqrt(sum(i -> m.w[i] * m.r[i]^2, eachindex(m.r); init = zero(T)))
+loss_value(m::SqrtLSModel{T, <:SparseMatrixCSC}, x) where {T<:AbstractFloat} =
+  m.w === nothing ? _shifted_norm(m.r, m.δ) :
+                    sqrt(sum(i -> m.w[i] * (m.r[i] + m.δ)^2, eachindex(m.r); init = zero(T)))
 
 function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T}, x) where {T}
   if m.w === nothing
@@ -222,4 +256,28 @@ function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T}, x) where {T}
     G .= (m.xbar .* sum(m.tmp) .- G) ./ loss_value(m, x)
   end
   G
+end
+
+# the numerator does not change when a constant is added to r, with or without
+# weights, since the columns are centered at their (weighted) means
+function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T, <:SparseMatrixCSC}, x) where {T<:AbstractFloat}
+  if m.w === nothing
+    mul!(G, transpose(m.X), m.r)
+    G .= (m.xbar .* sum(m.r) .- G) ./ _shifted_norm(m.r, m.δ)
+  else
+    m.tmp .= m.w .* m.r
+    mul!(G, transpose(m.X), m.tmp)
+    G .= (m.xbar .* sum(m.tmp) .- G) ./ loss_value(m, x)
+  end
+  G
+end
+
+# ‖r .+ δ‖
+function _shifted_norm(r::Vector{T}, δ::T) where {T}
+  iszero(δ) && return norm(r)
+  ρ = zero(T)
+  @inbounds @simd for i in eachindex(r)
+    ρ += (r[i] + δ) * (r[i] + δ)
+  end
+  sqrt(ρ)
 end

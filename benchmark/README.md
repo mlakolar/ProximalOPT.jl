@@ -41,10 +41,15 @@ loads the current ProximalSolvers checkout, ProximalBase 0.5.3, GLMNet, and
 Lasso. `benchmark/legacy_cd/Project.toml` pins the independent historical
 baseline to CoordinateDescent 0.5.6 and ProximalBase 0.4.0. Their incompatible
 ProximalBase requirements cannot be satisfied in one Julia environment.
-`instantiate_lasso.jl` prepares both and supports Julia 1.10 as well as later
-versions (`[sources]` needs explicit setup on 1.10). The setup resolves both
-environments for the running Julia version before instantiating them, so rerun
-it when switching Julia versions. Set `PROXIMAL_BASE_PATH`
+`instantiate_lasso.jl` prepares both and requires Julia 1.10.8 or later
+(`[sources]` needs explicit setup on 1.10). It maintains separate native
+`Manifest-v1.10.toml`, `Manifest-v1.13.toml`, etc. locks in each environment,
+so rerun setup when switching Julia minor versions. Existing versioned locks
+are reused. An existing shared `Manifest.toml` seeds the new lock when its
+Julia minor matches; otherwise it is preserved and the new runtime resolves
+its own lock from `Project.toml`. This avoids incompatible Statistics entries
+when switching runtimes without updating the other runtime's locked packages.
+Set `PROXIMAL_BASE_PATH`
 when instantiating to use an existing local ProximalBase checkout instead of
 the development URL. This optional setting is useful for an immutable cluster
 source snapshot; the normal commands above use the development URL directly.

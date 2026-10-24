@@ -63,6 +63,13 @@ function solve!(
   isproximable(g) || throw(ArgumentError("$(summary(method)) needs a proximable g (isproximable(g)), but g is a $(typeof(g))."))
   t0 = time()
   state = initial_state(method, options, f, g, initial_x)
+  gapev = options.gaptol > 0 ? _gapevaluator(f, g, initial_x) : nothing
+  _solve_gradient!(state, f, g, method, options, gapev, t0)
+end
+
+# The iteration engine also serves SolverWorkspace, which supplies its existing
+# state and gap buffers after resetting the counters and starting point.
+function _solve_gradient!(state, f, g, method, options, gapev, t0 = time())
 
   tr = OptimizationTrace{typeof(method)}()
   tracing = options.store_trace || options.show_trace || options.extended_trace || options.callback !== nothing
@@ -74,7 +81,6 @@ function solve!(
   iteration = 0
 
   # with gaptol, the duality gap replaces the other convergence tests
-  gapev = options.gaptol > 0 ? _gapevaluator(f, g, initial_x) : nothing
   options.gaptol > 0 && gapev === nothing &&
     @warn "there is no duality gap for $(nameof(typeof(f))) with $(nameof(typeof(g))); gaptol is ignored." maxlog = 1
   relgap, relgap_iteration = NaN, -1

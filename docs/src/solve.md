@@ -67,6 +67,31 @@ anderson, momentum, rng, gaptol, gapsafe)` and `ProxNewton(; inner, maxiter, tol
 The call limits are checked after each iteration, which always finishes, so a
 count can exceed its limit by the evaluations of one iteration.
 
+## Reusing solver buffers
+
+[`SolverWorkspace`](@ref) keeps the solver-owned buffers between standalone
+fits with a fixed loss, solver configuration and iterate shape:
+
+```julia
+ws = SolverWorkspace(zeros(size(X, 2)), LeastSquaresLoss(y, X),
+                     NormL1(0.1), AccProxGradDescent(), ProximalOptions())
+result = solve!(ws)
+result = solve!(ws, NormL1(0.05))    # same loss, a different penalty level
+reinit!(ws, zeros(size(X, 2)))      # a new start in the existing storage
+```
+
+The three gradient solvers, `CDSolver` and `ADMMSolver` support this interface.
+For coordinate descent omit `ProximalOptions`; the workspace may also take a
+configured `CDModel`, including one with an intercept. Each solve resets its
+counters and acceleration history. ADMM also resets its scaled dual variable
+and penalty parameter unless `solve!(ws; warm_start = true)` is requested.
+
+The workspace shares the caller's starting array and the result's minimizer;
+ADMM results also share its dual buffer. Copy arrays that must survive another
+solve. Keep loss data and group partitions fixed, and use separate workspaces
+for concurrent solves. User function or proximal-operator allocations, traces,
+results and optional refit/Anderson work are separate from buffer reuse.
+
 ## Results
 
 | Solver | Result | Fields |

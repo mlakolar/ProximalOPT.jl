@@ -2,6 +2,7 @@ using Test
 
 
 tests = [
+  "workspaces",
   "prox_solvers",
   "nonconvex",
   "nonconvex_blocks",

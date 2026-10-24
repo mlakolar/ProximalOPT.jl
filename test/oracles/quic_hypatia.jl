@@ -51,7 +51,7 @@ function hypatia_solution(S::Matrix{Float64}, Λ::Matrix{Float64}, w::Float64)
           " primal=", primal_status(model))
   @test termination_status(model) == MOI.OPTIMAL
   @test primal_status(model) == MOI.FEASIBLE_POINT
-  Matrix(value.(Θ)), objective_value(model)
+  Matrix(JuMP.value.(Θ)), objective_value(model)
 end
 
 # A continuous KKT residual, unlike a sign test at tiny interior-point entries.

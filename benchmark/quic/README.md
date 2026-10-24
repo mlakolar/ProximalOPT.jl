@@ -1,10 +1,12 @@
 # QUIC and the Kronecker caches
 
-This directory contains two separate measurements for
+This directory contains three separate measurements for
 [issue #22](https://github.com/mlakolar/ProximalSolvers.jl/issues/22).
 `quic_bench.jl` compares graphical-lasso solvers. `kron_cache_bench.jl`
 compares the two existing coordinate-descent caches on fixed symmetric
-Kronecker quadratics. Run either script inside a Slurm allocation on
+Kronecker quadratics. `cross_language.jl` and `cross_language.R` compare
+warm-started graphical-lasso paths across five Julia and R solvers.
+Run these scripts inside a Slurm allocation on
 Discovery, with one Julia and BLAS thread.
 
 ## Existing graphical-lasso evidence
@@ -31,6 +33,104 @@ unrelated A/B stage encountered a shared compiled-cache race and a summary
 stage then failed. The graphical-lasso benchmark itself finished, and its
 `quic_bench.txt` and `results/quic_bench.csv` were retained. A scheduler failure
 for the combined job must not be described as a clean exit of every stage.
+
+## Cross-language graphical-lasso paths
+
+Discovery job **13377414**, run `20261024T1258Z-ps-issue22`, measured
+`p = 100, 300, 600, 2000`, three decreasing penalty levels
+`λ = 0.2, 0.12, 0.08`, and two interleaved repetitions. Its tested source
+was `b075cdc4eba160dffb97dfd9a2c3318f5c7d4d73`, with ProximalBase
+`a866768afcca653503af7b174d2fabc3b7c38466`. The solvers were native QUIC,
+ADMM (the algorithm used by `covsel!`), GraphicalLassoQUIC.jl, R's QUIC and
+R's glasso. The common objective was
+
+```
+tr(SΘ) − log det Θ + λ Σᵢ≠ⱼ |Θᵢⱼ|.
+```
+
+Each implementation received the same binary-exported sample covariance.
+The diagonal was unpenalized, with no implicit likelihood rescaling.
+Every path reused its previous primal solution. ADMM also reused its dual
+variable and penalty parameter; the two reference QUIC interfaces received
+the previous precision and its inverse. GraphicalLassoQUIC's required
+inverse construction was included in its timed work. Solver order reversed
+between repetitions. R startup, file I/O and Julia validation were outside
+the solve times.
+
+Julia checked every returned matrix's symmetry, positive definiteness,
+objective and relative duality gap. Objective and gap evaluation used the
+symmetric part; the symmetry test applied to the original output.
+**118 of 120 results passed.** Both
+R glasso results at `p = 2000, λ = 0.08` failed the fixed symmetry check:
+relative asymmetry `1.309748671e-8` exceeded `1e-8`. Their evaluated relative
+duality gaps were approximately `4.219e-10`. The small gaps do not override
+the symmetry failure. These two results remain failed and must be excluded
+from accuracy-matched timing claims. The benchmark exited with an error
+after preserving every result; it was not a clean all-pass validation run.
+
+The raw `validated.tsv` contains every time, attained gap and validation
+decision, including the failures. A summary should report both all-returned
+and valid-only median times, with the number of valid repetitions. Solver
+tolerance names alone do not establish equal accuracy; the common target
+was a relative gap of `1e-4`, and attained gaps were recorded separately.
+
+Median solve times in seconds, from the two interleaved repetitions:
+
+| p | λ | Native QUIC | ADMM | GraphicalLassoQUIC | R QUIC | R glasso |
+|---|---:|---:|---:|---:|---:|---:|
+| 100 | 0.20 | 0.000303 | 0.008721 | 0.003019 | 0.0025 | 0.0020 |
+| 100 | 0.12 | 0.001204 | 0.008582 | 0.006252 | 0.0020 | 0.0065 |
+| 100 | 0.08 | 0.002388 | 0.008574 | 0.016459 | 0.0040 | 0.0125 |
+| 300 | 0.20 | 0.001151 | 0.087520 | 0.026216 | 0.0150 | 0.0080 |
+| 300 | 0.12 | 0.009456 | 0.088778 | 0.034169 | 0.0130 | 0.1430 |
+| 300 | 0.08 | 0.011274 | 0.091342 | 0.085480 | 0.0210 | 0.1560 |
+| 600 | 0.20 | 0.002481 | 0.491594 | 0.099909 | 0.0690 | 0.0330 |
+| 600 | 0.12 | 0.050782 | 0.510850 | 0.166664 | 0.0655 | 0.8695 |
+| 600 | 0.08 | 0.047998 | 0.515336 | 0.241428 | 0.0810 | 1.1890 |
+| 2000 | 0.20 | 0.036533 | 12.865421 | 1.992394 | 1.4425 | 0.7070 |
+| 2000 | 0.12 | 1.128101 | 13.358484 | 3.083762 | 1.5325 | 35.9685 |
+| 2000 | 0.08 | 1.180265 | 13.493029 | 3.958057 | 1.7825 | 35.7235* |
+
+`*` Both glasso repetitions failed the symmetry check described above; their
+time is retained for completeness, not an accuracy-matched comparison.
+Across the 12 accepted native/ADMM and native/GraphicalLassoQUIC pairs, the
+ratios of median times were `0.00284–0.278` and `0.0183–0.366`, respectively.
+Thus the native solver met the issue's two timing thresholds on this grid.
+These are times to the common tolerance target, not to identical attained
+gaps: the reference QUIC implementations often solved more accurately.
+
+### Recreating the cross-language run
+
+Use the run's R library containing `QUIC` and `glasso`; the R QUIC package
+is named `QUIC`, not `cQUIC`. This run used R 4.4.3.
+Its QUIC source came from the
+[CRAN mirror at `1235758`](https://github.com/cran/QUIC/tree/1235758fe364d275565f11d2ca96276d7eadc6ba).
+The reference parameter and warm-start conventions are documented in the
+[QUIC source](https://github.com/cran/QUIC/blob/1235758fe364d275565f11d2ca96276d7eadc6ba/R/QUIC.R)
+and [glasso manual](https://cran.r-project.org/web/packages/glasso/glasso.pdf).
+Keep package installation and all execution inside the Slurm allocation.
+
+```sh
+module load r/4.4.3
+export R_RUNTIME_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+export R_LIBS_USER="/absolute/path/to/run/Rlib"
+export JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+R_BINARY=$(command -v Rscript)
+srun --exclusive --exact -N1 -n1 -c1 env -u LD_LIBRARY_PATH \
+  /home1/mkolar/juliaPkg/julia-1.13.2/bin/julia \
+  --startup-file=no --project=/absolute/path/to/env-quic \
+  /absolute/path/to/source/benchmark/quic/cross_language.jl \
+  --root "$PWD/cross-results" --sizes 100,300,600,2000 \
+  --lambda 0.2,0.12,0.08 --rounds 2 --rscript "$R_BINARY"
+```
+
+The Julia process excludes R's module library path; each R child receives
+it through `R_RUNTIME_LIBRARY_PATH`. This avoids an observed library-version
+conflict between R's modules and Julia's bundled tools. The script records
+missing packages as unavailable and preserves failed results. Use
+`--validate-only` with the same input options to inspect saved matrices
+without refitting. ADMM has a 120-second soft limit per level; Newton and
+reference iterations are capped, and each R child path has a process limit.
 
 ## Comparing `M = AΘB` with `U = ΘB`
 
@@ -80,6 +180,25 @@ ratios above one mean the U cache is slower. A validation failure preserves
 the CSVs and exits with an error. The checks concern the stated subproblems,
 not a proof that either cache is always faster.
 
+### Cache results
+
+Discovery job **13377133**, tested source
+`f99d014494b8106f1c2a02742dc94226cbbf000e`, completed all 12 cases with
+validation passed. The largest relative coefficient discrepancy was
+`8.8e-14`; the largest scaled KKT residual was `4.8e-9`. Median total-time
+ratios `U/M` were:
+
+| p | D-trace, 0.5 λmax | D-trace, 0.2 λmax | Inverse Hessian, level 1 | Inverse Hessian, level 3 |
+|---|---:|---:|---:|---:|
+| 30 | 0.289 | 0.350 | 0.346 | 0.512 |
+| 100 | 0.226 | 0.115 | 0.111 | 0.153 |
+| 300 | 0.145 | 0.0505 | 0.0466 | 0.0686 |
+
+The U cache was faster on these fixed symmetric subproblems. The raw
+repetitions and summary are retained as `kron_cache.csv` and
+`kron_cache_summary.csv` in the run's results. The evidence does not cover
+unrestricted asymmetric iterates or all possible active-set patterns.
+
 ### Running on Discovery
 
 Use the existing `benchmark/quic` environment, with ProximalSolvers bound to
@@ -102,5 +221,4 @@ The environment already needs only `LinearAlgebra`, `Random`, `Printf`,
 ProximalBase and ProximalSolvers for this cache script. It does not load
 GraphicalLassoQUIC or R. A short check can use `--sizes 30 --rounds 2`.
 Retain the raw and summary CSVs, the Slurm output, the tested source revisions
-and a compact run recipe. New cache timings are **pending** until the script
-has run on Discovery and its diagnostics have been inspected.
+and a compact run recipe.

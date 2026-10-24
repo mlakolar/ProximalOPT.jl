@@ -151,8 +151,8 @@ For the generic path, convergence is checked against the gradient of the
 original loss at the current iterate. Its unit-step proximal fixed-point
 residual is compared with `tol * max(1, norm(x, Inf))`. The residual is zero
 when the proximal stationarity condition holds; for a convex objective this
-characterizes a global minimizer. `CDResults.maxchange` and `tolerance` report that residual and its
-threshold. `gap` is `NaN`, since a generic smooth loss need not provide a
+characterizes a global minimizer. `CDResults.maxchange` and `tolerance`
+report that residual and its threshold. `gap` is `NaN`, since a generic smooth loss need not provide a
 Fenchel dual.
 
 The inner change rule is followed by a proximal-residual check on the
@@ -167,8 +167,8 @@ averaged: their sum determines the penalty on a symmetric pair. Vector
 penalties must be separable. The quadratic models must have positive
 semidefinite Hessians for the inner coordinate-descent solves to have their
 usual interpretation. This generic path does not fit an extra intercept or
-construct a screened penalty path;
-the GLM model interface supplies those features.
+construct a screened penalty path; the GLM model interface supplies those
+features.
 
 ```julia
 A = [2.0 0.2; 0.2 1.0]

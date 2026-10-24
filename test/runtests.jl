@@ -7,6 +7,7 @@ tests = [
   "image_models",
   "call_limits",
   "admm",
+  "product_space",
   "active_set",
   "group_lasso",
   "low_rank",

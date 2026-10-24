@@ -36,11 +36,11 @@ function AccProxGradDescent(; β::AbstractFloat = 0.5, α::AbstractFloat = 0.9)
   AccProxGradDescent(promote(β, α)...)
 end
 
-# the iterates have the type of the starting point x0; the gradient is dense.
-# For a loss of a linear image, f(x) = F(Ax), the state keeps the images of x,
-# x_previous and y (see image_models.jl); otherwise model and the images are
-# nothing
-mutable struct AccProxGradDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}, M, Z}
+# the iterates have the type of the starting point x0, an array or a tuple of
+# arrays; the gradient is dense. For a loss of a linear image, f(x) = F(Ax), the
+# state keeps the images of x, x_previous and y (see image_models.jl); otherwise
+# model and the images are nothing
+mutable struct AccProxGradDescentState{T, X<:Union{AbstractArray{T}, _Blocks{T}}, G<:Union{AbstractArray{T}, _Blocks{T}}, M, Z}
     x::X
     f_x::T
     g_x::T
@@ -73,7 +73,7 @@ function initial_state(
           options,
           f,
           g,
-          x0::AbstractArray{T}) where T
+          x0::Union{AbstractArray{T}, _Blocks{T}}) where T
 
     model = _image_model(f)
     z_x = model === nothing ? nothing : _image_buffer(model)
@@ -83,14 +83,14 @@ function initial_state(
                          x0,          # Maintain current state in state.x
                          f_x,
                          g(x0),
-                         copy(x0),    # x_previous = x0, so the first step has no momentum
+                         _copy(x0),   # x_previous = x0, so the first step has no momentum
                          T(NaN),
                          T(NaN),
-                         similar(x0), # extrapolated point y
+                         _similar(x0), # extrapolated point y
                          T(NaN),      # f(y)
-                         Array{T}(undef, size(x0)), # gradient of f at y
-                         similar(x0), # Temporary storage
-                         similar(x0), # Temporary storage for x1 - x0
+                         _dense_similar(x0), # gradient of f at y
+                         _similar(x0), # Temporary storage
+                         _similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
                          T(-Inf),     # maxResidual
                          0,
@@ -115,12 +115,12 @@ function update_state!(
 
     ω = T(state.k / (state.k + 3))
     state.L *= T(method.α)
-    @. state.y = state.x + ω * (state.x - state.x_previous)
+    _extrapolate_point!(state.y, state.x, state.x_previous, ω)
     _drop!(state.y)
     _extrapolate_image!(state, state.model, ω)
 
     # copy x --> x_previous
-    copyto!(state.x_previous, state.x)
+    _copyto!(state.x_previous, state.x)
     state.f_x_previous = state.f_x
     state.g_x_previous = state.g_x
     _shift_image!(state, state.model)
@@ -135,7 +135,7 @@ function update_state!(
         ω = zero(T)
         state.k = 0
         state.restarts += 1
-        copyto!(state.y, state.x_previous)
+        _copyto!(state.y, state.x_previous)
         _restart_image!(state, state.model)
       else
         break
@@ -143,7 +143,7 @@ function update_state!(
     end
 
     state.k += 1
-    @. state.deltaX = state.x - state.x_previous
+    _sub!(state.deltaX, state.x, state.x_previous)
     state
 end
 
@@ -160,15 +160,15 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
       return state
     end
     while true
-      @. state.xhat = state.y - state.grad_f_y / state.L
+      _step!(state.xhat, state.y, state.grad_f_y, state.L)
       state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)
       _drop!(state.x)
       state.f_x = _value!(f, state.x, state.model, state.z_x)
       state.prox_calls += 1
       state.f_calls += 1
 
-      @. state.xhat = state.x - state.y
-      upper = state.f_y + dot(state.grad_f_y, state.xhat) + state.L / 2 * sum(abs2, state.xhat)
+      _sub!(state.xhat, state.x, state.y)
+      upper = state.f_y + _dot(state.grad_f_y, state.xhat) + state.L / 2 * _sumabs2(state.xhat)
       state.backtrack_steps += 1
       # slack guards against an endless loop from rounding error near the solution
       state.f_x <= upper + 10 * eps(T) * max(abs(state.f_y), one(T)) && break

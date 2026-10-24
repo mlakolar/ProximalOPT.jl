@@ -3,9 +3,14 @@
 # that products by it touch only its support; nothing to do for an Array
 _drop!(x::AbstractArray) = x
 _drop!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = dropzeros!(x)
+_drop!(x::Tuple) = (foreach(_drop!, x); x)
 
 # the gradient methods step from a point where f is finite, and keep to such
 # points, rejecting the trial points off the domain of f
+# the parameter N of OptimizationResults: the dimension of an array, 1 for a tuple
+_resultdims(x::AbstractArray) = ndims(x)
+_resultdims(::Tuple) = 1
+
 _check_start(f_x) = isfinite(f_x) ||
   throw(ArgumentError("f(x0) = $f_x: start from a point where f is finite, such as the identity for LogDetLoss."))
 
@@ -29,6 +34,12 @@ iterates touch only their stored entries or active groups. For
 `ADMMResults`. For [`CDSolver`](@ref) and [`ProxNewton`](@ref), see their
 documentation.
 
+The gradient solvers and ADMM also take a tuple of arrays with one element
+type, `x = (x1, …, xK)`: a point of a product space, for functions of several
+blocks such as ProximalBase's `SeparableSum(f1, …, fK)` (`fₖ` on block `k`) or a
+penalty that couples the blocks. Norms and inner products are taken over all
+the blocks, and a tuple of one array computes exactly what the array does.
+
 # Example
 ```julia
 using ProximalBase, ProximalSolvers
@@ -38,7 +49,7 @@ res = solve!(x, QuadraticFunction(A, b), NormL1(0.1), AccProxGradDescent())
 ```
 """
 function solve!(
-    initial_x::AbstractArray,
+    initial_x::Union{AbstractArray, _Blocks},
     f::AbstractFunction,
     g::AbstractFunction,
     method::ProximalSolver,
@@ -86,7 +97,7 @@ function solve!(
   end # while
 
   # the residuals are stored as Float64, like the tolerances, whatever the element type
-  return OptimizationResults(
+  return OptimizationResults{typeof(method), typeof(state.f_x), _resultdims(state.x), typeof(method), typeof(state.x)}(
                 method,
                 state.x,
                 state.f_x + state.g_x,
@@ -94,7 +105,7 @@ function solve!(
                 iteration == options.maxiter,
                 x_converged,
                 options.xtol,
-                Float64(norm_diff(state.x, state.x_previous, 2.)),
+                Float64(_norm_diff(state.x, state.x_previous, 2.)),
                 fg_converged,
                 options.ftol,
                 Float64(f_residual(state.f_x + state.g_x, state.f_x_previous + state.g_x_previous, options.ftol)),

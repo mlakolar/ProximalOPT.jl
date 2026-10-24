@@ -11,6 +11,7 @@ ProximalOPT.
 """
 module ProximalSolvers
 
+include("blocks.jl")
 include("lineSearches.jl")
 
 using LinearAlgebra
@@ -21,6 +22,7 @@ using ProximalBase
 using Random: AbstractRNG, default_rng
 import ProximalBase: gradient!, value_and_gradient!
 using SparseArrays: SparseMatrixCSC, dropzeros!, nonzeros, nzrange, rowvals, sparse, sparsevec
+using .Blocks
 using .LineSearches
 
 export

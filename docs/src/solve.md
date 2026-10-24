@@ -20,7 +20,7 @@ for some of their oracles, and for an iterate of a certain kind:
 | [`ActiveAccProxGradDescent`](@ref) | smooth, with `restrict` | separable or `GroupNormL2`, with `restrict` and `kkt_violation` | a vector, a `SparseIterate` or an `AtomIterate` |
 | [`ADMMSolver`](@ref) | proximable | proximable | an `Array` |
 | [`CDSolver`](@ref) | a loss with a coordinate descent model, see [Losses for coordinate descent](@ref) | separable, or `GroupNormL2` | a `SparseIterate`, a `SymmetricSparseIterate`, an `AtomIterate` for a group penalty, or a vector |
-| [`ProxNewton`](@ref) | a `GLMLoss` | separable | a `SparseIterate` |
+| [`ProxNewton`](@ref) | a `GLMLoss`, or a `LogDetLoss` | separable, or a `NormL1` with a `LogDetLoss` | a `SparseIterate`; for a `LogDetLoss`, a `SymmetricSparseIterate` or a symmetric `Matrix` |
 
 The iterates are those of ProximalBase: a
 [`SparseIterate`](@extref ProximalBase.SparseIterate) stores the entries that

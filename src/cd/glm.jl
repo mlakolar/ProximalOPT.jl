@@ -251,6 +251,22 @@ returns [`CDResults`](@ref), whose `passes` sum the inner passes.
 as well, as the intercept of the weighted least-squares model of each step:
 `η = Xβ + β₀ + o`. The model keeps `β₀` (read it with `intercept(m, x)`) and
 starts the next solve from it. [`solve_path`](@ref) takes `ProxNewton` too.
+
+For the graphical lasso, `f` a `LogDetLoss(S, w)` (or a scaled one) and `g` a
+`NormL1` (a matrix of weights leaves, for example, the diagonal free), it is
+QUIC (Hsieh, Sustik, Dhillon and Ravikumar, *QUIC: quadratic approximation for
+sparse inverse covariance estimation*, 2014), on a `SymmetricSparseIterate` or
+a dense symmetric matrix `X`. Each step minimizes the second-order model
+`w (tr(WΔWΔ)/2 + tr((S - W)Δ)) + g(X + Δ)`, `W = X⁻¹`, by coordinate descent
+over the free set (the entries that are nonzero or whose gradient exceeds the
+penalty), with up to `2 (1 + k ÷ 3)` passes at step `k`, and the Armijo line
+search keeps `X` positive definite. The solution is block diagonal along the
+connected components of the graph of the entries with `w |Sᵢⱼ|` above the
+penalty, so each component is solved on its own. It stops when the relative
+duality gap (see [`duality_gap`](@ref)) is at most `tol`, which the `gap` of
+the results reports. `X` is the starting point when it is positive definite;
+otherwise (for example zero) the start is the diagonal solution
+`1/(Sᵢᵢ + λᵢᵢ/w)`.
 """
 struct ProxNewton <: ProximalSolver
   inner::CDSolver

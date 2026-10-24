@@ -10,7 +10,8 @@ for a `GLMLoss` of ProximalBase (logistic, Poisson, Huber, or one of your own)
 and a separable penalty ``g``, as glmnet does (Friedman, Hastie and Tibshirani,
 2010). Each step minimizes a quadratic model of the loss plus the penalty by
 coordinate descent, and a line search on ``F`` makes sure the objective
-decreases.
+decreases. It also solves the graphical lasso, by QUIC; see
+[The graphical lasso by QUIC](@ref).
 
 ## The quadratic model
 
@@ -87,10 +88,41 @@ path = solve_path(m, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50), Prox
                   callback = (k, λ, β, m) -> (push!(b0, ProximalSolvers.intercept(m, β)); false))
 ```
 
+## The graphical lasso by QUIC
+
+For the graphical lasso,
+
+```math
+F(X) = w\big(\operatorname{tr}(SX) - \log\det X\big) + \sum_{ij}\lambda_{ij}\lvert X_{ij}\rvert,
+```
+
+`f` a `LogDetLoss(S, w)` (or a scaled one) and `g` a `NormL1` (a matrix of
+weights can leave the diagonal free), `ProxNewton` is QUIC (Hsieh, Sustik,
+Dhillon and Ravikumar, 2014), on a `SymmetricSparseIterate` or a dense
+symmetric matrix. With ``W = X^{-1}``, the step ``\Delta`` minimizes the
+second-order model
+
+```math
+w\Big(\tfrac12\operatorname{tr}(W\Delta W\Delta) + \operatorname{tr}\big((S - W)\Delta\big)\Big) + g(X + \Delta)
+```
+
+by coordinate descent over the free set, the entries that are nonzero or whose
+gradient exceeds the penalty, with up to ``2(1 + \lfloor k/3\rfloor)`` passes
+at step ``k``, and an Armijo line search keeps ``X`` positive definite. The
+solution is block diagonal along the connected components of the graph of the
+entries with ``w\lvert S_{ij}\rvert`` above the penalty, so each component is
+solved on its own. The method stops when the relative duality gap (see
+[Duality gaps](@ref)) is at most `tol`, which the `gap` of the result reports.
+`X` is the starting point when it is positive definite; otherwise, zero for
+example, the start is the diagonal solution ``1/(S_{ii} + \lambda_{ii}/w)``. A
+Newton step costs a few Cholesky factorizations, where an iteration of
+[ADMM](@ref) costs an eigendecomposition.
+
 ## Settings
 
 `ProxNewton(; inner = CDSolver(; tol = 1e-8), maxiter = 100, tol = 1e-8, β = 0.5)`.
-`solve!` takes a `SparseIterate` and returns a [`CDResults`](@ref) whose
+`solve!` takes a `SparseIterate` (a `SymmetricSparseIterate` or a `Matrix` for
+the graphical lasso) and returns a [`CDResults`](@ref) whose
 `passes` sum the inner passes, and which is `converged` when the outer stopping
 rule was met and every inner solve converged.
 
@@ -99,5 +131,8 @@ rule was met and every inner solve converged.
 - J. Friedman, T. Hastie and R. Tibshirani. Regularization Paths for
   Generalized Linear Models via Coordinate Descent. *Journal of Statistical
   Software*, 33(1), 2010.
+- C.-J. Hsieh, M. A. Sustik, I. S. Dhillon and P. Ravikumar. QUIC: Quadratic
+  Approximation for Sparse Inverse Covariance Estimation. *Journal of Machine
+  Learning Research*, 15, 2014.
 - J. D. Lee, Y. Sun and M. A. Saunders. Proximal Newton-Type Methods for
   Minimizing Composite Functions. *SIAM Journal on Optimization*, 24(3), 2014.

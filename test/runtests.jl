@@ -16,6 +16,7 @@ tests = [
   "sparse_x",
   "glm",
   "duality_gap",
+  "quic",
   "examples",
   "aqua",
 ]

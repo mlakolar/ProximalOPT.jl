@@ -419,24 +419,50 @@ end
 function _evalgap!(ev::_LogDetGap{T}, f::LogDetLoss{T}, g::NormL1, X::AbstractMatrix) where {T}
   P = f(X) + g(X)
   isfinite(P) || return P, T(-Inf)
-  C, M, S = ev.C, ev.M, f.S
-  p = size(S, 1)
+  C, M = ev.C, ev.M
   copyto!(C, X)
+  _logdet_chol!(C) === nothing && return P, T(-Inf)
+  _inverse_from_chol!(M, C)
+  P, _glasso_dual!(C, f.S, M, g, f.w)
+end
+
+# the bound on the dual variable of entry (r, c) over symmetric matrices, the
+# mean of the penalties of (r, c) and (c, r), divided by w
+@inline _glasso_bound(g::NormL1, p::Int, r::Int, c::Int, w::T) where {T} =
+  T(g.λ0) * (T(_entryweight(g.w, (c - 1) * p + r, T)) + T(_entryweight(g.w, (r - 1) * p + c, T))) / (2w)
+
+# log det of the positive definite matrix whose upper triangle is factorized in
+# place in C, or nothing
+function _logdet_chol!(C::Matrix{T}) where {T}
   _, info = LAPACK.potrf!('U', C)
-  info == 0 || return P, T(-Inf)
-  LAPACK.potri!('U', C)
-  λ0, w = T(g.λ0), f.w
-  @inbounds for j in 1:p, i in 1:j
-    b = λ0 * (T(_entryweight(g.w, (j - 1) * p + i, T)) + T(_entryweight(g.w, (i - 1) * p + j, T))) / (2w)
-    M[i, j] = S[i, j] + clamp(C[i, j] - S[i, j], -b, b)
-  end
-  _, info = LAPACK.potrf!('U', M)
-  info == 0 || return P, T(-Inf)
+  info == 0 || return nothing
   ld = zero(T)
-  @inbounds for i in 1:p
-    ld += log(M[i, i])
+  @inbounds for i in axes(C, 1)
+    ld += log(C[i, i])
   end
-  P, w * (2ld + p)
+  2ld
+end
+
+# W = X⁻¹ from the Cholesky factor of X in C (upper triangle), as a full
+# symmetric matrix
+function _inverse_from_chol!(W::Matrix{T}, C::Matrix{T}) where {T}
+  LAPACK.potri!('U', C)
+  @inbounds for c in axes(C, 2), r in 1:c
+    W[r, c] = C[r, c]
+    W[c, r] = C[r, c]
+  end
+  W
+end
+
+# the dual value w (log det(S + U) + p) at U = W - S clipped to the bounds, with
+# M as the workspace; -Inf when S + U is not positive definite
+function _glasso_dual!(M::Matrix{T}, S::AbstractMatrix{T}, W::Matrix{T}, g::NormL1, w::T) where {T}
+  p = size(S, 1)
+  @inbounds for c in 1:p, r in 1:c
+    M[r, c] = S[r, c] + clamp(W[r, c] - S[r, c], -_glasso_bound(g, p, r, c, w), _glasso_bound(g, p, r, c, w))
+  end
+  ld = _logdet_chol!(M)
+  ld === nothing ? T(-Inf) : w * (ld + p)
 end
 
 _evalgap!(ev, f, g, x) = _evalgap!(ev, g, x)

@@ -4,9 +4,9 @@
 
     minimize  ‖y - Xβ‖² / (2n) + λ ‖β‖₁
 
-against coordinate descent from
-[CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl), with
-glmnet (through GLMNet.jl) and Lasso.jl as outside references.
+against the current CoordinateDescent 0.8 API and an independent historical
+CoordinateDescent 0.5.6 implementation, with glmnet (through GLMNet.jl) and
+Lasso.jl as outside references.
 
 ## Running
 
@@ -37,8 +37,10 @@ The run writes `benchmark/results/single.csv` and `path.csv`, which
 write a check into a separate output directory.
 
 The two environments are intentionally separate. `benchmark/Project.toml`
-loads the current ProximalSolvers checkout, ProximalBase 0.5.3, GLMNet, and
-Lasso. `benchmark/legacy_cd/Project.toml` pins the independent historical
+loads the current ProximalSolvers checkout, ProximalBase 0.5.3,
+CoordinateDescent 0.8, GLMNet, and Lasso. Its CoordinateDescent source override
+uses [master on GitHub](https://github.com/mlakolar/CoordinateDescent.jl) until
+0.8 is registered. `benchmark/legacy_cd/Project.toml` pins the independent historical
 baseline to CoordinateDescent 0.5.6 and ProximalBase 0.4.0. Their incompatible
 ProximalBase requirements cannot be satisfied in one Julia environment.
 `instantiate_lasso.jl` prepares both and requires Julia 1.10.8 or later
@@ -49,21 +51,33 @@ are reused. An existing shared `Manifest.toml` seeds the new lock when its
 Julia minor matches; otherwise it is preserved and the new runtime resolves
 its own lock from `Project.toml`. This avoids incompatible Statistics entries
 when switching runtimes without updating the other runtime's locked packages.
-Set `PROXIMAL_BASE_PATH`
-when instantiating to use an existing local ProximalBase checkout instead of
-the development URL. This optional setting is useful for an immutable cluster
-source snapshot; the normal commands above use the development URL directly.
+Set `PROXIMAL_BASE_PATH` and/or `COORDINATE_DESCENT_PATH` when instantiating to
+use existing local checkouts instead of their development URLs. These optional
+settings are useful for immutable cluster source snapshots; the normal commands
+above use the development URLs directly. On Julia 1.10, setup develops
+CoordinateDescent, ProximalBase, and the local ProximalSolvers together because
+that runtime does not apply `[sources]`.
 
-The baseline runs in one persistent Julia child process with one BLAS thread.
+The historical baseline runs in one persistent Julia child process with one BLAS thread.
 Each generated design, response, and Gram matrix is serialized to it once,
 so it uses the same actual data as the current solvers. Timing is performed
 inside that worker after a warm-up call: startup, compilation, serialization,
 and IPC are excluded from the solver times. Both package versions and the
 runtime/BLAS configuration are printed. The full run still records errors
 and unattained accuracy targets as before; `--smoke` makes errors fatal.
-Set `PROXIMAL_LEGACY_CD_PROJECT` to use another compatible historical checkout.
+Set `PROXIMAL_LEGACY_CD_PROJECT` to use another checkout of the same pinned
+historical environment.
 Do not point it at the current CoordinateDescent package, which delegates to
 the current solver and would change the independence of the baseline.
+
+Rows labeled `CD 0.5.6` use that historical worker. Rows labeled `CD 0.8` use
+the modern package's `snake_case` API in the main process; the CSV package
+column and startup log record its exact version. Modern CoordinateDescent
+delegates to ProximalSolvers, so those rows measure its current API and path
+handling rather than an independent optimization engine. Both sets use the
+same generated data and reproducible random coordinate orders. The reference
+solution remains the independent historical fit. The smoke check compares row
+identities with the solver lists, including both versions.
 
 ## What is measured
 
@@ -93,10 +107,11 @@ The solvers:
 
 | row | what runs |
 |---|---|
-| CD random, CD cyclic | `coordinateDescent!` with `randomize = true` (CoordinateDescent's default) or `false` |
-| CD path from λmax | `coordinateDescent!` with `warmStart = false`, which solves along a path of 50 penalties |
-| CD X'X/n | `coordinateDescent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
-| CD LassoPath | `CoordinateDescent.LassoPath` |
+| CD 0.5.6 random, cyclic, path from λmax, X'X/n | Historical `coordinateDescent!`, with `randomize` and `warmStart`, on residuals or the supplied Gram matrix |
+| CD 0.8 random, CD 0.8 cyclic | `coordinate_descent!` with `order = :random` or `:cyclic` |
+| CD 0.8 path from λmax | `coordinate_descent!` with `warm_start = false`, solving along a path of 50 penalties |
+| CD 0.8 X'X/n | `coordinate_descent!` on `CDQuadraticLoss(X'X/n, -X'y/n)` |
+| CD 0.5.6 LassoPath, CD 0.8 LassoPath | Each package's `LassoPath`; 0.8 keeps its automatic Gram choice and includes any construction in the timed call |
 | ProxGrad, AccProxGrad, ActiveAccProxGrad | the solvers of this package on `LeastSquaresLoss` |
 | AccProxGrad X'X/n, ActiveAccProxGrad X'X/n | the same on `QuadraticFunction(X'X/n, -X'y/n)` |
 | glmnet, Lasso.jl | `GLMNet.glmnet` and `Lasso.fit(LassoPath, ...)` |
@@ -105,7 +120,7 @@ The solvers:
 
 These historical results are from 22 October 2026, on one core of an AMD EPYC 7513 (a
 compute node of USC's Discovery cluster) with Julia 1.13.2 and one BLAS
-thread. They predate the isolated-worker repair and use CoordinateDescent 0.5.1 rather than the now-pinned 0.5.6 baseline. The full run took 76 minutes. Package versions:
+thread. They predate the isolated-worker repair and use CoordinateDescent 0.5.1 rather than the now-pinned 0.5.6 baseline. They contain no modern CoordinateDescent 0.8 measurements. The full run took 76 minutes. Package versions:
 
 - this package, then called ProximalOPT, at `8674288`
 - ProximalBase 0.4.0

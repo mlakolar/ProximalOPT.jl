@@ -27,12 +27,13 @@ function activate_lasso_environment(path)
 end
 
 activate_lasso_environment(@__DIR__)
-if haskey(ENV, "PROXIMAL_BASE_PATH")
-  Pkg.develop([PackageSpec(path = ENV["PROXIMAL_BASE_PATH"]),
-               PackageSpec(path = dirname(@__DIR__))])
-elseif VERSION < v"1.11"
+if haskey(ENV, "PROXIMAL_BASE_PATH") || haskey(ENV, "COORDINATE_DESCENT_PATH") || VERSION < v"1.11"
   # Julia 1.10 ignores [sources]. The development losses are not all registered.
-  Pkg.develop([PackageSpec(url = "https://github.com/mlakolar/ProximalBase.jl"),
+  base = haskey(ENV, "PROXIMAL_BASE_PATH") ? PackageSpec(path = ENV["PROXIMAL_BASE_PATH"]) :
+    PackageSpec(url = "https://github.com/mlakolar/ProximalBase.jl")
+  cd = haskey(ENV, "COORDINATE_DESCENT_PATH") ? PackageSpec(path = ENV["COORDINATE_DESCENT_PATH"]) :
+    PackageSpec(url = "https://github.com/mlakolar/CoordinateDescent.jl")
+  Pkg.develop([base, cd,
                PackageSpec(path = dirname(@__DIR__))])
 end
 # Refresh dependency metadata within this runtime's own lock.

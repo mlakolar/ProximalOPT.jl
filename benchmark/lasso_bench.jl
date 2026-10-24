@@ -1,5 +1,6 @@
 # Lasso benchmark: ProximalSolvers's proximal gradient solvers against
-# CoordinateDescent.jl, with glmnet (GLMNet.jl) and Lasso.jl for reference.
+# current and historical CoordinateDescent.jl, with glmnet (GLMNet.jl) and
+# Lasso.jl for reference.
 #
 #     julia --project=benchmark benchmark/lasso_bench.jl            # 1.5 to 3.5 hours
 #     julia --project=benchmark benchmark/lasso_bench.jl --quick
@@ -53,8 +54,13 @@ end
 function check_smoke_outputs()
   single = readlines(joinpath(OUT, "single.csv"))
   paths = readlines(joinpath(OUT, "path.csv"))
-  length(single) - 1 == length(SOLVERS) + length(DEFAULT_RUNS) || error("Smoke run missed a single/default solver.")
-  length(paths) - 1 == length(PATH_SOLVERS) || error("Smoke run missed a path solver.")
+  expected_single = [(S.name, S.package) for S in SOLVERS]
+  append!(expected_single, [(name, "defaults") for (name, _) in DEFAULT_RUNS])
+  actual_single = [(split(line, ',')[5], split(line, ',')[6]) for line in single[2:end]]
+  sort(actual_single) == sort(expected_single) || error("Smoke run missed or duplicated a single/default solver.")
+  expected_paths = [(S.name, S.package) for S in PATH_SOLVERS]
+  actual_paths = [(split(line, ',')[3], split(line, ',')[4]) for line in paths[2:end]]
+  sort(actual_paths) == sort(expected_paths) || error("Smoke run missed or duplicated a path solver.")
   # A defaults error is written as a NaN row, so fail on it as well.
   any(line -> occursin("NaN,NaN", line), single[2:end]) && error("Smoke run contains an error row.")
   println("LASSO_SMOKE_PASSED singles=", length(single) - 1, " paths=", length(paths) - 1)
@@ -73,7 +79,8 @@ end
 function main()
   println(env_summary(), SMOKE ? " (smoke run)" : QUICK ? " (quick run)" : "")
   println("Current packages: ProximalSolvers ", pkgversion(ProximalSolvers),
-          ", ProximalBase ", pkgversion(ProximalBase), ", GLMNet ", pkgversion(GLMNet),
+          ", ProximalBase ", pkgversion(ProximalBase),
+          ", CoordinateDescent ", pkgversion(CoordinateDescent), ", GLMNet ", pkgversion(GLMNet),
           ", Lasso ", pkgversion(Lasso))
   warmup()
   mkpath(OUT)

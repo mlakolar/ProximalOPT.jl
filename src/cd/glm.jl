@@ -564,12 +564,7 @@ function solve_path(f::Union{AbstractFunction, CDModel}, g::AbstractFunction, λ
   initialize!(m, x)
   ws = _NewtonWorkspace(m, x, method.inner)
   D0 = devmax < 1 ? _null_deviance(m) : T(NaN)
-  if screening
-    grad = _gradient_buffer(x)
-    gradient!(grad, m, x)
-    inS = falses(ncoordinates(x))
-    λprev = _lambda_max(x, grad, g)      # λmax at the starting point, which need not be zero
-  end
+  grad, inS, λprev = _screening_state(x, m, g, screening)
   solutions = Any[]
   out = PathResults(T[], [], T[], Int[], Bool[], Int[], Int[])
   for (k, λ) in enumerate(λs)

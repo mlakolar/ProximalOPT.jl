@@ -60,13 +60,14 @@ _lla_with_level(g::NormL1, λ) = NormL1(λ, g.w)
 _lla_with_level(g::CappedL1, λ) = CappedL1(λ, g.a, g.w)
 _lla_with_level(g::LogPenalty, λ) = LogPenalty(λ, g.ε, g.w)
 _lla_with_level(g::Union{MCP, SCAD, GroupNormL2, GroupMCP, GroupSCAD}, λ) = _with_level(g, λ)
-_lla_with_level(g, λ) =
+_lla_with_level(g, λ) = _unsupported_lla(g)
+_unsupported_lla(g) =
   throw(ArgumentError("LLA takes CappedL1, LogPenalty, MCP, SCAD, GroupMCP or GroupSCAD (or NormL1 and GroupNormL2), but g is a $(typeof(g))" *
                       (g isa NormLq ? "; NormLq has an infinite slope at zero, so its LLA weights there are infinite." : ".")))
 
 _lla_level(g::Union{CappedL1, LogPenalty, MCP, SCAD}) = g.λ
 _lla_level(g::Union{NormL1, GroupNormL2, GroupMCP, GroupSCAD}) = g.λ0
-_lla_level(g) = (_lla_with_level(g, 1); nothing)
+_lla_level(g) = _unsupported_lla(g)
 
 # The penalty of a stage at the level λ, with the weights w relative to λ, so that
 # the stage has the level λ of the path: a weighted lasso, or a weighted group

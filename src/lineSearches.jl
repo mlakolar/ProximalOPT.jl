@@ -41,6 +41,11 @@ Base.@kwdef struct BackTracking{T<:Real}
     Lexact::T = Inf
 end
 
+# f(x) and ∇f(x) at the trial point state.x, into state.grad_f_x; a solver
+# that keeps the image of its iterates under the linear map of f computes them
+# from the image (see image_models.jl)
+value_and_gradient_at_x!(state, f) = value_and_gradient!(state.grad_f_x, f, state.x)
+
 function backtrack!(state, ls::BackTracking{T}, f, g) where T
 
     # Quick exit if no progress made
@@ -51,7 +56,7 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
       # in the gradient mode, update_state! expects ∇f(x), but state.grad_f_x may
       # hold the gradient at a rejected trial point
       if !state.backtrack_simple
-          value_and_gradient!(state.grad_f_x, f, state.x)
+          value_and_gradient_at_x!(state, f)
           state.f_calls += 1
           state.grad_calls += 1
       end
@@ -78,12 +83,12 @@ function backtrack!(state, ls::BackTracking{T}, f, g) where T
         # gradient estimate, which needs ∇f(x)
         state.backtrack_simple = abs( state.f_x_previous - state.f_x ) >= 1e-10 * max( abs( state.f_x ), abs( state.f_x_previous ) )
         if !state.backtrack_simple
-            value_and_gradient!(state.grad_f_x, f, state.x)
+            value_and_gradient_at_x!(state, f)
             state.f_calls += 1
             state.grad_calls += 1
         end
     else
-        value_and_gradient!(state.grad_f_x, f, state.x)
+        value_and_gradient_at_x!(state, f)
         state.f_calls += 1
         state.grad_calls += 1
         localL = zero(T)

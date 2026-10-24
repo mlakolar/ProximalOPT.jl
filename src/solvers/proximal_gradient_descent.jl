@@ -19,8 +19,10 @@ Base.summary(::ProximalGradientDescent) = "Proximal Gradient Descent"
 ProximalGradientDescent(; ls = LineSearches.BackTracking()) =
   ProximalGradientDescent{typeof(ls)}(ls)
 
-# the iterates have the type of the starting point x0; the gradients are dense
-mutable struct ProximalGradientDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}}
+# the iterates have the type of the starting point x0; the gradients are dense.
+# For a loss of a linear image, f(x) = F(Ax), the state keeps the image of x
+# (see image_models.jl); otherwise model and the image are nothing
+mutable struct ProximalGradientDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}, M, Z}
     x::X
     f_x::T
     g_x::T
@@ -38,6 +40,9 @@ mutable struct ProximalGradientDescentState{T, X<:AbstractArray{T}, G<:AbstractA
     f_calls::Int
     grad_calls::Int
     prox_calls::Int
+    model::M
+    z_x::Z            # A x
+    dz::Z             # F' at A x
 end
 
 
@@ -49,7 +54,11 @@ function initial_state(
           x0::AbstractArray{T}) where T
 
     grad_f_x = Array{T}(undef, size(x0))
-    f_x = value_and_gradient!(grad_f_x, f, x0)
+    model = _image_model(f)
+    z_x = model === nothing ? nothing : _image_buffer(model)
+    dz = model === nothing ? nothing : similar(z_x)
+    model === nothing || _image!(z_x, model, x0)
+    f_x = _value_and_gradient!(grad_f_x, f, x0, model, z_x, dz)
     _check_start(f_x)
     g_x = g(x0)
 
@@ -70,7 +79,10 @@ function initial_state(
                          0,           # backtrack_steps
                          1,           # f_calls
                          1,           # grad_calls
-                         0            # prox_calls
+                         0,           # prox_calls
+                         model,
+                         z_x,
+                         dz
                          )
 end
 
@@ -93,7 +105,7 @@ function update_state!(
       @. state.xhat =  state.x_previous - state.grad_f_x_previous / state.L
       state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)
       _drop!(state.x)
-      state.f_x = f(state.x)
+      state.f_x = _value!(f, state.x, state.model, state.z_x)
       state.prox_calls += 1
       state.f_calls += 1
 
@@ -101,8 +113,12 @@ function update_state!(
       backtrack!(state, method.ls, f, g) && break
     end
     if has_updated_gradient( state, method.ls ) == false
-        value_and_gradient!(state.grad_f_x, f, state.x)
+        LineSearches.value_and_gradient_at_x!(state, f)
         state.f_calls += 1
         state.grad_calls += 1
     end
 end
+
+# backtrack! evaluates ∇f at the trial point from its image, for a loss with a model
+LineSearches.value_and_gradient_at_x!(state::ProximalGradientDescentState, f) =
+  _value_and_gradient!(state.grad_f_x, f, state.x, state.model, state.z_x, state.dz)

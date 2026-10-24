@@ -37,7 +37,7 @@ function main()
             try
                 # Warm both branches long enough to reach support debiasing,
                 # which the reference enables only after its first iterations.
-                fit(debias, min(MAXITER, 20))
+                fit(debias, min(MAXITER, 30))
                 warmed[debias] = true
             catch err
                 warmed[debias] = false

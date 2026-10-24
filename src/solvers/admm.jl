@@ -6,7 +6,7 @@
 
 """
     ADMMSolver(; ρ = 1.0, α = 1.0, abstol = 1e-6, reltol = 1e-4, adaptive = false,
-                 abstol_dual = abstol)
+                 abstol_dual = abstol, norm = nothing)
 
 The alternating direction method of multipliers for `f(x) + g(x)` when both
 `f` and `g` have easy proximal operators (Boyd et al., *Distributed
@@ -27,29 +27,35 @@ tolerance, is more than ten times the dual one, halves in the opposite case,
 and stays fixed after 50 changes, which keeps the convergence guarantee of a
 fixed `ρ`.
 
+`norm` is the norm in which the residuals and `‖x‖`, `‖z‖` and `‖u‖` are
+measured, a function of an array; `nothing` is the Euclidean norm. A stacked
+array of K blocks, for example, can be measured by the sum of the norms of its
+slices, `x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`.
+
 Of the [`ProximalOptions`](@ref), only `maxiter`, `time_limit`,
 `prox_calls_limit`, `show_trace` and `printEvery` are used. Use with
 [`solve!`](@ref); to warm start from a previous result `res`, pass its scaled
 dual variable and final penalty parameter:
 `solve!(x, f, g, ADMMSolver(; ρ = res.ρ), options; u = res.u)`.
 """
-struct ADMMSolver{T<:AbstractFloat} <: ProximalSolver
+struct ADMMSolver{T<:AbstractFloat, N} <: ProximalSolver
   ρ::T          # augmented Lagrangian parameter, or its starting value
   α::T          # over-relaxation parameter, α ∈ (0, 2); α = 1 is plain ADMM
   abstol::T
   reltol::T
   adaptive::Bool
   abstol_dual::T
+  norm::N       # the norm of the residuals, nothing for the Euclidean norm
 end
 
 Base.summary(::ADMMSolver) = "ADMM"
 
 function ADMMSolver(; ρ::Real = 1.0, α::Real = 1.0, abstol::Real = 1e-6, reltol::Real = 1e-4,
-                    adaptive::Bool = false, abstol_dual::Real = abstol)
+                    adaptive::Bool = false, abstol_dual::Real = abstol, norm = nothing)
   ρ > 0 || error("ρ must be positive.")
   0 < α < 2 || error("α must be in (0, 2).")
   T = float(promote_type(typeof(ρ), typeof(α), typeof(abstol), typeof(reltol), typeof(abstol_dual)))
-  ADMMSolver{T}(T(ρ), T(α), T(abstol), T(reltol), adaptive, T(abstol_dual))
+  ADMMSolver{T, typeof(norm)}(T(ρ), T(α), T(abstol), T(reltol), adaptive, T(abstol_dual), norm)
 end
 
 """
@@ -105,6 +111,16 @@ function Base.show(io::IO, r::ADMMResults)
     @printf io " * ∇f(x) calls: %d\n" grad_calls(r)
     @printf io " * prox calls: %d\n" prox_calls(r)
     return
+end
+
+# ‖x - z‖, ‖z - z_previous‖, max(‖x‖, ‖z‖) and ‖u‖, in the Euclidean norm or in
+# the norm `nrm`; tmp is a buffer, free after the u-update
+_admm_norms(::Nothing, x, z, z_previous, u, tmp) = (norm_diff(x, z), norm_diff(z, z_previous), max(norm(x), norm(z)), norm(u))
+function _admm_norms(nrm, x, z, z_previous, u, tmp)
+  @. tmp = x - z
+  r = nrm(tmp)
+  @. tmp = z - z_previous
+  r, nrm(tmp), max(nrm(x), nrm(z)), nrm(u)
 end
 
 # residual balancing: the factor by which to multiply ρ, with each residual
@@ -167,10 +183,10 @@ function solve!(
     prox_calls += 2
 
     # check convergence
-    r_norm = norm_diff(xk, z)
-    s_norm = ρ * norm_diff(z, z_previous)
-    eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * max(norm(xk), norm(z))
-    eps_dual = sqrt_n * T(method.abstol_dual) + T(method.reltol) * ρ * norm(u)
+    r_norm, s_norm, nxz, nu = _admm_norms(method.norm, xk, z, z_previous, u, tmp)
+    s_norm *= ρ
+    eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * nxz
+    eps_dual = sqrt_n * T(method.abstol_dual) + T(method.reltol) * ρ * nu
     converged = r_norm <= eps_pri && s_norm <= eps_dual
     call_limit_reached = options.prox_calls_limit > 0 && prox_calls >= options.prox_calls_limit
 

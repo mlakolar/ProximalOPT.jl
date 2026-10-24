@@ -39,6 +39,34 @@ const PS = ProximalSolvers
   end
 end
 
+@testset "sparse and dense snapshot routes" begin
+  # The first groups have arbitrary index order and unequal lengths. Only
+  # these small groups become active on the sparse route.
+  special = (101, 3, 1, 95, 2, 4)
+  groups = vcat([[101, 3, 1], [95, 2], [4]], [[i] for i in 1:1024 if !(i in special)])
+  for T in (Float32, Float64)
+    for x in (SparseIterate(T, 32, 32), SymmetricSparseIterate(T, 32), AtomIterate(T, 1024, groups))
+      x[101] = T(2)
+      x[1] = T(-3)
+      x[2] = T(4)
+      x[4] = one(T)
+      x[4] = zero(T)
+      @test !PS._snapshot_dense(x)
+      @test Array(PS._snapshot(x)) == Array(x)
+      @test all(!iszero, nonzeros(PS._snapshot(x)))
+      fill!(x, one(T))
+      @test PS._snapshot_dense(x)
+      @test Array(PS._snapshot(x)) == Array(x)
+    end
+    # One active group can contain nearly all entries, even when most groups
+    # are inactive. Count their lengths rather than their number.
+    unequal = AtomIterate(T, 1024, vcat([1:900], [i:i for i in 901:1024]))
+    unequal[1] = one(T)
+    @test PS._snapshot_dense(unequal)
+    @test Array(PS._snapshot(unequal)) == Array(unequal)
+  end
+end
+
 snapshot_bytes(x) = @allocated PS._snapshot(x)
 copyback_bytes(dest, src) = @allocated PS._copy_dense!(dest, src)
 

@@ -1,7 +1,7 @@
 # Run from the package checkout after instantiating its environment:
 # julia --project=. benchmark/path_snapshots.jl
 # The legacy methods below reproduce the snapshots before this change.
-using Printf, SparseArrays, ProximalBase, ProximalSolvers
+using Printf, Random, SparseArrays, ProximalBase, ProximalSolvers
 const PS = ProximalSolvers
 
 function measure(f::F) where {F}
@@ -57,5 +57,36 @@ function copyback()
   end
 end
 
+function density_probe()
+  println("density_case,requested_density,actual_density,old_ns,new_ns,old_bytes,new_bytes")
+  for (name, make) in (("matrix", () -> SparseIterate(200, 300)),
+                       ("symmetric", () -> SymmetricSparseIterate(300)),
+                       ("groups", () -> AtomIterate(60_000, [k:k+9 for k in 1:10:60_000])))
+    template = make()
+    order = randperm(Xoshiro(981), ncoordinates(template))
+    for density in (0.01, 0.10, 0.50, 1.0)
+      x = make()
+      for k in view(order, 1:round(Int, density * length(order)))
+        if x isa AtomIterate
+          for j in x.groups[k]
+            x[j] = isodd(j) ? 1.0 : -1.0
+          end
+        else
+          coordinates(x)[k] = isodd(k) ? 1.0 : -1.0
+        end
+      end
+      reference = old_snapshot(x)
+      @assert reference == PS._snapshot(x)
+      actual = nnz(reference) / length(x)
+      GC.gc()
+      a = measure(() -> old_snapshot(x))
+      GC.gc()
+      b = measure(() -> PS._snapshot(x))
+      @printf "%s,%.2f,%.6f,%.0f,%.0f,%d,%d\n" name density actual a.time b.time a.memory b.memory
+    end
+  end
+end
+
 snapshots()
 copyback()
+density_probe()

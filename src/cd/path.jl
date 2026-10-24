@@ -250,8 +250,24 @@ end
 
 # a compact copy of the solution
 _snapshot(x::SparseIterate{T, 1}) where {T} = _sparsevec(x)
-_snapshot(x::AtomIterate) = _sparsevec(x)
-_snapshot(x::SymmetricSparseIterate) = sparse(x)
+_snapshot(x::AtomIterate) = _snapshot_dense(x) ? sparsevec(Vector(x)) : _sparsevec(x)
+_snapshot(x::SymmetricSparseIterate) = _snapshot_dense(x) ? sparse(Matrix(x)) : sparse(x)
+
+# Triplet construction saves a dense copy for sparse solutions, but its index
+# arrays and SparseArrays' workspace can cost more at higher densities. Keep
+# the dense conversion above a conservative stored-entry fraction of 1/16.
+_snapshot_dense(x::SparseIterate) = nactive(x) > length(x) ÷ 16
+_snapshot_dense(x::SymmetricSparseIterate) = nactive(x) > ncoordinates(x) ÷ 16
+
+function _snapshot_dense(x::AtomIterate)
+  n = 0
+  limit = length(x) ÷ 16
+  for k in activecoordinates(x)
+    n += length(x.groups[k])
+    n > limit && return true
+  end
+  false
+end
 
 function _sparsevec(x::Union{SparseIterate{T, 1}, AtomIterate{T}}) where {T}
   ind = Int[]
@@ -265,6 +281,7 @@ function _sparsevec(x::Union{SparseIterate{T, 1}, AtomIterate{T}}) where {T}
 end
 
 function _snapshot(x::SparseIterate{T, 2}) where {T}
+  _snapshot_dense(x) && return sparse(Matrix(x))
   rows, cols, vals = Int[], Int[], T[]
   n, p = size(x)
   for k in activecoordinates(x)

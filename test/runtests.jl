@@ -27,6 +27,7 @@ tests = [
   "duality_gap",
   "quic",
   "generic_newton",
+  "workingset",
   "examples",
   "aqua",
 ]

@@ -34,6 +34,8 @@ function (f::SqrtLeastSquaresLoss)(β::AbstractVector)
   norm(f.tmp)
 end
 
+# As LSModel, a sparse X is read at its nonzeros, and with an intercept the
+# residuals are r .+ δ. ‖r‖ is computed at every step, in O(n), as for a dense X.
 mutable struct SqrtLSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:AbstractVector{T}} <: CDModel{T}
   X::MX
   y::VY
@@ -41,6 +43,8 @@ mutable struct SqrtLSModel{T<:AbstractFloat, MX<:AbstractMatrix{T}, VY<:Abstract
   a::Vector{T}          # squared norms of the centered columns, NaN until computed
   xbar::Vector{T}
   ybar::T
+  δ::T                  # the residuals are r .+ δ (a sparse X with an intercept)
+  rbuf::Vector{T}       # r .+ δ, for residuals(m)
 end
 
 function cdmodel(f::SqrtLeastSquaresLoss{T}, x; intercept::Bool = false) where {T}
@@ -49,21 +53,31 @@ function cdmodel(f::SqrtLeastSquaresLoss{T}, x; intercept::Bool = false) where {
   p = size(X, 2)
   SqrtLSModel{T, typeof(X), typeof(y)}(X, y, zeros(T, length(y)), fill(T(NaN), p),
                                        intercept ? _column_means(X) : zeros(T, p),
-                                       intercept ? _mean_response(y, nothing) : zero(T))
+                                       intercept ? _mean_response(y, nothing) : zero(T), zero(T), T[])
 end
 
 intercept(m::SqrtLSModel, x::AbstractArray) = m.ybar - dot(m.xbar, x)
 residuals(m::SqrtLSModel) = m.r
+residuals(m::SqrtLSModel{T, <:SparseMatrixCSC}) where {T<:AbstractFloat} = _shifted_residuals!(m.rbuf, m.r, m.δ)
 
 function initialize!(m::SqrtLSModel{T}, x::SparseIterate{T}) where {T}
   length(x) == size(m.X, 2) || throw(DimensionMismatch("x has length $(length(x)) and X has $(size(m.X, 2)) columns"))
   m.r .= m.y .- m.ybar
+  m.δ = zero(T)
   for k in activecoordinates(x)
     v = x[k]
-    iszero(v) || _column_axpy!(m.r, m.X, k, m.xbar[k], v)
+    iszero(v) || _residual_axpy!(m, k, v)
   end
   fill!(m.a, T(NaN))
   m
+end
+
+# the residuals after a step h of coordinate k, as for LSModel
+@inline _residual_axpy!(m::SqrtLSModel{T}, k::Int, h::T) where {T} = _column_axpy!(m.r, m.X, k, m.xbar[k], h)
+@inline function _residual_axpy!(m::SqrtLSModel{T, <:SparseMatrixCSC}, k::Int, h::T) where {T<:AbstractFloat}
+  _column_axpy!(m.r, m.X, k, zero(T), h)
+  m.δ += h * m.xbar[k]
+  m.r
 end
 
 # (a, s, ρ) with s = (X[:, k] - c)' r, ρ = r' r and a = ‖X[:, k] - c‖², which
@@ -101,18 +115,31 @@ end
   a, s, ρ
 end
 
+# the same for a sparse X and the residuals r .+ δ, which sum to zero with an
+# intercept: s = X[:, k]' r + n c δ over the nonzeros, ρ = ‖r .+ δ‖² over all
+@inline function _column_dot_rsqr(X::SparseMatrixCSC{T}, r::AbstractVector{T}, k::Int, c::T, a::T, δ::T) where {T}
+  a, s = _column_dot(X, r, k, c, a, δ)
+  ρ = zero(T)
+  @inbounds @simd for i in eachindex(r)
+    ρ += (r[i] + δ) * (r[i] + δ)
+  end
+  a, s, ρ
+end
+
+@inline _column_dot_rsqr(m::SqrtLSModel, k::Int) = _column_dot_rsqr(m.X, m.r, k, m.xbar[k], m.a[k])
+@inline _column_dot_rsqr(m::SqrtLSModel{T, <:SparseMatrixCSC}, k::Int) where {T<:AbstractFloat} =
+  _column_dot_rsqr(m.X, m.r, k, m.xbar[k], m.a[k], m.δ)
+
 # the exact minimizer of ‖r - X[:,k] t‖ + λ|t| over the coordinate, with the
 # columns centered at their means when the model fits an intercept
 function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
   T = eltype(m)
-  X, r = m.X, m.r
-  c = m.xbar[k]
 
   # partial residuals with coordinate k removed: r = y - X*x + X[:,k]*x[k]
   old = x[k]
-  iszero(old) || _column_axpy!(r, X, k, c, -old)
+  iszero(old) || _residual_axpy!(m, k, -old)
 
-  xsqr, s, rsqr = _column_dot_rsqr(X, r, k, c, m.a[k])
+  xsqr, s, rsqr = _column_dot_rsqr(m, k)
   m.a[k] = xsqr
   λ = T(g.λ0 * _weight(g, k))
 
@@ -127,12 +154,14 @@ function coordinate_step!(m::SqrtLSModel, g::NormL1, x::SparseIterate, k::Int)
     (s - copysign(λ / sqrt(q) * sqrt(max(rsqr - s^2 / xsqr, zero(T))), s)) / xsqr
   end
 
-  iszero(new) || _column_axpy!(r, X, k, c, new)
+  iszero(new) || _residual_axpy!(m, k, new)
   new != old && (x[k] = new)
   new - old
 end
 
 _cache(m::SqrtLSModel) = m.r
+_cache_moved!(m::SqrtLSModel{T, <:SparseMatrixCSC}, x::SparseIterate{T}) where {T<:AbstractFloat} =
+  (m.δ = _dot_active(m.xbar, x); m)
 
 check_penalty(::SqrtLSModel, g) = g isa NormL1 ||
   throw(ArgumentError("coordinate descent on SqrtLeastSquaresLoss needs a NormL1 penalty, but g is a $(typeof(g))."))
@@ -140,11 +169,7 @@ check_penalty(::SqrtLSModel, g) = g isa NormL1 ||
 function _sqnorm!(m::SqrtLSModel{T}, k::Int) where {T}
   a = m.a[k]
   if isnan(a)
-    a = zero(T)
-    X, c = m.X, m.xbar[k]
-    @inbounds @simd for i in axes(X, 1)
-      a += (X[i, k] - c) * (X[i, k] - c)
-    end
+    a = _column_sqnorm(m.X, k, m.xbar[k], nothing)
     m.a[k] = a
   end
   a
@@ -160,8 +185,25 @@ function response_scale(m::SqrtLSModel{T}, x) where {T}
 end
 
 loss_value(m::SqrtLSModel, x) = norm(m.r)
+loss_value(m::SqrtLSModel{T, <:SparseMatrixCSC}, x) where {T<:AbstractFloat} = _shifted_norm(m.r, m.δ)
 
 function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T}, x) where {T}
   mul!(G, transpose(m.X), m.r)
   G .= (m.xbar .* sum(m.r) .- G) ./ norm(m.r)
+end
+
+# the numerator does not change when a constant is added to r
+function gradient!(G::AbstractVector{T}, m::SqrtLSModel{T, <:SparseMatrixCSC}, x) where {T<:AbstractFloat}
+  mul!(G, transpose(m.X), m.r)
+  G .= (m.xbar .* sum(m.r) .- G) ./ _shifted_norm(m.r, m.δ)
+end
+
+# ‖r .+ δ‖
+function _shifted_norm(r::Vector{T}, δ::T) where {T}
+  iszero(δ) && return norm(r)
+  ρ = zero(T)
+  @inbounds @simd for i in eachindex(r)
+    ρ += (r[i] + δ) * (r[i] + δ)
+  end
+  sqrt(ρ)
 end

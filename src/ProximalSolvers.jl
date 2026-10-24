@@ -19,7 +19,7 @@ using LinearAlgebra.BLAS: @blasfunc
 using Printf
 using ProximalBase
 import ProximalBase: gradient!, value_and_gradient!
-using SparseArrays: dropzeros!, sparse, sparsevec
+using SparseArrays: SparseMatrixCSC, dropzeros!, nonzeros, nzrange, rowvals, sparse, sparsevec
 using .LineSearches
 
 export

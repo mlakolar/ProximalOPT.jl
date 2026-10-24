@@ -101,6 +101,17 @@ end
   end
 end
 
+@testset "default inner tolerance on an unscaled loss" begin
+  rng = Xoshiro(2222)
+  X = randn(rng, 45, 12)
+  y = randn(rng, 45)
+  f, g = LeastSquaresLoss(y, X), NormL1(0.05)
+  x = zeros(12)
+  r = solve!(x, f, g, ProxNewton())
+  @test r.converged && r.maxchange <= r.tolerance
+  @test l1_residual(f, x, g.λ0) <= 2r.tolerance
+end
+
 @testset "a custom quadratic-model oracle" begin
   for T in (Float32, Float64), sparse_iterate in (false, true)
     f, g, target = quartic_problem(T)

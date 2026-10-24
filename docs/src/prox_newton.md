@@ -155,14 +155,19 @@ convex. `CDResults.maxchange` and `tolerance` report that residual and its
 threshold. `gap` is `NaN`, since a generic smooth loss need not provide a
 Fenchel dual.
 
+If the inner change rule stops without producing a direction while the
+outer residual is still too large, its tolerance is tightened within the
+existing `maxiter` budget. This does not turn a stalled step into a
+convergence certificate: the original objective's residual must still pass.
+
 Dense vectors and `SparseIterate`s are supported. Matrix models can use a
 `SymmetricSparseIterate` or a dense symmetric matrix with `NormL1` or
 `ZeroFunction`. For matrix-weighted `NormL1`, transposed entry weights are
 averaged: their sum determines the penalty on a symmetric pair. Vector
 penalties must be separable. The quadratic models must have positive
 semidefinite Hessians for the inner coordinate-descent solves to have their
-usual interpretation. This generic
-path does not fit an extra intercept or construct a screened penalty path;
+usual interpretation. This generic path does not fit an extra intercept or
+construct a screened penalty path;
 the GLM model interface supplies those features.
 
 ```julia

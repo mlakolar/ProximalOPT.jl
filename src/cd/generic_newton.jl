@@ -136,6 +136,14 @@ function _solve_generic_newton!(x::_GenericNewtonIterate{T}, f::AbstractFunction
     for i in eachindex(x0, trial, grad)
       δ += grad[i] * (trial[i] - x0[i])
     end
+    # A relative inner change rule can stop before the outer stationarity
+    # threshold, particularly for an unscaled loss. Tighten a stalled solve
+    # within the existing outer-iteration budget; zero-pass resource limits
+    # and an actual ascent direction are never retried this way.
+    if iszero(δ) && st.converged && st.passes > 0 && inner.tol > eps(T)
+      inner = _with(inner; tol = max(inner.tol / 10, eps(T)))
+      continue
+    end
     isfinite(δ) && δ < 0 || break
 
     t, accepted = one(T), false

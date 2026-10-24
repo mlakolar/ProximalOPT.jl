@@ -950,7 +950,11 @@ PS.update_cache!(m::MinimalQuadratic, x, k::Int, h) = (m.u .+= h .* view(m.A, :,
   @test PS.minimizer(r) === r.minimizer && PS.minimum(r) == r.minimum
   @test PS.iterations(r) == r.passes && PS.converged(r) == r.converged
   @test summary(CDSolver()) == summary(r) == "Coordinate Descent" && summary(ProxNewton()) == "Proximal Newton"
-  @test_throws ArgumentError solve!(SparseIterate(p), LeastSquaresLoss(y, X), NormL1(1.0), ProxNewton())
+  # Least squares now supplies the quadratic-model oracle used by ProxNewton.
+  xn = SparseIterate(p)
+  rn = solve!(xn, LeastSquaresLoss(y, X), NormL1(1.0), ProxNewton())
+  @test rn.converged && rn.maxchange <= rn.tolerance
+  @test kkt_l1(n .* lsgrad(X, y, Vector(xn)), Vector(xn), 1.0) < 1e-7
   @test_throws ArgumentError ProxNewton(; β = 1.5)
 end
 

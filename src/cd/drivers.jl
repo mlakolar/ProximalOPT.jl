@@ -66,7 +66,7 @@ function reweight!(x, f::Union{AbstractFunction, CDModel}, g::AbstractFunction, 
 end
 
 """
-    refit!(x, f; support)
+    refit!(x, f; support, cache = nothing)
 
 Overwrite `x` with the minimizer of the loss `f` over the iterates supported on
 `support`, the nonzero coordinates of `x` unless given: the refit after a
@@ -77,13 +77,18 @@ supports it if its coordinates are those of a quadratic, as for
 the columns of the support by a pivoted QR factorization, and the others the
 linear system of the Hessian on the support; when the minimizer is not unique,
 a solution of the rank-deficient system. Returns `x`.
+
+With a [`RefitCache`](@ref), least squares and `QuadraticFunction` keep the
+Cholesky factor of the Hessian on the support between calls and update it when
+the support changes, which makes refits along a path of supports much cheaper.
 """
 function refit!(x::Union{SparseIterate, SymmetricSparseIterate}, f::Union{AbstractFunction, CDModel};
-                support = _support(x))
+                support = _support(x), cache::Union{Nothing, RefitCache} = nothing)
   m = f isa CDModel ? f : cdmodel(f, x)
   S = collect(Int, support)
   initialize!(m, x)
-  δ = _refit_step(m, x, S)
+  δ = cache === nothing ? nothing : _refit_step(cache, f, m, x, S)
+  δ === nothing && (δ = _refit_step(m, x, S))
   T = eltype(m)
   cx = coordinates(x)
   for (j, k) in enumerate(S)

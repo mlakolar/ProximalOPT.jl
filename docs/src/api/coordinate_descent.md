@@ -21,6 +21,7 @@ PathResults
 reweight!
 ReweightResults
 refit!
+RefitCache
 ```
 
 ## Models and their interface

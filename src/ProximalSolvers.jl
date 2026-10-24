@@ -41,7 +41,7 @@ export
   SqrtLeastSquaresLoss, SqrtQuadraticFunction,
   CDModel, cdmodel,
   lambda_max, solve_path,
-  reweight!, refit!,
+  reweight!, refit!, RefitCache,
   duality_gap, kkt_residual,
 
   # types
@@ -85,6 +85,7 @@ include("cd/glm.jl")
 include("cd/gap.jl")
 include("cd/quic.jl")
 include("cd/path.jl")
+include("cd/refit_cache.jl")
 include("cd/drivers.jl")
 
 include("utils.jl")

@@ -117,6 +117,18 @@ Chernozhukov, 2013), which removes the shrinkage of the penalty.
   system is solved by a pivoted QR factorization, which also handles a singular
   ``H_{SS}``.
 
+**Refits along a path of supports.** `refit!(x, f; support, cache)` with a
+[`RefitCache`](@ref) keeps the Cholesky factor ``R^\top R = H_{SS}`` of least
+squares and of `QuadraticFunction` between calls, and a refit of the same `f`
+on a support that differs by a few coordinates updates the factor instead of
+computing it again. A coordinate that enters borders the factor, at the cost of
+a column of the Hessian and a triangular solve; one that leaves is removed by
+Givens rotations in ``O(|S|^2)``. The step is then
+``\delta = -H_{SS}^{-1}\nabla_S f(x)`` from two triangular solves. When many
+coordinates change the cache factors again, and when an entering coordinate is
+nearly a combination of the others it falls back to the pivoted QR
+factorization above.
+
 ## References
 
 - A. Belloni, D. Chen, V. Chernozhukov and C. Hansen. Sparse Models and

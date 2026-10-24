@@ -242,6 +242,11 @@ minimizes the quadratic model of `f` at `x`, a weighted least-squares loss with
 the weights `wᵢℓ''(ηᵢ)` and the working responses `ηᵢ - ℓ'(ηᵢ)/ℓ''(ηᵢ)`, plus
 `g`, by coordinate descent (`inner`) warm started from `x`, and then backtracks
 along the step on `f + g`, shrinking it by `β`, until the objective decreases.
+For the nonconvex MCP and SCAD, whose coordinate problems are convex only where
+the curvature of the model exceeds their concavity (`ρ = 1/a`, `1/(a - 1)`), a
+step that does not decrease the objective is taken again with the proximal
+term `ρ‖x - xₖ‖²`, which makes it a descent step without changing the fixed
+points (the stationary points of `f + g`).
 It stops when the objective changes by less than `tol` relative to its value,
 or after `maxiter` steps. Use with [`solve!`](@ref) on a `SparseIterate`;
 returns [`CDResults`](@ref), whose `passes` sum the inner passes.
@@ -406,37 +411,33 @@ function _proxnewton!(x::SparseIterate{T}, m::GLMModel{T}, g, method::ProxNewton
     copyto!(ws.x0, x)
     copyto!(ws.η0, η)
     b0 = m.β0
-    initialize!(model, x)
     ws.st.candidates = candidates
-    _cd!(x, model, g, ws.st, method.inner)
-    _warn_not_converged(ws.st, method.inner)
-    passes += ws.st.passes
-    inner_converged &= ws.st.converged
-    copyto!(ws.x1, x)
-    b1 = m.intercept ? intercept(model, x) : zero(T)
-    # Xx + β₀ + o at the full step, from the residuals z - β₀ - Xx of the model,
-    # which are model.r .+ model.δ (δ is zero but for a sparse X with an intercept)
-    δ = model.δ
-    @inbounds for i in 1:n
-      ws.η1[i] = z[i] - (model.r[i] + δ) + (o === nothing ? zero(T) : o[i])
-    end
-
-    # backtracking along the step: x0 + t (x1 - x0), η0 + t (η1 - η0)
-    t = one(T)
-    copyto!(η, ws.η1)
-    m.β0 = b1
-    Fnew = _glmvalue(loss, y, w, s, η) + g(x)
-    while !(Fnew <= F + 10 * eps(T) * abs(F))
-      t *= T(method.β)
-      if t < 1e-10           # no decrease along the step: stay at x0
-        copyto!(x, ws.x0); copyto!(η, ws.η0); m.β0 = b0; Fnew = F
-        break
+    Fnew, t, p = _newton_step!(x, m, g, g, F, b0, method, ws)
+    passes += p
+    if t < 1 && _isdampable(g)
+      # MCP and SCAD are weakly convex, with concavity ρ = 1/a and 1/(a - 1).
+      # Where the curvature of the quadratic model along a coordinate is below
+      # ρ (a logistic model has curvature at most 1/4 on standardized columns,
+      # less where the fitted probabilities are near 0 or 1), the model plus the
+      # penalty has several local minima along it, and the inner coordinate
+      # descent, which takes the global one, can jump to a minimum of the model
+      # that the objective rejects, so that the line search keeps only a sliver
+      # of the step. When the step needs backtracking, take it also with the
+      # proximal term ρ‖x - x0‖², which makes the model plus the penalty strongly
+      # convex (a proximal Newton step in the metric H + 2ρI): its directional
+      # derivative is at most -d'(H + ρI)d < 0 along its step d, and the fixed
+      # points are unchanged. Keep the better of the two.
+      xu, ηu, bu = copy(x), copy(η), m.β0
+      copyto!(x, ws.x0); copyto!(η, ws.η0); m.β0 = b0
+      Fd, _, p = _newton_step!(x, m, g, Regularize(g, 2 * _concavity(g), Vector(ws.x0)), F, b0, method, ws)
+      passes += p
+      if Fd <= Fnew
+        Fnew = Fd
+      else
+        copyto!(x, xu); copyto!(η, ηu); m.β0 = bu
       end
-      _interpolate!(x, ws.x0, ws.x1, t)
-      @. η = ws.η0 + t * (ws.η1 - ws.η0)
-      m.β0 = b0 + t * (b1 - b0)
-      Fnew = _glmvalue(loss, y, w, s, η) + g(x)
     end
+    inner_converged &= ws.st.converged
     dropzeros!(x)
     done = abs(F - Fnew) <= method.tol * max(abs(Fnew), one(T))
     F = Fnew
@@ -448,6 +449,55 @@ function _proxnewton!(x::SparseIterate{T}, m::GLMModel{T}, g, method::ProxNewton
   ws.st.candidates = nothing
   F, passes, converged && inner_converged
 end
+
+# One proximal Newton step from x = ws.x0 (with m.η = ws.η0 and the intercept
+# b0) on the quadratic model in ws: coordinate descent on the model plus the
+# penalty gi (g, or g with a proximal term), then backtracking along the step on
+# the objective f + g, whose value at x0 is F. Returns the objective at the new
+# point, the fraction t of the step taken (zero when no fraction decreased the
+# objective: x, η and the intercept are then back at x0), and the inner passes.
+function _newton_step!(x::SparseIterate{T}, m::GLMModel{T}, g, gi, F::T, b0::T, method::ProxNewton,
+                       ws::_NewtonWorkspace{T}) where {T}
+  loss, y, w, o, s = m.loss, m.y, m.w, m.offset, m.s
+  η, z, model = m.η, ws.z, ws.model
+  initialize!(model, x)
+  _cd!(x, model, gi, ws.st, method.inner)
+  _warn_not_converged(ws.st, method.inner)
+  copyto!(ws.x1, x)
+  b1 = m.intercept ? intercept(model, x) : zero(T)
+  # Xx + β₀ + o at the full step, from the residuals z - β₀ - Xx of the model,
+  # which are model.r .+ model.δ (δ is zero but for a sparse X with an intercept)
+  δ = model.δ
+  @inbounds for i in eachindex(η)
+    ws.η1[i] = z[i] - (model.r[i] + δ) + (o === nothing ? zero(T) : o[i])
+  end
+
+  # backtracking along the step: x0 + t (x1 - x0), η0 + t (η1 - η0)
+  t = one(T)
+  copyto!(η, ws.η1)
+  m.β0 = b1
+  Fnew = _glmvalue(loss, y, w, s, η) + g(x)
+  while !(Fnew <= F + 10 * eps(T) * abs(F))
+    t *= T(method.β)
+    if t < 1e-10           # no decrease along the step: back to x0
+      copyto!(x, ws.x0); copyto!(η, ws.η0); m.β0 = b0
+      return F, zero(T), ws.st.passes
+    end
+    _interpolate!(x, ws.x0, ws.x1, t)
+    @. η = ws.η0 + t * (ws.η1 - ws.η0)
+    m.β0 = b0 + t * (b1 - b0)
+    Fnew = _glmvalue(loss, y, w, s, η) + g(x)
+  end
+  Fnew, t, ws.st.passes
+end
+
+# the weakly convex penalties whose proximal Newton steps may need a proximal
+# term, and their concavity: the largest ρ for which g(x) + ρx²/2 is convex
+_isdampable(g) = false
+_isdampable(::Union{MCP, SCAD, ProximalBase.BoxConstrained{<:Union{MCP, SCAD}}}) = true
+_concavity(g::MCP{T}) where {T} = inv(T(g.a))
+_concavity(g::SCAD{T}) where {T} = inv(T(g.a) - 1)
+_concavity(c::ProximalBase.BoxConstrained) = _concavity(c.f)
 
 solve!(x::SparseIterate, f::AbstractFunction, g::AbstractFunction, method::ProxNewton) = _solve_newton!(x, f, g, method)
 solve!(x::SparseIterate, m::GLMModel, g::AbstractFunction, method::ProxNewton) = _solve_newton!(x, m, g, method)

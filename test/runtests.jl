@@ -21,6 +21,7 @@ tests = [
   "refit_cache",
   "nonconvex_penalties",
   "glm",
+  "newton_nonconvex",
   "duality_gap",
   "quic",
   "examples",

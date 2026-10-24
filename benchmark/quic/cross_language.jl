@@ -140,6 +140,10 @@ function r_path(p, round, solver)
                    "--round", string(round), "--solver", solver,
                    "--reference-tol", string(REFERENCE_TOL), "--glasso-thr", string(GLASSO_THR),
                    "--max-iter", string(MAXITER), "--fit-limit", string(FIT_LIMIT)])
+    # Keep R's module libraries in its own child process. Julia's bundled
+    # tools may need newer versions of libraries such as zstd than R loads.
+    r_libraries = get(ENV, "R_RUNTIME_LIBRARY_PATH", get(ENV, "LD_LIBRARY_PATH", ""))
+    command = addenv(command, "LD_LIBRARY_PATH" => r_libraries)
     process = run(ignorestatus(command); wait = false)
     limit = length(LAMBDA) * FIT_LIMIT + 60
     state = timedwait(() -> process_exited(process), limit; pollint = 0.25)

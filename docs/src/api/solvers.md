@@ -12,6 +12,7 @@ ProximalOptions
 ```@docs
 ProximalGradientDescent
 AccProxGradDescent
+MonotoneAccProxGradDescent
 ActiveAccProxGradDescent
 ProximalSolvers.LineSearches.BackTracking
 ```

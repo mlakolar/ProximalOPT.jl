@@ -85,8 +85,9 @@ checking its own result.
 |---|---|---|
 | `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, a quadratic, a Kronecker quadratic, a square-root loss or a GLM; `g` separable or `GroupNormL2` | [Coordinate descent](https://mlakolar.github.io/ProximalSolvers.jl/dev/coordinate_descent/) with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule |
 | `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | [Proximal Newton](https://mlakolar.github.io/ProximalSolvers.jl/dev/prox_newton/) (glmnet's IRLS): coordinate descent on the weighted least squares model of `f`, then backtracking |
-| `ProximalGradientDescent()` | `f` smooth, `g` proximable | [Proximal gradient](https://mlakolar.github.io/ProximalSolvers.jl/dev/proximal_gradient/) with the backtracking of TFOCS |
+| `ProximalGradientDescent(; normalized, debias)` | `f` smooth, `g` proximable, possibly nonconvex | [Proximal gradient](https://mlakolar.github.io/ProximalSolvers.jl/dev/proximal_gradient/) with the backtracking of TFOCS; with `g = IndBallL0(s)` it is iterative hard thresholding, and the options take normalized steps and refit a support that stopped changing |
 | `AccProxGradDescent(; β = 0.5, α = 0.9)` | `f` smooth, `g` proximable | Accelerated proximal gradient with backtracking that also lets the step grow, and adaptive restart |
+| `MonotoneAccProxGradDescent(; β, α, δ = 1e-3)` | `f` smooth, `g` proximable, possibly nonconvex (`IndBallL0`, `MCP`, ...) | [Monotone accelerated proximal gradient](https://mlakolar.github.io/ProximalSolvers.jl/dev/proximal_gradient/#Nonconvex-penalties) (Li and Lin): every limit point of the iterates is a critical point |
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable or `GroupNormL2`, sparse solution | [Active set](https://mlakolar.github.io/ProximalSolvers.jl/dev/active_set/): the accelerated method on the coordinates, or whole groups, that violate the optimality conditions |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled [ADMM](https://mlakolar.github.io/ProximalSolvers.jl/dev/admm/), optionally with residual balancing of `ρ`, and warm starts |
 
@@ -182,6 +183,11 @@ called CovSel) and [DiffPrecTest](https://github.com/mlakolar/DiffPrecTest.jl).
   *Biometrika*, 101(2), 2014.
 - T. Sun and C.-H. Zhang. Sparse Matrix Inversion with Scaled Lasso. *Journal
   of Machine Learning Research*, 14, 2013.
+- H. Li and Z. Lin. Accelerated Proximal Gradient Methods for Nonconvex
+  Programming. *Advances in Neural Information Processing Systems* 28, 2015.
+- T. Blumensath and M. E. Davies. Normalized Iterative Hard Thresholding:
+  Guaranteed Stability and Performance. *IEEE Journal of Selected Topics in
+  Signal Processing*, 4(2), 2010.
 
 ## License
 

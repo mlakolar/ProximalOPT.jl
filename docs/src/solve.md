@@ -16,6 +16,7 @@ for some of their oracles, and for an iterate of a certain kind:
 | Solver | ``f`` | ``g`` | `x` |
 |:-------|:------|:------|:----|
 | [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) | smooth: `issmooth(f)` | proximable: `isproximable(g)` | any array that `f` and `g` take, a `SparseIterate`, or an `AtomIterate` with the groups of a `GroupNormL2` |
+| [`MonotoneAccProxGradDescent`](@ref) | smooth | proximable | any array that `f` and `g` take, a `SparseIterate` or a `SymmetricSparseIterate` |
 | [`ActiveAccProxGradDescent`](@ref) | smooth, with `restrict` | separable or `GroupNormL2`, with `restrict` and `kkt_violation` | a vector, a `SparseIterate` or an `AtomIterate` |
 | [`ADMMSolver`](@ref) | proximable | proximable | an `Array` |
 | [`CDSolver`](@ref) | a loss with a coordinate descent model, see [Losses for coordinate descent](@ref) | separable, or `GroupNormL2` | a `SparseIterate`, a `SymmetricSparseIterate`, an `AtomIterate` for a group penalty, or a vector |
@@ -68,7 +69,7 @@ count can exceed its limit by the evaluations of one iteration.
 
 | Solver | Result | Fields |
 |:-------|:-------|:-------|
-| [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) | [`OptimizationResults`](@ref ProximalSolvers.OptimizationResults) | `minimizer`, `minimum`, `iterations`, the flags `x_converged`, `f_converged`, `grad_converged` with the final residuals, `f_increased`, `iteration_converged` (the iteration limit was reached), `call_limit_reached`, `backtrack_steps`, `f_calls`, `grad_calls`, `prox_calls`, `trace` |
+| [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref), [`MonotoneAccProxGradDescent`](@ref) | [`OptimizationResults`](@ref ProximalSolvers.OptimizationResults) | `minimizer`, `minimum`, `iterations`, the flags `x_converged`, `f_converged`, `grad_converged` with the final residuals, `f_increased`, `iteration_converged` (the iteration limit was reached), `call_limit_reached`, `backtrack_steps`, `f_calls`, `grad_calls`, `prox_calls`, `trace` |
 | [`ActiveAccProxGradDescent`](@ref) | [`ActiveSetResults`](@ref ProximalSolvers.ActiveSetResults) | `minimizer`, `minimum`, `outer_iterations`, `inner_iterations`, `converged`, `inner_converged`, `max_violation`, `active_set_size` |
 | [`ADMMSolver`](@ref) | [`ADMMResults`](@ref ProximalSolvers.ADMMResults) | `minimizer`, `minimum`, `iterations`, `converged`, the residuals `r_norm`, `s_norm` and their tolerances `eps_pri`, `eps_dual`, the scaled dual variable `u` and the final `ρ`, the counts of calls |
 | [`CDSolver`](@ref), [`ProxNewton`](@ref) | [`CDResults`](@ref) | `minimizer`, `minimum`, `passes`, `converged`, `maxchange`, `tolerance`, `kkt_checks` |

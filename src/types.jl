@@ -3,7 +3,8 @@
 
 Abstract supertype of the solvers passed to [`solve!`](@ref):
 [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref),
-[`ActiveAccProxGradDescent`](@ref) and [`ADMMSolver`](@ref).
+[`MonotoneAccProxGradDescent`](@ref), [`ActiveAccProxGradDescent`](@ref) and
+[`ADMMSolver`](@ref).
 """
 abstract type ProximalSolver end
 

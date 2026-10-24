@@ -64,6 +64,7 @@ the starting point `x` with the solution.
 | ``g`` separable: ℓ1, elastic net, MCP, SCAD, bounds; or the group lasso. ``f`` least squares, a quadratic, a Kronecker quadratic, a square-root loss | [`CDSolver`](@ref) | [Coordinate descent](@ref), with momentum or Anderson acceleration |
 | ``f`` a generalized linear loss (logistic, Poisson, Huber), ``g`` separable | [`ProxNewton`](@ref) | [Proximal Newton](@ref): coordinate descent on weighted least squares |
 | ``f`` smooth, ``g`` with a proximal operator | [`AccProxGradDescent`](@ref), [`ProximalGradientDescent`](@ref) | [Proximal gradient methods](@ref) |
+| the same, ``g`` nonconvex: the ℓ0 ball, MCP, SCAD, a rank constraint | [`MonotoneAccProxGradDescent`](@ref), [`ProximalGradientDescent`](@ref) | [Nonconvex penalties](@ref) |
 | the same, with a sparse solution and many coordinates | [`ActiveAccProxGradDescent`](@ref) | [Active-set proximal gradient](@ref) |
 | ``f`` and ``g`` both with proximal operators | [`ADMMSolver`](@ref) | [ADMM](@ref) |
 

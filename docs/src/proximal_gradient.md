@@ -127,9 +127,59 @@ domain of ``f``, where no step from it exists, restarts the iteration in the
 same way; a trial point off the domain fails the upper bound, so backtracking
 shortens the step.
 
+## Nonconvex penalties
+
+Both methods also take a ``g`` that is not convex but has a cheap proximal
+operator, such as the indicator of the ℓ0 ball `IndBallL0(s)`, `IndBallRank`,
+`NormL0`, `MCP` or `SCAD`; its proximal operator is then a minimizer of a
+nonconvex problem. The step from ``x`` still minimizes
+``Q_L(\cdot\,; x) + g``, so under the upper bound
+``F(x^+) \le Q_L(x^+; x) + g(x^+) \le Q_L(x; x) + g(x) = F(x)``: the objective
+of proximal gradient descent never increases, and every limit point of its
+iterates is a critical point of ``F``. With `g = IndBallL0(s)` it is iterative
+hard thresholding with a line search, and
+`ProximalGradientDescent(; normalized = false, debias = 0)` has two options
+from that literature:
+
+- `normalized = true` starts the backtracking of each iteration from the
+  normalized step of Blumensath and Davies (2010) instead of from
+  ``\alpha L``. With ``d`` the gradient at ``x`` on the support of ``x`` (all
+  of it when ``x = 0``) and ``\tau = 1/L``, a quadratic ``f`` has
+  ``\langle d, \nabla^2 f\, d\rangle = 2\big(f(x - \tau d) - f(x) + \tau\|d\|^2\big)/\tau^2``,
+  and the search starts from ``L = \langle d, \nabla^2 f\, d\rangle / \|d\|^2``,
+  whose step ``1/L`` minimizes ``f`` along ``d``. It costs one value of ``f``,
+  and keeps ``L`` when the estimate is not positive and finite.
+- `debias = k > 0` refits ``f`` on the support of ``x`` with [`refit!`](@ref)
+  once the support has not changed for ``k`` iterations, and keeps the refit
+  if it lowers ``F``, as MendelIHT does. The refit keeps the support, so it
+  stays feasible for an ℓ0 or rank constraint, and each support is refitted
+  once. It needs a loss that `refit!` takes and a vector, `SparseIterate` or
+  `SymmetricSparseIterate` iterate.
+
+The restarts of [`AccProxGradDescent`](@ref) keep its objective from
+increasing for a nonconvex ``g`` too, but its iterates need not approach a
+critical point. [`MonotoneAccProxGradDescent`](@ref) is the monotone method of
+Li and Lin (2015, Algorithm 2). With ``t_0 = 0``, ``t_1 = 1`` and
+``t_{k+1} = (1 + \sqrt{4t_k^2 + 1})/2``, each iteration takes a proximal
+gradient step from an extrapolated point,
+
+```math
+y_k = x_k + \frac{t_{k-1}}{t_k}(z_k - x_k) + \frac{t_{k-1} - 1}{t_k}(x_k - x_{k-1}),
+\qquad z_{k+1} = \operatorname{prox}_{g/L}\Big(y_k - \frac{1}{L}\nabla f(y_k)\Big),
+```
+
+with the backtracking of [`AccProxGradDescent`](@ref) on the upper bound at
+``y_k``. It keeps ``x_{k+1} = z_{k+1}`` when
+``F(z_{k+1}) \le F(x_k) - \delta L\|z_{k+1} - y_k\|^2``, by default with
+``\delta = 10^{-3}``. Otherwise it also takes a plain step from ``x_k``, with
+its own backtracking, and keeps the better of the two. So the objective never
+increases and every limit point is a critical point of ``F``, while for a
+convex problem the method keeps the accelerated rate ``O(1/k^2)``. An
+iteration that falls back costs a second gradient and a second search.
+
 ## Stopping rules
 
-Both methods stop at the first of these tests to pass, after the iteration
+The methods stop at the first of these tests to pass, after the iteration
 limit, the time limit or a limit on the number of calls, when the callback
 returns `true`, or when the objective increases (which rounding can cause
 near the solution) unless `allow_f_increases` is set. With ``x'`` the previous
@@ -154,7 +204,8 @@ r = \nabla f(x) + v = \nabla f(x) - \nabla f(x') - L(x - x') \in \nabla f(x) + \
 and ``r = 0`` exactly when ``x`` is a minimizer. The accelerated method steps
 from ``y`` and never evaluates ``\nabla f(x)``. Its residual
 ``\nabla f(x) - \nabla f(y) - L(x - y)`` is at most ``(L + L_f)\|x - y\|``, and
-``L\|x - y\|_\infty`` stands in for it. The test passes when either the
+``L\|x - y\|_\infty`` stands in for it; for the monotone method, ``y`` is the
+point its kept step came from, ``y_k`` or ``x_k``. The test passes when either the
 relative residual or the normalized residual is below `gradtol`:
 
 ```math
@@ -190,8 +241,13 @@ works on the active coordinates only.
 - S. Becker, E. Candès and M. Grant. Templates for Convex Cone Problems with
   Applications to Sparse Signal Recovery. *Mathematical Programming
   Computation*, 3, 2011.
+- T. Blumensath and M. E. Davies. Normalized Iterative Hard Thresholding:
+  Guaranteed Stability and Performance. *IEEE Journal of Selected Topics in
+  Signal Processing*, 4(2), 2010.
 - T. Goldstein, C. Studer and R. Baraniuk. A Field Guide to Forward-Backward
   Splitting with a FASTA Implementation. arXiv:1411.3406, 2014.
+- H. Li and Z. Lin. Accelerated Proximal Gradient Methods for Nonconvex
+  Programming. *Advances in Neural Information Processing Systems* 28, 2015.
 - B. O'Donoghue and E. Candès. Adaptive Restart for Accelerated Gradient
   Schemes. *Foundations of Computational Mathematics*, 15, 2015.
 - N. Parikh and S. Boyd. Proximal Algorithms. *Foundations and Trends in

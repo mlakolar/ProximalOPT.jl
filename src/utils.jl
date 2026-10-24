@@ -56,7 +56,7 @@ function trace!(tr, f, g, state, iteration, method::ProximalSolver, options)
 end
 
 extended_trace!(dt, state::ProximalGradientDescentState) = dt["grad_f(x)"] = _copy(state.grad_f_x)
-extended_trace!(dt, state::AccProxGradDescentState) = dt["grad_f(y)"] = _copy(state.grad_f_y)
+extended_trace!(dt, state::Union{AccProxGradDescentState, MonotoneAccProxGradDescentState}) = dt["grad_f(y)"] = _copy(state.grad_f_y)
 
 
 ###################################
@@ -74,10 +74,11 @@ g_residual(state::ProximalGradientDescentState) =
 # The accelerated method takes its step from y, so L (y - x) - ∇f(y) ∈ ∂g(x) and
 # r = ∇f(x) - ∇f(y) - L (x - y) ∈ ∇f(x) + ∂g(x). It does not evaluate ∇f(x), but
 # ‖r‖ ≤ (L + L_f) ‖x - y‖ when ∇f is L_f-Lipschitz, so L ‖x - y‖ is used instead.
-g_residual(state::AccProxGradDescentState) = state.L * _maxabs_diff(state.x, state.y)
+# The monotone method keeps y as the point its kept step came from.
+g_residual(state::Union{AccProxGradDescentState, MonotoneAccProxGradDescentState}) = state.L * _maxabs_diff(state.x, state.y)
 
 function convergence_assessment(
-  state::Union{ProximalGradientDescentState, AccProxGradDescentState},
+  state::Union{ProximalGradientDescentState, AccProxGradDescentState, MonotoneAccProxGradDescentState},
   f, g, options::ProximalOptions
   )
 
@@ -122,7 +123,8 @@ function gradient_converged!(state::ProximalGradientDescentState{T}, options::Pr
   residual / (state.maxResidual + options.gradtol) < options.gradtol || nResidual < options.gradtol
 end
 
-function gradient_converged!(state::AccProxGradDescentState{T}, options::ProximalOptions) where T
+function gradient_converged!(state::Union{AccProxGradDescentState{T}, MonotoneAccProxGradDescentState{T}},
+                             options::ProximalOptions) where T
   residual = g_residual(state)
   state.maxResidual = max(state.maxResidual, residual)
   # (xhat - x) / τ = L (y - x) - ∇f(y), with xhat = y - τ∇f(y)

@@ -10,7 +10,7 @@ Random.seed!(1)
 
 opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5000)
 
-@testset "$(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
+@testset "$(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent())
 
   @testset "L2Loss + no penalty" begin
     x = randn(5)
@@ -92,7 +92,8 @@ opt = ProximalOptions(; ftol = 1e-12, xtol = 1e-12, gradtol = 1e-10, maxiter = 5
 
 end
 
-@testset "gradient residual stops $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
+@testset "gradient residual stops $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(),
+                                                                   MonotoneAccProxGradDescent())
   # with ftol and xtol out of reach, only the FASTA residual can stop the solver;
   # it must reach zero at a lasso solution where ∇f(x) ≠ 0
   n, p = 100, 50
@@ -115,7 +116,7 @@ end
   @test all(abs.(grad[.!S]) .<= λ + 1e-4)
 end
 
-@testset "SparseIterate $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent())
+@testset "SparseIterate $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent())
   # the iterates stay SparseIterates, without stored zeros at the end, and give
   # the dense solution; ‖Y - Xx‖² / (2n) is the quadratic up to a constant
   n, p = 100, 50
@@ -135,7 +136,8 @@ end
   end
 end
 
-@testset "Float32 $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), ActiveAccProxGradDescent())
+@testset "Float32 $(summary(solver))" for solver in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent(),
+                                                    ActiveAccProxGradDescent())
   # the iterates, the minimum and the arithmetic stay in Float32; the solution
   # agrees with Float64 to Float32 accuracy. The tolerances must be above the
   # precision of Float32, eps(Float32) ≈ 1.2e-7

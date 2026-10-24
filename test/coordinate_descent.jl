@@ -451,6 +451,42 @@ end
   end
   @test_throws ArgumentError solve_path(f, IndBox(-1, 1), λs)
 
+  @testset "the elastic net at a fixed α: the level is the scale" begin
+    w = rand(Xoshiro(37), p) .+ 0.5
+    for α in (0.2, 0.5, 1.0)
+      g = Scaled(ElasticNet(α, 1 - α, w), 1.0)
+      lm = lambda_max(f, g, SparseIterate(p))
+      @test lm ≈ maximum(abs.(X' * y / n) ./ (α .* w))
+      x = SparseIterate(p)
+      solve!(x, f, Scaled(ElasticNet(α, 1 - α, w), lm * (1 + 1e-9)), CDSolver())
+      @test nnz(x) == 0
+      ls = lm .* 10 .^ range(0, -2; length = 12)
+      for screening in (true, false)
+        path = solve_path(f, g, ls, CDSolver(; tol = 1e-10); screening)
+        @test path.λ == ls && all(path.converged)
+        @test screening ? all(>=(1), path.kkt_checks) : all(iszero, path.kkt_checks)
+        for k in eachindex(ls)
+          b = Vector(path.solutions[k])
+          # the lasso at level λα of the loss plus the ridge λ(1 - α)‖b‖²/2
+          @test kkt_l1(lsgrad(X, y, b) .+ ls[k] * (1 - α) .* b, b, ls[k] * α, w) < 1e-6
+          @test path.values[k] ≈ sum(abs2, y - X * b) / (2n) + ls[k] * (α * sum(w .* abs.(b)) + (1 - α) * sum(abs2, b) / 2)
+        end
+        # the solution of ElasticNet(λα, λ(1 - α), w)
+        x1 = SparseIterate(p)
+        solve!(x1, f, ElasticNet(ls[6] * α, ls[6] * (1 - α), w), CDSolver(; tol = 1e-10))
+        @test Vector(path.solutions[6]) ≈ Vector(x1) atol = 1e-6
+      end
+      # continuation down to a level
+      λ = 0.05lm
+      xc = SparseIterate(p)
+      rc = solve!(xc, f, Scaled(ElasticNet(α, 1 - α, w), λ), CDSolver(; tol = 1e-10); continuation = 10)
+      @test rc.kkt_checks >= 11
+      @test kkt_l1(lsgrad(X, y, Vector(xc)) .+ λ * (1 - α) .* Vector(xc), Vector(xc), λ * α, w) < 1e-6
+    end
+    # only the scaled elastic net has its scale as a level
+    @test_throws ArgumentError solve_path(f, Scaled(NormL1(1.0), 2.0), λs)
+  end
+
   @testset "cyclic order, weights, and a level of λmax or more" begin
     pc = solve_path(f, NormL1(1.0), λs, CDSolver(; order = :cyclic, tol = 1e-10))
     for k in eachindex(λs)

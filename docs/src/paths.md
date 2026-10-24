@@ -17,6 +17,7 @@ These penalties of ProximalBase have a level, and
 | `NormL1(λ, w)` | ``\lambda\sum_k w_k\lvert x_k\rvert`` | ``w_k`` |
 | `NormL1Nonneg(λ, w)` | ``\lambda\sum_k w_k x_k`` on ``x \ge 0`` | ``w_k`` |
 | `ElasticNet(λ, λ₂, w)` | ``\lambda\sum_k w_k\lvert x_k\rvert + \tfrac{\lambda_2}{2}\lVert x\rVert^2`` | ``w_k`` |
+| `Scaled(ElasticNet(α, 1 - α, w), λ)` | ``\lambda\big(\alpha\sum_k w_k\lvert x_k\rvert + \tfrac{1 - \alpha}{2}\lVert x\rVert^2\big)`` | ``\alpha w_k`` |
 | `MCP(λ, a)`, `SCAD(λ, a)` | nonconvex, with slope ``\lambda`` at zero | ``1`` |
 | `GroupNormL2(λ, groups, w)` | ``\lambda\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``w_k`` |
 
@@ -24,6 +25,11 @@ In each, a coordinate at zero is optimal (stationary, for MCP and SCAD) while
 the gradient of the loss over it is at most ``\lambda w_k`` in absolute value,
 or in Euclidean norm for a group: the right derivative of every penalty at
 zero is ``\lambda w_k``. A coordinate with ``w_k = 0`` is not penalized.
+
+The level of `ElasticNet(λ, λ₂)` is ``\lambda``, with ``\lambda_2`` fixed. The
+elastic-net path of glmnet at a fixed mixing ``\alpha`` moves both terms with
+``\lambda``: it is the path of `Scaled(ElasticNet(α, 1 - α), λ)`, whose level is
+the scale ``\lambda``.
 
 ## The largest useful level
 

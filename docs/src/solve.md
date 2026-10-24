@@ -2,11 +2,12 @@
 
 ## The call
 
-Every solver minimizes ``f(x) + g(x)`` through [`solve!`](@ref):
+The two-term solvers minimize ``f(x) + g(x)`` through [`solve!`](@ref):
 
 ```julia
 res = solve!(x, f, g, solver)            # CDSolver, ProxNewton
 res = solve!(x, f, g, solver, options)   # the proximal gradient solvers and ADMM
+res = solve!(x, f, g, h, D, CondatVu(), options)  # f(x) + g(x) + h(D*x)
 ```
 
 `x` is the starting point, and `solve!` overwrites it with the solution. The

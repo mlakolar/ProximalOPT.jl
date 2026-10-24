@@ -104,3 +104,13 @@ performance comparisons.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+### Convex penalties composed with a linear map
+
+`CondatVu` solves `f(x) + g(x) + h(D*x)` with a gradient of `f`, proximal
+operators of `g` and `h`, and products by a dense or sparse `D` and its adjoint.
+It returns the primal and dual variables and step sizes for warm starts,
+checks both KKT residuals (or a Fenchel gap), and supports Float32 and
+`SparseIterate` primal vectors. See the
+[primal–dual guide](https://mlakolar.github.io/ProximalSolvers.jl/dev/primal_dual/)
+and [generalized-lasso example](examples/14_primal_dual.jl).

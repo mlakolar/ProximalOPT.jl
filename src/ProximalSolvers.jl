@@ -7,7 +7,8 @@ operators of ProximalBase: [`ProximalGradientDescent`](@ref),
 [`ActiveAccProxGradDescent`](@ref) and [`ADMMSolver`](@ref) for a proximable
 `g`, and coordinate descent
 ([`CDSolver`](@ref), [`ProxNewton`](@ref)) for a separable one, all called
-through [`solve!`](@ref). Before its first release the package was called
+through [`solve!`](@ref). [`CondatVu`](@ref) handles convex linear composites
+`f(x) + g(x) + h(D*x)`. Before its first release the package was called
 ProximalOPT.
 """
 module ProximalSolvers
@@ -33,6 +34,7 @@ export
   MonotoneAccProxGradDescent,
   ActiveAccProxGradDescent,
   ADMMSolver,
+  CondatVu,
   CDSolver,
   ProxNewton,
   solve!,
@@ -69,6 +71,7 @@ include("solvers/accelerated_proximal_gradient_descent.jl")
 include("solvers/monotone_accelerated_proximal_gradient_descent.jl")
 include("solvers/active_accelerated_proximal_gradient_descent.jl")
 include("solvers/admm.jl")
+include("solvers/primal_dual.jl")
 
 # Coordinate descent
 include("cd/models.jl")

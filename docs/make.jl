@@ -16,7 +16,7 @@ const TITLES = Dict(
     "07" => "The square-root and scaled lasso", "08" => "Post-lasso, adaptive and reweighted lasso",
     "09" => "A differential network", "10" => "Three proximal gradient solvers",
     "11" => "Low-rank regression", "12" => "The graphical lasso by ADMM",
-    "13" => "A model of your own")
+    "13" => "A model of your own", "14" => "Primal–dual generalized lasso")
 const SECTION = r"^# -+ (.+?) -*$"m
 headings(s) = replace(s, SECTION => m -> "# ### " * uppercasefirst(match(SECTION, m)[1]) * "\n#")
 rm(GENERATED; force = true, recursive = true)
@@ -59,6 +59,7 @@ makedocs(
             "Proximal gradient" => "proximal_gradient.md",
             "Active-set proximal gradient" => "active_set.md",
             "ADMM" => "admm.md",
+            "Primal–dual splitting" => "primal_dual.md",
         ],
         "Examples" => example_pages,
         "API reference" => [

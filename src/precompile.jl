@@ -38,6 +38,9 @@ using PrecompileTools: @setup_workload, @compile_workload
     solve!(SparseIterate(p), GLMLoss(ProximalBase.Squared(), y, X; weights = fill(1.0 / n, n)), NormL1(λ), CDSolver())
     solve!(SparseIterate(p), (1 / n) * LogisticLoss(yb, X), NormL1(0.01), CDSolver())
     solve!(SparseIterate(p), (1 / n) * LogisticLoss(yb, X), NormL1(0.01), ProxNewton())
+    m = cdmodel((1 / n) * LogisticLoss(yb, X), SparseIterate(p); intercept = true)
+    solve!(SparseIterate(p), m, NormL1(0.01), ProxNewton())
+    solve_path(m, NormL1(1.0), [0.1, 0.03, 0.01], ProxNewton())
     solve!(SparseIterate(p), QuadraticFunction(A, b), NormL1(λ), CDSolver())
     solve!(SparseIterate(p), f, ElasticNet(λ, 0.1), CDSolver())
     solve!(SparseIterate(p), SqrtLeastSquaresLoss(y, X), NormL1(0.5), CDSolver())
@@ -48,6 +51,7 @@ using PrecompileTools: @setup_workload, @compile_workload
     # the gradient methods and ADMM
     solve!(zeros(p), f, NormL1(λ), ProximalGradientDescent())
     solve!(zeros(p), f, NormL1(λ), AccProxGradDescent())
+    solve!(zeros(p), f, NormL1(λ), MonotoneAccProxGradDescent())
     solve!(SparseIterate(p), f, NormL1(λ), ActiveAccProxGradDescent())
     solve!(Matrix(1.0I, p, p), LogDetLoss(S), NormL1(0.1), ADMMSolver())
   end

@@ -75,7 +75,7 @@ function _quic!(X::SymmetricSparseIterate{T}, S::Matrix{T}, w::T, g::NormL1, met
   b = zeros(T, p, p)                      # -X: the model's penalty is g(X + Δ) = g(Δ - b)
   gt = Translate(g, b)
   D = SymmetricSparseIterate(T, p)
-  st = _CDState(T, D, method.inner.random)
+  st = _CDState(T, D, method.inner)
   free = sizehint!(Int[], p)
   passes = 0
   for it in 1:method.maxiter
@@ -93,7 +93,7 @@ function _quic!(X::SymmetricSparseIterate{T}, S::Matrix{T}, w::T, g::NormL1, met
     st.candidates = free
     inner = CDSolver(; maxpasses = min(method.inner.maxpasses, 2 * (1 + it ÷ 3)), tol = method.inner.tol,
                      order = method.inner.random ? :random : :cyclic, relative = method.inner.relative,
-                     anderson = method.inner.anderson)
+                     anderson = method.inner.anderson, rng = method.inner.rng)
     _cd!(D, model, gt, st, inner)
     st.candidates = nothing
     passes += st.passes

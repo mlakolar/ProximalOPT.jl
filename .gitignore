@@ -4,12 +4,17 @@
 /Manifest*.toml
 /test/Manifest*.toml
 /docs/build/
+/docs/Manifest*.toml
+/docs/src/examples/
 /benchmark/Manifest*.toml
 /benchmark/results/
 
 /benchmark/engine/*/Manifest*.toml
 # raw results of benchmark/engine (solutions are large)
 /benchmark/engine/results/
+
+/benchmark/proxalg/Manifest*.toml
+/benchmark/proxalg/results/
 /benchmark/gap/Manifest*.toml
 /benchmark/gap/*.csv
 /benchmark/quic/Manifest*.toml

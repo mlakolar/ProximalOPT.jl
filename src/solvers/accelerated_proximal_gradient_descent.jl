@@ -36,8 +36,11 @@ function AccProxGradDescent(; β::AbstractFloat = 0.5, α::AbstractFloat = 0.9)
   AccProxGradDescent(promote(β, α)...)
 end
 
-# the iterates have the type of the starting point x0; the gradient is dense
-mutable struct AccProxGradDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{T}}
+# the iterates have the type of the starting point x0, an array or a tuple of
+# arrays; the gradient is dense. For a loss of a linear image, f(x) = F(Ax), the
+# state keeps the images of x, x_previous and y (see image_models.jl); otherwise
+# model and the images are nothing
+mutable struct AccProxGradDescentState{T, X<:Union{AbstractArray{T}, _Blocks{T}}, G<:Union{AbstractArray{T}, _Blocks{T}}, M, Z}
     x::X
     f_x::T
     g_x::T
@@ -57,6 +60,11 @@ mutable struct AccProxGradDescentState{T, X<:AbstractArray{T}, G<:AbstractArray{
     f_calls::Int
     grad_calls::Int
     prox_calls::Int
+    model::M
+    z_x::Z            # A x
+    z_previous::Z     # A x_previous
+    z_y::Z            # A y
+    dz::Z             # F' at A y
 end
 
 
@@ -65,22 +73,24 @@ function initial_state(
           options,
           f,
           g,
-          x0::AbstractArray{T}) where T
+          x0::Union{AbstractArray{T}, _Blocks{T}}) where T
 
-    f_x = f(x0)
+    model = _image_model(f)
+    z_x = model === nothing ? nothing : _image_buffer(model)
+    f_x = _value!(f, x0, model, z_x)
     _check_start(f_x)
     AccProxGradDescentState(
                          x0,          # Maintain current state in state.x
                          f_x,
                          g(x0),
-                         copy(x0),    # x_previous = x0, so the first step has no momentum
+                         _copy(x0),   # x_previous = x0, so the first step has no momentum
                          T(NaN),
                          T(NaN),
-                         similar(x0), # extrapolated point y
+                         _similar(x0), # extrapolated point y
                          T(NaN),      # f(y)
-                         Array{T}(undef, size(x0)), # gradient of f at y
-                         similar(x0), # Temporary storage
-                         similar(x0), # Temporary storage for x1 - x0
+                         _dense_similar(x0), # gradient of f at y
+                         _similar(x0), # Temporary storage
+                         _similar(x0), # Temporary storage for x1 - x0
                          one(T),      # L
                          T(-Inf),     # maxResidual
                          0,
@@ -88,7 +98,12 @@ function initial_state(
                          0,           # backtrack_steps
                          1,           # f_calls
                          0,           # grad_calls
-                         0            # prox_calls
+                         0,           # prox_calls
+                         model,
+                         z_x,
+                         z_x === nothing ? nothing : copy(z_x),     # A x_previous
+                         z_x === nothing ? nothing : similar(z_x),  # A y
+                         z_x === nothing ? nothing : similar(z_x)   # F' at A y
                          )
 end
 
@@ -100,13 +115,15 @@ function update_state!(
 
     ω = T(state.k / (state.k + 3))
     state.L *= T(method.α)
-    @. state.y = state.x + ω * (state.x - state.x_previous)
+    _extrapolate_point!(state.y, state.x, state.x_previous, ω)
     _drop!(state.y)
+    _extrapolate_image!(state, state.model, ω)
 
     # copy x --> x_previous
-    copyto!(state.x_previous, state.x)
+    _copyto!(state.x_previous, state.x)
     state.f_x_previous = state.f_x
     state.g_x_previous = state.g_x
+    _shift_image!(state, state.model)
 
     while true
       _prox_grad_step!(f, g, state, method)
@@ -118,21 +135,22 @@ function update_state!(
         ω = zero(T)
         state.k = 0
         state.restarts += 1
-        copyto!(state.y, state.x_previous)
+        _copyto!(state.y, state.x_previous)
+        _restart_image!(state, state.model)
       else
         break
       end
     end
 
     state.k += 1
-    @. state.deltaX = state.x - state.x_previous
+    _sub!(state.deltaX, state.x, state.x_previous)
     state
 end
 
 # x = prox_{g/L}(y - ∇f(y)/L), increasing L until
 # f(x) <= f(y) + <∇f(y), x - y> + L/2 ‖x - y‖²
 function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccProxGradDescent) where T
-    state.f_y = value_and_gradient!(state.grad_f_y, f, state.y)
+    state.f_y = _value_and_gradient!(state.grad_f_y, f, state.y, state.model, state.z_y, state.dz)
     state.f_calls += 1
     state.grad_calls += 1
     # off the domain of f, as a y off the positive definite cone for LogDetLoss,
@@ -142,15 +160,15 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
       return state
     end
     while true
-      @. state.xhat = state.y - state.grad_f_y / state.L
+      _step!(state.xhat, state.y, state.grad_f_y, state.L)
       state.g_x = value_and_prox!(state.x, g, state.xhat, one(T) / state.L)
       _drop!(state.x)
-      state.f_x = f(state.x)
+      state.f_x = _value!(f, state.x, state.model, state.z_x)
       state.prox_calls += 1
       state.f_calls += 1
 
-      @. state.xhat = state.x - state.y
-      upper = state.f_y + dot(state.grad_f_y, state.xhat) + state.L / 2 * sum(abs2, state.xhat)
+      _sub!(state.xhat, state.x, state.y)
+      upper = state.f_y + _dot(state.grad_f_y, state.xhat) + state.L / 2 * _sumabs2(state.xhat)
       state.backtrack_steps += 1
       # slack guards against an endless loop from rounding error near the solution
       state.f_x <= upper + 10 * eps(T) * max(abs(state.f_y), one(T)) && break
@@ -158,3 +176,23 @@ function _prox_grad_step!(f, g, state::AccProxGradDescentState{T}, method::AccPr
     end
     state
 end
+
+# the images under the linear map of f, for a loss with a model: A y as the same
+# combination of A x and A x_previous as y (no product); after x_previous = x,
+# A x_previous = A x, and the buffer of A x is free for the next trial point;
+# after a restart from y = x_previous, A y = A x_previous
+_extrapolate_image!(state, ::Nothing, ω) = state
+function _extrapolate_image!(state, m, ω)
+  zx, zp = state.z_x, state.z_previous
+  @. state.z_y = zx + ω * (zx - zp)
+  state
+end
+
+_shift_image!(state, ::Nothing) = state
+function _shift_image!(state, m)
+  state.z_previous, state.z_x = state.z_x, state.z_previous
+  state
+end
+
+_restart_image!(state, ::Nothing) = state
+_restart_image!(state, m) = (copyto!(state.z_y, state.z_previous); state)

@@ -8,18 +8,22 @@ const DIR = get(ENV, "PROXALG_OUT", joinpath(@__DIR__, "results"))
 const TARGETS = (1e-4, 1e-6, 1e-8)
 
 function readcsv(file)
-  lines = readlines(joinpath(DIR, file))
+  path = joinpath(DIR, file)
+  lines = isfile(path) ? readlines(path) : String[]
+  isempty(lines) && return Dict{SubString{String}, SubString{String}}[]
   header = split(lines[1], ',')
   [Dict(zip(header, split(l, ','; limit = length(header)))) for l in lines[2:end] if !isempty(l)]
 end
 num(s) = (x = tryparse(Float64, s); x === nothing ? NaN : x)
 fmt_t(t) = isfinite(t) ? (t < 1e-3 ? @sprintf("%.2g ms", 1e3t) : t < 1 ? @sprintf("%.3g ms", 1e3t) : @sprintf("%.3g s", t)) : "—"
-fmt_b(b) = isfinite(b) ? (b < 1e3 ? @sprintf("%.0f B", b) : b < 1e6 ? @sprintf("%.1f KB", b / 1e3) : @sprintf("%.1f MB", b / 1e6)) : "—"
+# a few bytes per iteration are measurement noise (garbage collection between the runs)
+fmt_b(b) = isfinite(b) ? (b < 16 ? "0 B" : b < 1e3 ? @sprintf("%.0f B", b) : b < 1e6 ? @sprintf("%.1f KB", b / 1e3) :
+                          @sprintf("%.1f MB", b / 1e6)) : "—"
 rel(F, Fs) = isfinite(F) ? max((F - Fs) / max(abs(Fs), 1.0), 0.0) : Inf
 
 function main()
   sweep, periter = readcsv("sweep.csv"), readcsv("per_iteration.csv")
-  probe = isfile(joinpath(DIR, "inf_probe.csv")) ? readcsv("inf_probe.csv") : []
+  probe = readcsv("inf_probe.csv")
   problems = unique(r["problem"] for r in sweep)
   for P in problems
     rows = filter(r -> r["problem"] == P, sweep)
@@ -47,7 +51,11 @@ function main()
       any(r -> !isfinite(num(r["F"])), ok) && (note = strip(note * " F = NaN or Inf in some runs"))
       pi = filter(r -> r["solver"] == s && r["package"] == pkg && r["problem"] == P, periter)
       b = isempty(pi) ? NaN : num(pi[1]["bytes"])
-      ti = isempty(pi) ? NaN : num(pi[1]["time"])
+      # time per iteration from the sweep run with the most iterations: the runs
+      # of exactly k iterations can stop early at an exact fixed point (IHT)
+      long = filter(r -> parse(Int, r["iterations"]) > 0, ok)
+      ti = isempty(long) ? NaN : (r = long[argmax([parse(Int, r["iterations"]) for r in long])];
+                                  num(r["time"]) / parse(Int, r["iterations"]))
       if convex
         ts = [minimum((num(r["time"]) for r in ok if rel(num(r["F"]), Fstar) <= t); init = Inf) for t in TARGETS]
         best = minimum((rel(num(r["F"]), Fstar) for r in ok); init = Inf)

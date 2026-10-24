@@ -15,12 +15,12 @@ for some of their oracles, and for an iterate of a certain kind:
 
 | Solver | ``f`` | ``g`` | `x` |
 |:-------|:------|:------|:----|
+| [`CDSolver`](@ref) | a loss with a coordinate descent model, see [Losses for coordinate descent](@ref) | separable, or a group penalty (`GroupNormL2`, `GroupNormLinf`, ...) | a `SparseIterate`, a `SymmetricSparseIterate`, an `AtomIterate` for a group penalty, or a vector |
+| [`ProxNewton`](@ref) | a `GLMLoss`, a `LogDetLoss`, or a smooth loss with a supported quadratic model | separable for vectors; `NormL1` for `LogDetLoss`; see [Other smooth losses](@ref) for generic matrix models | a `SparseIterate` or dense vector; for supported matrix models, a `SymmetricSparseIterate` or symmetric `Matrix` |
 | [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) | smooth: `issmooth(f)` | proximable: `isproximable(g)` | any array that `f` and `g` take, a `SparseIterate`, or an `AtomIterate` with the groups of a `GroupNormL2` |
 | [`MonotoneAccProxGradDescent`](@ref) | smooth | proximable | any array that `f` and `g` take, a `SparseIterate` or a `SymmetricSparseIterate` |
 | [`ActiveAccProxGradDescent`](@ref) | smooth, with `restrict` | separable or `GroupNormL2`, with `restrict` and `kkt_violation` | a vector, a `SparseIterate` or an `AtomIterate` |
 | [`ADMMSolver`](@ref) | proximable | proximable | an `Array` |
-| [`CDSolver`](@ref) | a loss with a coordinate descent model, see [Losses for coordinate descent](@ref) | separable, or a group penalty (`GroupNormL2`, `GroupNormLinf`, ...) | a `SparseIterate`, a `SymmetricSparseIterate`, an `AtomIterate` for a group penalty, or a vector |
-| [`ProxNewton`](@ref) | a `GLMLoss`, or a `LogDetLoss` | separable, or a `NormL1` with a `LogDetLoss` | a `SparseIterate`; for a `LogDetLoss`, a `SymmetricSparseIterate` or a symmetric `Matrix` |
 
 The iterates are those of ProximalBase: a
 [`SparseIterate`](@extref ProximalBase.SparseIterate) stores the entries that
@@ -83,37 +83,11 @@ there when it was computed, `NaN` otherwise. Printing a result shows a summary.
 
 ## Duality gaps
 
-For a loss of a linear map, ``f(x) = F(Ax)`` with
-``F(\eta) = \sum_i \phi_i(\eta_i)``, and a convex penalty ``g``, every dual
-point ``\theta`` bounds the minimum of ``P = f + g`` from below:
-
-```math
-D(\theta) = -F^*(\theta) - g^*(-A^\top\theta) \le \min P \le P(x).
-```
-
-[`duality_gap`](@ref) builds the dual point from the gradient,
-``\theta = t\,\nabla F(Ax)``, with the largest ``t \in (0, 1]`` that puts
-``-A^\top\theta`` in the domain of ``g^*``, and returns ``P(x) - D(\theta)``:
-an upper bound on ``P(x) - \min P`` that is zero at the solution. It knows
-least squares and the logistic, Poisson and Huber losses, weighted, scaled or
-through a model with an intercept, with `NormL1`, `NormL1Nonneg`, `ElasticNet`
-or `GroupNormL2`; and the graphical lasso, a `LogDetLoss` with a `NormL1`,
-whose dual point comes from the inverse of ``x``.
-
-The relative gap ``(P(x) - D(\theta))/|P(x)|`` is a tolerance that means the
-same for every problem. With `gaptol > 0`, [`CDSolver`](@ref) computes it,
-at the cost of a full gradient, where its rule on the changes would stop, and
-goes on with a tenfold smaller `tol` until the gap is at most `gaptol`. With
-`gapsafe = true`, each gap also screens the coordinates by the gap-safe rule
-of Fercoq, Gramfort and Salmon (*Mind the duality gap: safer rules for the
-lasso*, 2015): a coordinate it proves zero at the solution is set to zero and
-left out of the full passes. `ProximalOptions(; gaptol, gapevery)` stops
-[`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref) and
-[`ADMMSolver`](@ref) on the gap, computed every `gapevery` iterations, in
-place of their other tests. For other losses and penalties `gaptol` is
-ignored, with a warning. For the losses without a gap, such as the quadratics,
-[`kkt_residual`](@ref) measures optimality on the scale of the stopping rule of
-coordinate descent.
+A duality gap bounds the objective error for supported convex problems.
+[Checking a solution](@ref) gives the optimality conditions, the dual
+construction, and the distinction between absolute and relative gaps. Use
+`CDSolver(; gaptol)` or `ProximalOptions(; gaptol, gapevery)` to request a gap
+stopping rule where it is available.
 
 ## Traces and callbacks
 

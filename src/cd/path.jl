@@ -71,11 +71,11 @@ _needsconvexsteps(c::_BoxConstrained) = _needsconvexsteps(c.f)
 
 function _check_convex_steps(m::CDModel, g, x)
   _needsconvexsteps(g) || return nothing
+  _hasstepcurvature(m, x) || return nothing     # a model that does not give its curvatures
   ρ = _concavity(g)
   for k in 1:ncoordinates(x)
     _penalized(g, x, k) || continue
     L = _stepcurvature(m, x, k)
-    L === nothing && return nothing        # a model that does not give its curvature
     (iszero(L) || L > ρ) && continue       # with L = 0 the loss does not depend on the coordinate
     throw(ArgumentError(_convex_steps_message(g, x, k, L)))
   end
@@ -85,15 +85,18 @@ end
 _penalized(g, x, k::Int) = true
 _penalized(g::Union{GroupMCP, GroupSCAD}, x::AtomIterate, k::Int) = !iszero(g.w[k])
 
-_stepcurvature(m::CDModel, x::SparseIterate, k::Int) =
-  applicable(coordinate_derivatives, m, x, k) ? coordinate_derivatives(m, x, k)[2] : nothing
+_hasstepcurvature(m::CDModel, x) = applicable(coordinate_derivatives, m, x, 1)
+_hasstepcurvature(m::CDModel, x::AtomIterate) = applicable(_groupcurvature!, m, x, 1)
+_stepcurvature(m::CDModel, x::SparseIterate, k::Int) = coordinate_derivatives(m, x, k)[2]
+# the curvatures that the models cache, which their steps then reuse: one pass
+# over the column for least squares, none for a GLM's bound
+_stepcurvature(m::LSModel, x::SparseIterate, k::Int) = m.s * _sqnorm!(m, k)
+_stepcurvature(m::GLMModel, x::SparseIterate, k::Int) = _curvaturebound!(m, k)
 function _stepcurvature(m::CDModel{T}, x::SymmetricSparseIterate, k::Int) where {T}
-  applicable(coordinate_derivatives, m, x, k) || return nothing
   r, c = tril_cartesian(x.p, k)
   coordinate_derivatives(m, x, k)[2] / _multiplicity(T, r, c)
 end
-_stepcurvature(m::CDModel, x::AtomIterate, k::Int) =
-  applicable(_groupcurvature!, m, x, k) ? _groupcurvature!(m, x, k) : nothing
+_stepcurvature(m::CDModel, x::AtomIterate, k::Int) = _groupcurvature!(m, x, k)
 
 function _convex_steps_message(g, x, k::Int, L)
   p = g isa _BoxConstrained ? g.f : g

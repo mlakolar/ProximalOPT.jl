@@ -124,6 +124,9 @@ check_penalty(m::CDModel, g) = nothing
 
 The [`CDModel`](@ref) of the loss `f` for iterates like `x`: for
 `LeastSquaresLoss`, a least-squares `GLMLoss` (with weights and an offset),
+`LeastSquaresLoss` with a matrix `Y` (the multi-response lasso: `x` an
+`AtomIterate` over `vec(B)` with the rows of `B` as groups,
+`[k:p:p*q for k in 1:p]`, and `GroupNormL2` on them),
 `QuadraticFunction` and [`KronQuadratic`](@ref), each possibly scaled, as in
 `(1/n) * LeastSquaresLoss(y, X)`, for a logistic or Huber `GLMLoss`, and for
 [`SqrtLeastSquaresLoss`](@ref) and [`SqrtQuadraticFunction`](@ref).

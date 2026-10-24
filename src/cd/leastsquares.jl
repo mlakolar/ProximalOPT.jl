@@ -60,7 +60,9 @@ cdmodel(f::Scaled{<:GLMLoss{ProximalBase.Squared}}, x; intercept::Bool = false) 
     intercept(m::CDModel, x)
 
 The unpenalized intercept that goes with `x` in a least-squares model built
-with `intercept = true` (see [`cdmodel`](@ref)); zero without one.
+with `intercept = true` (see [`cdmodel`](@ref)); zero without one. For the
+multi-response model of a matrix `Y`, the vector of the intercepts of the
+responses.
 """
 intercept(m::LSModel, x::AbstractArray) = m.ybar - dot(m.xbar, x)
 

@@ -288,23 +288,76 @@ end
 ################################################################################
 # the proximal gradient solvers on the lasso, and ADMM for the graphical lasso
 
-for name in (:A, :E)
+const PROXGRAD_OPTIONS = ProximalOptions(; maxiter = 1_000_000, ftol = 1e-10, xtol = 1e-10, gradtol = 1e-10, time_limit = 60.0)
+# ProximalGradientDescent for 500 iterations (fewer only once the objective
+# stops changing in floating point), which times an iteration; to a tolerance
+# it needs over 10,000 iterations on design E
+const PROXGRAD_FIXED = ProximalOptions(; maxiter = 500, ftol = 1e-300, xtol = 1e-300, gradtol = 1e-300)
+
+for name in (:A, :B, :C, :D, :E), frac in (0.1, 0.02)
   P = design(name)
   X, y = P.X, P.y
   n, p = size(X)
   Xs, ys = X ./ sqrt(n), y ./ sqrt(n)
-  λ = 0.1 * lasso_λmax(X, y)
-  o = ProximalOptions(; maxiter = 1_000_000, ftol = 1e-10, xtol = 1e-10, gradtol = 1e-10, time_limit = 60.0)
+  λ = frac * lasso_λmax(X, y)
   obj = x -> lasso_objective(X, y, x, λ)
-  run!(rec, Case("proxgrad", "$name λ=0.1λmax", "AccProxGrad tol 1e-10"); objective = obj) do
+  run!(rec, Case("proxgrad", "$name λ=$(frac)λmax", "AccProxGrad tol 1e-10"); objective = obj) do
     x = zeros(p)
-    r = solve!(x, LeastSquaresLoss(ys, Xs), NormL1(λ), AccProxGradDescent(), o)
+    r = solve!(x, LeastSquaresLoss(ys, Xs), NormL1(λ), AccProxGradDescent(), PROXGRAD_OPTIONS)
     (x, r.iterations, PS.converged(r))
   end
-  run!(rec, Case("proxgrad", "$name λ=0.1λmax", "ActiveAccProxGrad tol 1e-10"); objective = obj) do
+  run!(rec, Case("proxgrad", "$name λ=$(frac)λmax", "ActiveAccProxGrad tol 1e-10"); objective = obj) do
     x = SparseIterate(p)
-    r = solve!(x, LeastSquaresLoss(ys, Xs), NormL1(λ), ActiveAccProxGradDescent(), o)
+    r = solve!(x, LeastSquaresLoss(ys, Xs), NormL1(λ), ActiveAccProxGradDescent(), PROXGRAD_OPTIONS)
     (Vector(x), r.inner_iterations, r.converged)
+  end
+  run!(rec, Case("proxgrad", "$name λ=$(frac)λmax", "ProxGrad 500 iterations"); objective = obj) do
+    x = zeros(p)
+    r = solve!(x, (1 / n) * LeastSquaresLoss(y, X), NormL1(λ), ProximalGradientDescent(), PROXGRAD_FIXED)
+    (x, r.iterations, PS.converged(r))
+  end
+end
+
+# the logistic lasso on design A, with yᵢ = 1 when the response of the linear
+# model is above its median
+let P = design(:A)
+  X = P.X
+  n, p = size(X)
+  yb = Float64.(P.y .> median(P.y))
+  f = (1 / n) * LogisticLoss(yb, X)
+  λmax = maximum(abs, X' * (yb .- 0.5)) / n
+  for frac in (0.1, 0.02)
+    λ = frac * λmax
+    obj = x -> f(x) + λ * sum(abs, x)
+    run!(rec, Case("proxgrad", "A logistic λ=$(frac)λmax", "AccProxGrad tol 1e-10"); objective = obj) do
+      x = zeros(p)
+      r = solve!(x, f, NormL1(λ), AccProxGradDescent(), PROXGRAD_OPTIONS)
+      (x, r.iterations, PS.converged(r))
+    end
+    run!(rec, Case("proxgrad", "A logistic λ=$(frac)λmax", "ProxGrad 500 iterations"); objective = obj) do
+      x = zeros(p)
+      r = solve!(x, f, NormL1(λ), ProximalGradientDescent(), PROXGRAD_FIXED)
+      (x, r.iterations, PS.converged(r))
+    end
+  end
+end
+
+# 20 levels from λmax to λmax/100, each warm started from the previous solution
+for name in (:A, :D)
+  P = design(name)
+  X, y = P.X, P.y
+  n, p = size(X)
+  λmax = lasso_λmax(X, y)
+  λs = λmax .* 10 .^ range(0, -2; length = 20)
+  f = (1 / n) * LeastSquaresLoss(y, X)
+  obj = x -> lasso_objective(X, y, x, λs[end])
+  run!(rec, Case("proxgrad", "$name 20λ", "AccProxGrad warm starts tol 1e-10"); objective = obj, budget = 2.0) do
+    x = zeros(p)
+    its = 0
+    for λ in λs
+      its += solve!(x, f, NormL1(λ), AccProxGradDescent(), PROXGRAD_OPTIONS).iterations
+    end
+    (x, its, true)
   end
 end
 

@@ -6,7 +6,7 @@
 
 """
     ADMMSolver(; ρ = 1.0, α = 1.0, abstol = 1e-6, reltol = 1e-4, adaptive = false,
-                 abstol_dual = abstol)
+                 abstol_dual = abstol, norm = nothing)
 
 The alternating direction method of multipliers for `f(x) + g(x)` when both
 `f` and `g` have easy proximal operators (Boyd et al., *Distributed
@@ -27,29 +27,48 @@ tolerance, is more than ten times the dual one, halves in the opposite case,
 and stays fixed after 50 changes, which keeps the convergence guarantee of a
 fixed `ρ`.
 
+`x` is an `Array`, or a tuple of arrays for a problem over several blocks:
+with `f = SeparableSum(f1, …, fK)` the x-update is K independent proximal
+steps, and `g` may couple the blocks, as the fused graphical lasso does for a
+pair of precision matrices. `n` is the total number of entries, and a tuple of
+one array computes exactly what the array does.
+
+`norm` is the norm in which the residuals and `‖x‖`, `‖z‖` and `‖u‖` are
+measured, a function of an iterate (an array, or a tuple of arrays); `nothing`
+is the Euclidean norm, over all the blocks of a tuple. The K blocks of a stacked
+array, for example, can be measured by the sum of the norms of its slices,
+`x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`, and those
+of a tuple by `x -> sum(LinearAlgebra.norm, x)`. If `norm` also has a method
+`norm(x, y)` for the norm of `x - y`, the residuals are measured with it,
+without forming the differences.
+
 Of the [`ProximalOptions`](@ref), only `maxiter`, `time_limit`,
-`prox_calls_limit`, `show_trace` and `printEvery` are used. Use with
+`prox_calls_limit`, `show_trace`, `printEvery`, `gaptol` and `gapevery` are
+used. With `gaptol > 0` and functions that have a duality gap (see
+[`duality_gap`](@ref); among them the graphical lasso, a `LogDetLoss` with a
+`NormL1`), the gap at `z` replaces the residual tests. Use with
 [`solve!`](@ref); to warm start from a previous result `res`, pass its scaled
 dual variable and final penalty parameter:
 `solve!(x, f, g, ADMMSolver(; ρ = res.ρ), options; u = res.u)`.
 """
-struct ADMMSolver{T<:AbstractFloat} <: ProximalSolver
+struct ADMMSolver{T<:AbstractFloat, N} <: ProximalSolver
   ρ::T          # augmented Lagrangian parameter, or its starting value
   α::T          # over-relaxation parameter, α ∈ (0, 2); α = 1 is plain ADMM
   abstol::T
   reltol::T
   adaptive::Bool
   abstol_dual::T
+  norm::N       # the norm of the residuals, nothing for the Euclidean norm
 end
 
 Base.summary(::ADMMSolver) = "ADMM"
 
 function ADMMSolver(; ρ::Real = 1.0, α::Real = 1.0, abstol::Real = 1e-6, reltol::Real = 1e-4,
-                    adaptive::Bool = false, abstol_dual::Real = abstol)
+                    adaptive::Bool = false, abstol_dual::Real = abstol, norm = nothing)
   ρ > 0 || error("ρ must be positive.")
   0 < α < 2 || error("α must be in (0, 2).")
   T = float(promote_type(typeof(ρ), typeof(α), typeof(abstol), typeof(reltol), typeof(abstol_dual)))
-  ADMMSolver{T}(T(ρ), T(α), T(abstol), T(reltol), adaptive, T(abstol_dual))
+  ADMMSolver{T, typeof(norm)}(T(ρ), T(α), T(abstol), T(reltol), adaptive, T(abstol_dual), norm)
 end
 
 """
@@ -58,14 +77,17 @@ end
 Returned by [`solve!`](@ref) with an [`ADMMSolver`](@ref): `minimizer`,
 `minimum` (`f + g` at the minimizer), `iterations`, `converged`, the final
 primal and dual residuals `r_norm`, `s_norm` with their tolerances `eps_pri`,
-`eps_dual`, the scaled dual variable `u` and the final penalty parameter `ρ`
-(for a warm start), and the number of evaluations: `f_calls` of the value of
+`eps_dual`, the scaled dual variable `u` (an array, or a tuple like `x`) and
+the final penalty parameter `ρ` (for a warm start), and the number of
+evaluations: `f_calls` of the value of
 `f` (for the trace and `minimum`), `grad_calls` (always `0`) and `prox_calls`
 of the proximal operators of `f` and `g`. `call_limit_reached` is `true` when
-the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)).
+the solver stopped at `prox_calls_limit` (see [`ProximalOptions`](@ref)), and
+`gap` is the relative duality gap at the minimizer when `gaptol > 0`, `NaN`
+otherwise.
 """
-struct ADMMResults{T,N}
-    minimizer::Array{T,N}
+struct ADMMResults{T,X}
+    minimizer::X
     minimum::T
     iterations::Int
     converged::Bool
@@ -73,12 +95,13 @@ struct ADMMResults{T,N}
     s_norm::T     # dual residual ρ‖z - z_previous‖
     eps_pri::T
     eps_dual::T
-    u::Array{T,N} # scaled dual variable
+    u::X          # scaled dual variable
     ρ::T          # final penalty parameter
     f_calls::Int
     grad_calls::Int
     prox_calls::Int
     call_limit_reached::Bool
+    gap::Float64
 end
 
 Base.summary(::ADMMResults) = "ADMM"
@@ -99,6 +122,7 @@ function Base.show(io::IO, r::ADMMResults)
     @printf io " * Convergence: %s\n" converged(r)
     @printf io "   * primal residual %.2e (tolerance %.2e)\n" r.r_norm r.eps_pri
     @printf io "   * dual residual   %.2e (tolerance %.2e)\n" r.s_norm r.eps_dual
+    isnan(r.gap) || @printf io "   * relative duality gap %.2e\n" r.gap
     @printf io " * Final ρ: %e\n" r.ρ
     @printf io "   * Reached a limit on the number of calls: %s\n" call_limit_reached(r)
     @printf io " * f(x) calls: %d\n" f_calls(r)
@@ -106,6 +130,16 @@ function Base.show(io::IO, r::ADMMResults)
     @printf io " * prox calls: %d\n" prox_calls(r)
     return
 end
+
+# ‖x - z‖, ‖z - z_previous‖, max(‖x‖, ‖z‖) and ‖u‖, in the Euclidean norm or in
+# the norm `nrm`; tmp is a buffer, free after the u-update
+_admm_norms(::Nothing, x, z, z_previous, u, tmp) = (_norm_diff(x, z), _norm_diff(z, z_previous), max(_norm(x), _norm(z)), _norm(u))
+_admm_norms(nrm, x, z, z_previous, u, tmp) =
+  (_normdiff(nrm, x, z, tmp), _normdiff(nrm, z, z_previous, tmp), max(nrm(x), nrm(z)), nrm(u))
+
+# ‖a - b‖ in the norm nrm: from its method of two arrays (or tuples) if it has
+# one, otherwise from the difference formed in tmp
+_normdiff(nrm, a, b, tmp) = applicable(nrm, a, b) ? nrm(a, b) : nrm(_sub!(tmp, a, b))
 
 # residual balancing: the factor by which to multiply ρ, with each residual
 # relative to its tolerance; ρ stays fixed after _max_ρ_changes changes
@@ -120,32 +154,38 @@ end
 # x is the starting point for z and is overwritten with the solution; u, when
 # given, is the starting scaled dual variable, which is overwritten too
 function solve!(
-    x::Array{T},
+    x::Union{Array{T}, Tuple{Array{T}, Vararg{Array{T}}}},
     f::AbstractFunction,
     g::AbstractFunction,
     method::ADMMSolver,
     options::ProximalOptions = ProximalOptions();
-    u::Union{Nothing, Array{T}} = nothing
+    u::Union{Nothing, Array{T}, Tuple{Array{T}, Vararg{Array{T}}}} = nothing
     ) where {T<:AbstractFloat}
 
   isproximable(f) || throw(ArgumentError("ADMM needs a proximable f (isproximable(f)), but f is a $(typeof(f))."))
   isproximable(g) || throw(ArgumentError("ADMM needs a proximable g (isproximable(g)), but g is a $(typeof(g))."))
-  u === nothing || size(u) == size(x) || throw(DimensionMismatch("u must have the size of x"))
+  u === nothing || (typeof(u) == typeof(x) && _size(u) == _size(x)) || throw(DimensionMismatch("u must have the size of x"))
   t0 = time()
   ρ, α = T(method.ρ), T(method.α)
-  sqrt_n = sqrt(T(length(x)))
+  sqrt_n = sqrt(T(_length(x)))
 
   z = x
-  xk = copy(x)
-  u = u === nothing ? zero(x) : u
-  z_previous = similar(x)
-  tmp = similar(x)
+  xk = _copy(x)
+  u = u === nothing ? _zero(x) : u
+  z_previous = _similar(x)
+  tmp = _similar(x)
 
   r_norm = s_norm = eps_pri = eps_dual = T(Inf)
   converged = false
   call_limit_reached = false
   iteration = changes = 0
   f_calls = prox_calls = 0
+
+  # with gaptol, the duality gap at z replaces the residual tests
+  gapev = options.gaptol > 0 ? _gapevaluator(f, g, x) : nothing
+  options.gaptol > 0 && gapev === nothing &&
+    @warn "there is no duality gap for $(nameof(typeof(f))) with $(nameof(typeof(g))); gaptol is ignored." maxlog = 1
+  relgap, relgap_iteration = NaN, -1
 
   options.show_trace && @printf "Iter     Function value   primal res.      dual res.\n"
 
@@ -154,24 +194,32 @@ function solve!(
     γ = one(T) / ρ
 
     # x-update: x = prox_{f/ρ}(z - u)
-    @. tmp = z - u
+    _sub!(tmp, z, u)
     prox!(xk, f, tmp, γ)
 
     # z-update with relaxation: z = prox_{g/ρ}(α x + (1 - α) z + u)
-    copyto!(z_previous, z)
-    @. tmp = α * xk + (one(T) - α) * z_previous + u
+    _copyto!(z_previous, z)
+    _relax!(tmp, α, xk, z_previous, u)
     prox!(z, g, tmp, γ)
 
     # u-update
-    @. u = tmp - z
+    _sub!(u, tmp, z)
     prox_calls += 2
 
     # check convergence
-    r_norm = norm_diff(xk, z)
-    s_norm = ρ * norm_diff(z, z_previous)
-    eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * max(norm(xk), norm(z))
-    eps_dual = sqrt_n * T(method.abstol_dual) + T(method.reltol) * ρ * norm(u)
+    r_norm, s_norm, nxz, nu = _admm_norms(method.norm, xk, z, z_previous, u, tmp)
+    s_norm *= ρ
+    eps_pri = sqrt_n * T(method.abstol) + T(method.reltol) * nxz
+    eps_dual = sqrt_n * T(method.abstol_dual) + T(method.reltol) * ρ * nu
     converged = r_norm <= eps_pri && s_norm <= eps_dual
+    if gapev !== nothing
+      if iteration % options.gapevery == 0
+        relgap, relgap_iteration = _relgap!(gapev, f, g, z), iteration
+        isnan(relgap) || (converged = relgap <= options.gaptol)
+      else
+        converged = false
+      end
+    end
     call_limit_reached = options.prox_calls_limit > 0 && prox_calls >= options.prox_calls_limit
 
     if options.show_trace && iteration % options.printEvery == 0
@@ -184,14 +232,16 @@ function solve!(
       c = _ρ_factor(r_norm, eps_pri, s_norm, eps_dual, changes)
       if c != 1
         ρ *= c
-        u ./= c
+        _rdiv!(u, c)
         changes += 1
       end
     end
   end
 
+  gapev === nothing || relgap_iteration == iteration || (relgap = _relgap!(gapev, f, g, z))
+
   # f(z) for the minimum is one more call
   ADMMResults(z, f(z) + g(z), iteration, converged,
               r_norm, s_norm, eps_pri, eps_dual, u, ρ,
-              f_calls + 1, 0, prox_calls, call_limit_reached)
+              f_calls + 1, 0, prox_calls, call_limit_reached, relgap)
 end

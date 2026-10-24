@@ -87,6 +87,26 @@ end
     @test run() == run()
   end
 
+  @testset "the random order comes from rng" begin
+    run(s) = (x = SparseIterate(p); r = solve!(x, f, NormL1(λ), s); (Vector(x), r.passes))
+    @test run(CDSolver(; rng = Xoshiro(3))) == run(CDSolver(; rng = Xoshiro(3)))
+    @test run(CDSolver(; rng = Xoshiro(3))) != run(CDSolver(; rng = Xoshiro(4)))
+    # the default is the task-local generator, which draws as the global one
+    @test CDSolver().rng === Random.default_rng()
+    @test (Random.seed!(7); run(CDSolver())) == (Random.seed!(7); run(CDSolver(; rng = Random.default_rng())))
+    # a generator of its own leaves the global stream alone
+    Random.seed!(11); u = rand()
+    Random.seed!(11); run(CDSolver(; rng = Xoshiro(1))); @test rand() == u
+    # so do paths and continuation, whose passes draw from the same generator
+    path(s) = (r = solve_path(f, NormL1(1.0), [2λ, λ, λ / 2], s); (r.solutions, r.passes))
+    @test path(CDSolver(; rng = Xoshiro(5))) == path(CDSolver(; rng = Xoshiro(5)))
+    cont(s) = (x = SparseIterate(p); r = solve!(x, f, NormL1(λ / 2), s; continuation = 5); (Vector(x), r.passes))
+    @test cont(CDSolver(; rng = Xoshiro(6))) == cont(CDSolver(; rng = Xoshiro(6)))
+    Random.seed!(11); path(CDSolver(; rng = Xoshiro(5))); cont(CDSolver(; rng = Xoshiro(6))); @test rand() == u
+    # the inner solver of ProxNewton keeps its generator
+    @test ProxNewton(; inner = CDSolver(; rng = Xoshiro(2))).inner.rng == Xoshiro(2)
+  end
+
   @testset "unpenalized coordinates" begin
     w = ones(p); w[[3, 50]] .= 0
     x = SparseIterate(p)
@@ -162,6 +182,45 @@ end
     x = SparseIterate(p)
     solve!(x, GLMLoss(ProximalBase.Squared(), y, X; weights = w, offset = o), NormL1(n * λ, ω), CDSolver(; tol = 1e-10))
     @test kkt_l1(X' * (w .* (X * Vector(x) + o - y)), Vector(x), n * λ, ω) < 1e-6
+  end
+
+  @testset "an intercept with weights" begin
+    w = rand(Xoshiro(8), n) .+ 0.5
+    o = randn(Xoshiro(9), n)
+    Xs = X .+ randn(Xoshiro(10), 1, p)                    # columns with nonzero means
+    for off in (nothing, o)
+      x = SparseIterate(p)
+      m = cdmodel(GLMLoss(ProximalBase.Squared(), y, Xs; weights = w, offset = off), x; intercept = true)
+      solve!(x, m, NormL1(n * λ), CDSolver(; tol = 1e-12))
+      β = Vector(x)
+      β0 = PS.intercept(m, β)
+      r = y .- (off === nothing ? 0 : off) .- β0 .- Xs * β
+      @test PS.residuals(m) ≈ r
+      @test abs(dot(w, r)) < 1e-8 * norm(y)                # the intercept is optimal
+      @test kkt_l1(-Xs' * (w .* r), β, n * λ) < 1e-6
+      # the weighted means
+      @test m.xbar ≈ Xs' * w / sum(w)
+      @test m.ybar ≈ dot(w, y .- (off === nothing ? 0 : off)) / sum(w)
+    end
+    # integer weights give the solution of the replicated rows
+    k = rand(Xoshiro(11), 1:3, n)
+    rows = reduce(vcat, [fill(i, k[i]) for i in 1:n])
+    x1, x2 = SparseIterate(p), SparseIterate(p)
+    m1 = cdmodel(GLMLoss(ProximalBase.Squared(), y, Xs; weights = float.(k)), x1; intercept = true)
+    m2 = cdmodel(LeastSquaresLoss(y[rows], Xs[rows, :]), x2; intercept = true)
+    solve!(x1, m1, NormL1(n * λ), CDSolver(; tol = 1e-12))
+    solve!(x2, m2, NormL1(n * λ), CDSolver(; tol = 1e-12))
+    @test Vector(x1) ≈ Vector(x2) atol = 1e-7
+    @test PS.intercept(m1, Vector(x1)) ≈ PS.intercept(m2, Vector(x2)) atol = 1e-7
+    # a constant column has an exact mean, and its coefficient stays at zero
+    Xc = copy(Xs); Xc[:, 3] .= 2.5
+    mc = cdmodel(GLMLoss(ProximalBase.Squared(), y, Xc; weights = w), SparseIterate(p); intercept = true)
+    @test mc.xbar[3] == 2.5
+    xc = SparseIterate(p)
+    solve!(xc, mc, NormL1(n * λ), CDSolver(; tol = 1e-10))
+    @test xc[3] == 0
+    # the weights must have a positive sum
+    @test_throws ArgumentError cdmodel(GLMLoss(ProximalBase.Squared(), y, X; weights = zeros(n)), x1; intercept = true)
   end
 
   @testset "quadratic" begin
@@ -359,6 +418,15 @@ end
   r = solve!(x, f, NormL1(λ), CDSolver(; tol = 1e-10); continuation = 20)
   @test kkt_l1(lsgrad(X, y, Vector(x)), Vector(x), λ) < 1e-7
   @test r.kkt_checks >= 21
+  # the levels before λ are solved to √tol by default, and λ itself to tol
+  for ctol in (1e-10, 1e-3, 0.0)
+    xc = SparseIterate(p)
+    rc = solve!(xc, f, NormL1(λ), CDSolver(; tol = 1e-10); continuation = 20, continuation_tol = ctol)
+    @test rc.converged && rc.tolerance == r.tolerance
+    @test kkt_l1(lsgrad(X, y, Vector(xc)), Vector(xc), λ) < 1e-7
+    @test Vector(xc) ≈ Vector(x) atol = 1e-7
+  end
+  @test_throws ArgumentError solve!(SparseIterate(p), f, NormL1(λ), CDSolver(); continuation = 5, continuation_tol = -1)
 
   λs = λmax .* 10 .^ range(0, -2; length = 15)
   for screening in (true, false)
@@ -382,6 +450,42 @@ end
     @test length(solve_path(f, g, λs[1:5]).λ) == 5
   end
   @test_throws ArgumentError solve_path(f, IndBox(-1, 1), λs)
+
+  @testset "the elastic net at a fixed α: the level is the scale" begin
+    w = rand(Xoshiro(37), p) .+ 0.5
+    for α in (0.2, 0.5, 1.0)
+      g = Scaled(ElasticNet(α, 1 - α, w), 1.0)
+      lm = lambda_max(f, g, SparseIterate(p))
+      @test lm ≈ maximum(abs.(X' * y / n) ./ (α .* w))
+      x = SparseIterate(p)
+      solve!(x, f, Scaled(ElasticNet(α, 1 - α, w), lm * (1 + 1e-9)), CDSolver())
+      @test nnz(x) == 0
+      ls = lm .* 10 .^ range(0, -2; length = 12)
+      for screening in (true, false)
+        path = solve_path(f, g, ls, CDSolver(; tol = 1e-10); screening)
+        @test path.λ == ls && all(path.converged)
+        @test screening ? all(>=(1), path.kkt_checks) : all(iszero, path.kkt_checks)
+        for k in eachindex(ls)
+          b = Vector(path.solutions[k])
+          # the lasso at level λα of the loss plus the ridge λ(1 - α)‖b‖²/2
+          @test kkt_l1(lsgrad(X, y, b) .+ ls[k] * (1 - α) .* b, b, ls[k] * α, w) < 1e-6
+          @test path.values[k] ≈ sum(abs2, y - X * b) / (2n) + ls[k] * (α * sum(w .* abs.(b)) + (1 - α) * sum(abs2, b) / 2)
+        end
+        # the solution of ElasticNet(λα, λ(1 - α), w)
+        x1 = SparseIterate(p)
+        solve!(x1, f, ElasticNet(ls[6] * α, ls[6] * (1 - α), w), CDSolver(; tol = 1e-10))
+        @test Vector(path.solutions[6]) ≈ Vector(x1) atol = 1e-6
+      end
+      # continuation down to a level
+      λ = 0.05lm
+      xc = SparseIterate(p)
+      rc = solve!(xc, f, Scaled(ElasticNet(α, 1 - α, w), λ), CDSolver(; tol = 1e-10); continuation = 10)
+      @test rc.kkt_checks >= 11
+      @test kkt_l1(lsgrad(X, y, Vector(xc)) .+ λ * (1 - α) .* Vector(xc), Vector(xc), λ * α, w) < 1e-6
+    end
+    # only the scaled elastic net has its scale as a level
+    @test_throws ArgumentError solve_path(f, Scaled(NormL1(1.0), 2.0), λs)
+  end
 
   @testset "cyclic order, weights, and a level of λmax or more" begin
     pc = solve_path(f, NormL1(1.0), λs, CDSolver(; order = :cyclic, tol = 1e-10))
@@ -462,6 +566,33 @@ end
     @test kkt_l1(-X' * res / norm(res), Vector(x), λ) < 1e-7
     @test r.minimum ≈ norm(res) + λ * sum(abs, Vector(x))
   end
+  # with weights, the weighted norm, with and without an intercept; integer
+  # weights give the solution of the replicated rows
+  w = rand(Xoshiro(12), n) .+ 0.5
+  Xs = X .+ randn(Xoshiro(13), 1, p)
+  for intercept in (false, true)
+    f = SqrtLeastSquaresLoss(y, Xs; weights = w)
+    x = SparseIterate(p)
+    m = cdmodel(f, x; intercept)
+    r = solve!(x, m, NormL1(λ), CDSolver(; tol = 1e-12))
+    β = Vector(x)
+    b0 = intercept ? PS.intercept(m, β) : 0.0
+    res = y .- b0 .- Xs * β
+    nw = sqrt(sum(w .* res .^ 2))
+    @test kkt_l1(-Xs' * (w .* res) / nw, β, λ) < 1e-7
+    @test r.minimum ≈ nw + λ * sum(abs, β)
+    intercept || @test f(β) ≈ nw
+    intercept && @test abs(dot(w, res)) < 1e-8 * norm(y)
+  end
+  k = rand(Xoshiro(14), 1:3, n)
+  rows = reduce(vcat, [fill(i, k[i]) for i in 1:n])
+  x1, x2 = SparseIterate(p), SparseIterate(p)
+  solve!(x1, cdmodel(SqrtLeastSquaresLoss(y, Xs; weights = float.(k)), x1; intercept = true), NormL1(λ), CDSolver(; tol = 1e-12))
+  solve!(x2, cdmodel(SqrtLeastSquaresLoss(y[rows], Xs[rows, :]), x2; intercept = true), NormL1(λ), CDSolver(; tol = 1e-12))
+  @test Vector(x1) ≈ Vector(x2) atol = 1e-7
+  @test_throws ArgumentError SqrtLeastSquaresLoss(y, X; weights = -ones(n))
+  @test_throws DimensionMismatch SqrtLeastSquaresLoss(y, X; weights = ones(n - 1))
+
   # near a perfect fit the step stays finite
   yp = X[:, 1] * 2.0
   x = SparseIterate(p)
@@ -648,6 +779,32 @@ ProximalBase.gradient!(G, m::MyQuadratic, x) = (G .= m.u .+ m.b)
     PS.initialize!(m, x)
     @test [PS.coordinate_scale(m, x, k) for k in (1, 7)] ≈ sqrt.(a[[1, 7]])
   end
+
+  # the quadratic of least squares, x'(X'X/n)x/2 - (X'y/n)'x + y'y/(2n), has the
+  # scales of the least-squares model, so it takes the same passes
+  A, b, c = X'X / n, -X'y / n, dot(y, y) / (2n)
+  x = SparseIterate(p)
+  mq, ml = cdmodel(QuadraticFunction(A, b, c), x), cdmodel((1 / n) * LeastSquaresLoss(y, X), x)
+  PS.initialize!(mq, x); PS.initialize!(ml, x)
+  @test PS.response_scale(mq, x) ≈ PS.response_scale(ml, x)
+  @test [PS.coordinate_scale(mq, x, k) for k in 1:p] ≈ [PS.coordinate_scale(ml, x, k) for k in 1:p]
+  r1 = solve!(SparseIterate(p), QuadraticFunction(A, b, c), NormL1(0.05), CDSolver(; order = :cyclic))
+  r2 = solve!(SparseIterate(p), (1 / n) * LeastSquaresLoss(y, X), NormL1(0.05), CDSolver(; order = :cyclic))
+  @test r1.passes == r2.passes
+  @test Vector(r1.minimizer) ≈ Vector(r2.minimizer) atol = 1e-8
+  # and with the centered data of an intercept
+  yc, Xc = y .- mean(y), X .- mean(X; dims = 1)
+  mc = cdmodel(QuadraticFunction(Xc'Xc / n, -Xc'yc / n, dot(yc, yc) / (2n)), x)
+  mi = cdmodel((1 / n) * LeastSquaresLoss(y, X), x; intercept = true)
+  PS.initialize!(mc, x); PS.initialize!(mi, x)
+  @test PS.response_scale(mc, x) ≈ PS.response_scale(mi, x)
+  # without c, the lower bound maxₖ |bₖ| / √Aₖₖ, as before; a small c leaves it,
+  # and a quadratic without b and c has the absolute rule
+  m0 = cdmodel(QuadraticFunction(A, b), x)
+  @test PS.response_scale(m0, x) ≈ maximum(abs.(b) ./ sqrt.(diag(A)))
+  @test PS.response_scale(cdmodel(QuadraticFunction(A, b, 1e-12), x), x) == PS.response_scale(m0, x)
+  @test PS.response_scale(cdmodel(QuadraticFunction(A), x), x) == 0
+  @test PS.response_scale(cdmodel(2 * QuadraticFunction(A, b, c), x), x) ≈ sqrt(2) * PS.response_scale(mq, x)
 end
 
 # ½‖Δ - T‖²_F of a symmetric Δ through the generic interface: along the
@@ -968,12 +1125,13 @@ end
   # the passes allocate nothing once the model and the state exist
   function passes_bytes(x, m, g, s)
     PS.initialize!(m, x)
-    st = PS._CDState(Float64, x, s.random)
+    st = PS._CDState(Float64, x, s)
     PS._cd!(x, m, g, st, s)
     fill!(x, 0.0); PS.initialize!(m, x)
     @allocated PS._cd!(x, m, g, st, s)
   end
-  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random), CDSolver(; momentum = true))
+  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random), CDSolver(; momentum = true),
+            CDSolver(; rng = Xoshiro(1)))
     @test passes_bytes(SparseIterate(p), cdmodel(f, SparseIterate(p)), NormL1(0.1), s) == 0
     q = 10
     Sx = cov(randn(Xoshiro(15), 50, q)); Sy = cov(randn(Xoshiro(16), 50, q))
@@ -982,6 +1140,66 @@ end
     @test passes_bytes(SparseIterate(q * q), cdmodel(fk, SparseIterate(q * q)), NormL1(0.05), s) == 0
     fq = SqrtQuadraticFunction(X' * X / n, -X' * y / n, dot(y, y) / n)
     @test passes_bytes(SparseIterate(p), cdmodel(fq, SparseIterate(p)), NormL1(0.02), s) == 0
+    # weights with an intercept, for least squares and the square-root lasso
+    w = rand(Xoshiro(18), n) .+ 0.5
+    fw = (1 / n) * GLMLoss(ProximalBase.Squared(), y, X; weights = w)
+    @test passes_bytes(SparseIterate(p), cdmodel(fw, SparseIterate(p); intercept = true), NormL1(0.1), s) == 0
+    fs = SqrtLeastSquaresLoss(y, X; weights = w)
+    @test passes_bytes(SparseIterate(p), cdmodel(fs, SparseIterate(p); intercept = true), NormL1(0.5), s) == 0
+  end
+  # block coordinate descent: initialize! clears the group curvatures, which the
+  # second run computes again in the workspace that the first one allocated
+  groups = vcat([[k] for k in 1:5], [i:min(i + 6, p) for i in 6:7:p])
+  g = GroupNormL2(0.05, groups, ones(length(groups)))
+  w = rand(Xoshiro(17), n) .+ 0.5
+  for s in (CDSolver(; order = :cyclic), CDSolver(; order = :random))
+    x = AtomIterate(Float64, p, groups)
+    @test passes_bytes(x, cdmodel(f, x), g, s) == 0
+    @test passes_bytes(x, cdmodel(f, x; intercept = true), g, s) == 0
+    @test passes_bytes(x, cdmodel(GLMLoss(ProximalBase.Squared(), y, X; weights = w), x), g, s) == 0
+    @test passes_bytes(x, cdmodel(QuadraticFunction(X' * X / n, -X' * y / n), x), g, s) == 0
+  end
+end
+
+@testset "group curvatures" begin
+  # the curvature of the loss over each group, λmax of the Gram matrix of its
+  # centered, weighted columns (of A[G, G] for a quadratic), as eigmax computes it
+  X, y = lassodata()
+  n, p = size(X)
+  groups = vcat([[1], 2:3, 4:6], [i:min(i + 9, p) for i in 7:10:p])
+  w = rand(Xoshiro(18), n) .+ 0.5
+  for T in (Float64, Float32)
+    Xt, yt, wt = T.(X), T.(y), T.(w)
+    x = AtomIterate(T, p, groups)
+    for (f, intercept) in (((one(T) / n) * LeastSquaresLoss(yt, Xt), false), (LeastSquaresLoss(yt, Xt), true),
+                           (GLMLoss(ProximalBase.Squared(), yt, Xt; weights = wt), false))
+      m = cdmodel(f, x; intercept)
+      PS.initialize!(m, x)
+      for k in reverse(eachindex(groups))      # the workspace grows to the largest group first
+        G = groups[k]
+        XG = Xt[:, G] .- transpose(m.xbar[G])
+        f isa GLMLoss && (XG .*= sqrt.(wt))
+        @test PS._groupcurvature!(m, x, k) ≈ m.s * eigmax(Symmetric(XG' * XG)) rtol = 10 * eps(T)
+      end
+    end
+    A = Xt' * Xt / n
+    m = cdmodel(QuadraticFunction(A, -Xt' * yt / n), x)
+    PS.initialize!(m, x)
+    for k in eachindex(groups)
+      G = groups[k]
+      @test PS._groupcurvature!(m, x, k) ≈ eigmax(Symmetric(A[G, G])) rtol = 10 * eps(T)
+    end
+  end
+  # the levels of a path keep the curvatures, which initialize! clears, as the
+  # data may have changed in place
+  x = AtomIterate(Float64, p, groups)
+  for m in (cdmodel((1 / n) * LeastSquaresLoss(y, X), x), cdmodel(QuadraticFunction(X' * X / n, -X' * y / n), x))
+    PS.initialize!(m, x)
+    L = PS._groupcurvature!(m, x, 2)
+    PS._initialize!(m, x, false)
+    @test m.L[2] == L
+    PS.initialize!(m, x)
+    @test isnan(m.L[2])
   end
 end
 

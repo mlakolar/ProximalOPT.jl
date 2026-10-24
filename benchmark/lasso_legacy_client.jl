@@ -13,7 +13,12 @@ function legacy_worker()
   worker === nothing || return worker
   env = get(ENV, "PROXIMAL_LEGACY_CD_PROJECT", joinpath(@__DIR__, "legacy_cd"))
   script = joinpath(@__DIR__, "legacy_cd", "worker.jl")
-  worker = open(`$(Base.julia_cmd()) --startup-file=no --project=$env $script`, "r+")
+  # A caller's custom LOAD_PATH must not leak current dependencies into the
+  # historical environment. The depot can still cache both package versions.
+  loadpath = join(("@", "@stdlib"), Sys.iswindows() ? ';' : ':')
+  cmd = addenv(`$(Base.julia_cmd()) --startup-file=no --project=$env $script`,
+               "JULIA_LOAD_PATH" => loadpath)
+  worker = open(cmd, "r+")
   hello = deserialize(worker)
   hello.ok || error(hello.error)
   println("Historical worker: ", hello.environment)

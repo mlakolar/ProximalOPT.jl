@@ -41,10 +41,12 @@ makedocs(
     ),
     pages = [
         "Home" => "index.md",
-        "Calling the solvers" => "solve.md",
-        "Proximal gradient methods" => "proximal_gradient.md",
-        "Active-set proximal gradient" => "active_set.md",
-        "ADMM" => "admm.md",
+        "User guide" => [
+            "Getting started" => "getting_started.md",
+            "Choosing a solver" => "choosing_solver.md",
+            "Calling the solvers" => "solve.md",
+            "Checking a solution" => "optimality.md",
+        ],
         "Coordinate descent" => [
             "The method" => "coordinate_descent.md",
             "The losses" => "losses.md",
@@ -53,10 +55,19 @@ makedocs(
             "Proximal Newton" => "prox_newton.md",
             "A model of your own" => "extending.md",
         ],
+        "Proximal methods" => [
+            "Proximal gradient" => "proximal_gradient.md",
+            "Active-set proximal gradient" => "active_set.md",
+            "ADMM" => "admm.md",
+        ],
         "Examples" => example_pages,
         "API reference" => [
             "Solvers and options" => "api/solvers.md",
             "Coordinate descent" => "api/coordinate_descent.md",
+        ],
+        "Background" => [
+            "Related packages and benchmarks" => "related_packages.md",
+            "References" => "references.md",
         ],
     ],
     checkdocs = :exports,

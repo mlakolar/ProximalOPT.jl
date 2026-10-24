@@ -7,6 +7,13 @@ ProximalSolver
 ProximalOptions
 ```
 
+## Coordinate descent solvers
+
+```@docs
+CDSolver
+ProxNewton
+```
+
 ## Proximal gradient solvers
 
 ```@docs
@@ -21,13 +28,6 @@ ProximalSolvers.LineSearches.BackTracking
 
 ```@docs
 ADMMSolver
-```
-
-## Coordinate descent solvers
-
-```@docs
-CDSolver
-ProxNewton
 ```
 
 ## Duality gaps and optimality

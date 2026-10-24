@@ -10,14 +10,14 @@ one coordinate at a time, where the penalty separates over coordinates (the
 weighted ℓ1 norm, the elastic net, MCP, SCAD, the nonnegative ℓ1 norm, bounds)
 or over groups of coordinates (the group lasso). The loss ``f`` is one whose
 structure coordinate descent knows (see [Losses for coordinate descent](@ref)),
-so that each step costs ``O(n)`` or less: least squares, quadratics, Kronecker
+with cached residuals or matrix products: least squares, quadratics, Kronecker
 quadratics of matrices, square-root losses and generalized linear losses.
 
 ## The coordinate step
 
 Fix every coordinate but ``x_k``. Let ``G = \nabla_k f(x)`` be the derivative
 of the loss along the coordinate and ``a_k`` its curvature, exact when ``f`` is
-quadratic and otherwise an upper bound, so that
+quadratic and otherwise an upper bound. For ``a_k>0``, suppose that
 ``f(x + t e_k) \le f(x) + G t + \frac{a_k}{2} t^2`` for all ``t``. The step
 minimizes this bound plus the penalty of the coordinate:
 
@@ -46,6 +46,43 @@ and stops only after a full pass, as described below. For MCP and SCAD, which
 are not convex, coordinate descent converges to a stationary point when the
 coordinate problems are convex, as they are for standardized columns (Breheny
 and Huang, 2011).
+
+## The lasso update and residual cache
+
+For the running example ``f(\beta)=\|y-X\beta\|_2^2/(2n)`` and
+``g(\beta)=\lambda\|\beta\|_1``, write ``r=y-X\beta``. The derivative and
+curvature along coordinate ``j`` are
+
+```math
+G_j=-\frac{X_j^\top r}{n},\qquad a_j=\frac{\|X_j\|_2^2}{n}.
+```
+
+For a nonzero column ``X_j``, substituting these quantities into the
+coordinate step gives
+
+```math
+\beta_j^+=\operatorname{soft}\left(
+\beta_j+\frac{X_j^\top r}{\|X_j\|_2^2},
+\frac{n\lambda}{\|X_j\|_2^2}\right),
+\qquad
+\operatorname{soft}(v,c)=\operatorname{sign}(v)\max\{|v|-c,0\}.
+```
+
+After a change ``\Delta=\beta_j^+-\beta_j``, the residual is updated as
+``r\leftarrow r-X_j\Delta``. Therefore, a dense coordinate step costs ``O(n)``
+operations, without recomputing ``X\beta``. For a sparse design, the update
+visits only the nonzero entries of the column. A zero column contributes
+nothing to the loss, and its coefficient is set to zero.
+
+The scalar proximal step and the residual cache serve different purposes.
+The proximal operator handles the penalty, while the coordinate model uses
+the loss structure to compute and update its derivatives cheaply. A full
+proximal gradient step uses the same soft thresholding operation on all
+coordinates after computing the full gradient.
+
+[Getting started](@ref) runs both algorithms on this objective.
+[Checking a solution](@ref) derives the lasso optimality conditions and its
+duality gap.
 
 ## Coordinates of the iterates
 

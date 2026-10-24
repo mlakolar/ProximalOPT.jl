@@ -9,6 +9,10 @@ elseif VERSION < v"1.11"
   Pkg.develop([PackageSpec(url = "https://github.com/mlakolar/ProximalBase.jl"),
                PackageSpec(path = dirname(@__DIR__))])
 end
+# A manifest from another Julia version can retain incompatible stdlib entries.
+# Resolve for the active runtime before instantiating either environment.
+Pkg.resolve()
 Pkg.instantiate()
 Pkg.activate(joinpath(@__DIR__, "legacy_cd"))
+Pkg.resolve()
 Pkg.instantiate()

@@ -38,9 +38,12 @@ Lasso. `benchmark/legacy_cd/Project.toml` pins the independent historical
 baseline to CoordinateDescent 0.5.6 and ProximalBase 0.4.0. Their incompatible
 ProximalBase requirements cannot be satisfied in one Julia environment.
 `instantiate_lasso.jl` prepares both and supports Julia 1.10 as well as later
-versions (`[sources]` needs explicit setup on 1.10). Set `PROXIMAL_BASE_PATH`
+versions (`[sources]` needs explicit setup on 1.10). The setup resolves both
+environments for the running Julia version before instantiating them, so rerun
+it when switching Julia versions. Set `PROXIMAL_BASE_PATH`
 when instantiating to use an existing local ProximalBase checkout instead of
-the development URL. This is useful for an immutable cluster source snapshot.
+the development URL. This optional setting is useful for an immutable cluster
+source snapshot; the normal commands above use the development URL directly.
 
 The baseline runs in one persistent Julia child process with one BLAS thread.
 Each generated design, response, and Gram matrix is serialized to it once,

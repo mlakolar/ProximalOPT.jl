@@ -21,6 +21,7 @@ These penalties of ProximalBase have a level, and
 | `MCP(λ, a)`, `SCAD(λ, a)` | nonconvex, with slope ``\lambda`` at zero | ``1`` |
 | `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | MCP and SCAD of the group norms ``\lVert x_{G_k}\rVert_2``, with slope ``\lambda w_k`` at zero | ``w_k`` |
 | `GroupNormL2(λ, groups, w)` | ``\lambda\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``w_k`` |
+| `Scaled(SparseGroupNormL2(α, 1 - α, groups, w), λ)` | ``\lambda\big(\alpha\lVert x\rVert_1 + (1 - \alpha)\sum_k w_k\lVert x_{G_k}\rVert_2\big)`` | see below |
 
 In each, a coordinate at zero is optimal (stationary, for MCP and SCAD) while
 the gradient of the loss over it is at most ``\lambda w_k`` in absolute value,
@@ -31,6 +32,31 @@ The level of `ElasticNet(λ, λ₂)` is ``\lambda``, with ``\lambda_2`` fixed. T
 elastic-net path of glmnet at a fixed mixing ``\alpha`` moves both terms with
 ``\lambda``: it is the path of `Scaled(ElasticNet(α, 1 - α), λ)`, whose level is
 the scale ``\lambda``.
+
+The sparse group lasso of R's SGL and sparsegl fixes the mixture ``\alpha``
+and moves both terms with ``\lambda``: it is the path of
+`Scaled(SparseGroupNormL2(α, 1 - α, groups, w), λ)` on an
+`AtomIterate(p, groups)`, whose level is the scale ``\lambda``; ``\alpha = 0`` is
+the group lasso and ``\alpha = 1`` the lasso. A group at zero is optimal while
+
+```math
+\big\lVert \operatorname{soft}(\nabla_{G_k} f, \alpha\lambda)\big\rVert_2 \le (1 - \alpha)\lambda w_k ,
+```
+
+with ``\operatorname{soft}(v, c)_j = \operatorname{sign}(v_j)(|v_j| - c)_+``, a
+condition that the norm of the gradient does not capture. The left side minus
+the right is nonincreasing in ``\lambda``, so it holds from a root
+``\lambda_k(\nabla_{G_k} f)`` on, and the root takes the place of
+``\lVert\nabla_{G_k} f\rVert_2 / w_k`` below: ``\lambda_{\max}`` is the largest
+root at zero, and screening compares the roots with the levels. Between the
+breakpoints ``\alpha\lambda = |\nabla_j f|`` the squared norm of the
+soft-thresholded gradient is a quadratic in ``\lambda``, so the root is exact:
+Newton's method from zero, which never passes it on this convex function, finds
+the right segment in a few steps, and the root of the quadratic there ends it.
+A group with ``w_k = 0`` keeps its ``\ell_1`` term when ``\alpha > 0``. Applied to
+a dual point instead of the gradient, the largest root is the dual norm of the
+penalty, which builds the dual point of the duality gap and the gap-safe tests
+of `CDSolver(; gaptol, gapsafe)` (Ndiaye, Fercoq, Gramfort and Salmon, 2016).
 
 Each of the separable penalties can be restricted to a box,
 `Constrained(g, IndBox(l, u))`, which has the level and the weights of `g`; zero
@@ -49,8 +75,10 @@ satisfies this condition at zero:
 
 ```math
 \lambda_{\max} = \max_{k:\, w_k > 0} \frac{|\nabla_k f(0)|}{w_k}
-\qquad\Big(\max_k \frac{\|\nabla_{G_k} f(0)\|_2}{w_k} \text{ for groups}\Big).
+\qquad\Big(\max_k \frac{\|\nabla_{G_k} f(0)\|_2}{w_k} \text{ for groups}\Big),
 ```
+
+and ``\max_k \lambda_k(\nabla_{G_k} f(0))`` for the sparse group lasso.
 
 [`lambda_max`](@ref)`(f, g, x)` computes it from the gradient at zero, for
 iterates like `x`; for the lasso of ``\|y - X\beta\|^2/(2n)`` it is
@@ -75,8 +103,12 @@ leaves coordinate ``j`` out at the level ``\lambda_k`` when
 The rule is exact if ``|c_j(\lambda) - c_j(\lambda')| \le w_j|\lambda - \lambda'|``
 along the path: then
 ``|c_j(\lambda_k)| < (2\lambda_k - \lambda_{k-1})w_j + (\lambda_{k-1} - \lambda_k)w_j = \lambda_k w_j``,
-and coordinate ``j`` is zero at ``\lambda_k``. The condition often holds but can
-fail, so the rule is checked. At each level,
+and coordinate ``j`` is zero at ``\lambda_k``. For the sparse group lasso the
+rule leaves group ``G`` out when its root is below ``2\lambda_k - \lambda_{k-1}``,
+that is when
+``\lVert\operatorname{soft}(c_G(\lambda_{k-1}), \alpha(2\lambda_k - \lambda_{k-1}))\rVert_2 < (1 - \alpha)(2\lambda_k - \lambda_{k-1})w_G``,
+as in sparsegl, and the checks below use the condition of the previous
+section. The condition often holds but can fail, so the rule is checked. At each level,
 
 1. the strong set ``S`` holds the coordinates that pass the rule's threshold,
    ``|c_j(\lambda_{k-1})| \ge (2\lambda_k - \lambda_{k-1})w_j``, those that are
@@ -146,6 +178,11 @@ half the objective of the direct solve, with a far smaller estimation error.
 - R. Tibshirani, J. Bien, J. Friedman, T. Hastie, N. Simon, J. Taylor and
   R. Tibshirani. Strong Rules for Discarding Predictors in Lasso-type Problems.
   *Journal of the Royal Statistical Society B*, 74(2), 2012.
+- N. Simon, J. Friedman, T. Hastie and R. Tibshirani. A Sparse-Group Lasso.
+  *Journal of Computational and Graphical Statistics*, 22(2), 2013.
+- E. Ndiaye, O. Fercoq, A. Gramfort and J. Salmon. GAP Safe Screening Rules
+  for Sparse-Group Lasso. *Advances in Neural Information Processing Systems*
+  29, 2016.
 - J. Friedman, T. Hastie and R. Tibshirani. Regularization Paths for
   Generalized Linear Models via Coordinate Descent. *Journal of Statistical
   Software*, 33(1), 2010.

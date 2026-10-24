@@ -233,6 +233,95 @@ end
   @test st.candidates === base
 end
 
+@testset "gradient result convergence follows the selected criterion" begin
+  # Two different curvatures leave a nonzero gap after two steps. Loose ftol
+  # passes much earlier than the gap test; its diagnostic must not certify it.
+  X, y = [1.0 0.0; 0.0 3.0], [1.0, 1.0]
+  f, g = LeastSquaresLoss(y, X), NormL1(0.1)
+  for method in (ProximalGradientDescent(), AccProxGradDescent(), MonotoneAccProxGradDescent())
+    for gapevery in (1, 3)
+      options = ProximalOptions(; maxiter = 2, ftol = 1.0, gaptol = 1e-14, gapevery)
+      r = solve!(zeros(2), f, g, method, options)
+      @test r.iterations == options.maxiter
+      @test r.f_converged
+      @test r.gap > options.gaptol
+      @test !PS.converged(r)
+      @test !r.converged
+      @test occursin("* Convergence: false", sprint(show, r))
+    end
+
+    # Conversely, a satisfied gap does not need any residual test to pass.
+    # gapevery = 3 exercises the final check after the iteration limit, too.
+    for gapevery in (1, 3)
+      options = ProximalOptions(; maxiter = 2, ftol = 1e-300, xtol = 1e-300,
+                               gradtol = 1e-300, gaptol = 1e6, gapevery)
+      r = solve!(zeros(2), f, g, method, options)
+      @test r.gap <= options.gaptol
+      @test !(r.x_converged || r.f_converged || r.grad_converged)
+      @test PS.converged(r)
+      @test r.converged
+      @test r.iterations == (gapevery == 1 ? 1 : options.maxiter)
+    end
+
+    # A call limit also triggers a final gap check before its scheduled check.
+    for gaptol in (1e-14, 1e6)
+      options = ProximalOptions(; maxiter = 2, ftol = 1.0, gaptol,
+                               gapevery = 3, prox_calls_limit = 1)
+      r = solve!(zeros(2), f, g, method, options)
+      @test r.iterations == 1
+      @test r.call_limit_reached
+      @test r.converged == PS.converged(r) == (r.gap <= gaptol) == (gaptol == 1e6)
+    end
+
+    # A known gap may be unavailable at the returned point: a zero penalty
+    # weight leaves no feasible dual scaling while its gradient is nonzero.
+    # In that case the residual tests remain in charge, as for no gap.
+    options = ProximalOptions(; maxiter = 2, ftol = 1.0, gaptol = 1e-14, gapevery = 3)
+    r = solve!(zeros(2), f, NormL1(0.1, [0.0, 1.0]), method, options)
+    @test isnan(r.gap)
+    @test r.f_converged
+    @test PS.converged(r)
+
+    q = QuadraticFunction(X'X, -X'y)
+    r = @test_logs (:warn, r"no duality gap") match_mode = :any solve!(zeros(2), q, g, method, options)
+    @test isnan(r.gap)
+    @test PS.converged(r) == (r.x_converged || r.f_converged || r.grad_converged)
+    @test PS.converged(r)
+  end
+end
+
+@testset "ADMM result convergence uses the final gap" begin
+  X, y = [1.0 0.0; 0.0 3.0], [1.0, 1.0]
+  f, g = LeastSquaresLoss(y, X), NormL1(0.1)
+  method = ADMMSolver(; abstol = 1e-14, reltol = 1e-14)
+  for cutoff in (:iterations, :prox_calls), gaptol in (1e-14, 1e6)
+    options = ProximalOptions(; maxiter = 2, gaptol, gapevery = 3,
+                             prox_calls_limit = cutoff === :prox_calls ? 2 : 0)
+    r = solve!(zeros(2), f, g, method, options)
+    @test r.iterations == (cutoff === :prox_calls ? 1 : options.maxiter)
+    @test r.call_limit_reached == (cutoff === :prox_calls)
+    @test r.r_norm > r.eps_pri || r.s_norm > r.eps_dual
+    @test r.converged == PS.converged(r) == (r.gap <= gaptol) == (gaptol == 1e6)
+  end
+
+  # With an unpenalized coordinate the dual scaling can be unavailable.
+  # Both passing and failing residual tests must still be reported correctly.
+  g = NormL1(0.1, [0.0, 1.0])
+  options = ProximalOptions(; maxiter = 2, gaptol = 1e-14, gapevery = 3)
+  for abstol in (1e-14, 10.0)
+    r = solve!(zeros(2), f, g, ADMMSolver(; abstol, reltol = 0.0), options)
+    @test isnan(r.gap)
+    @test r.converged == (r.r_norm <= r.eps_pri && r.s_norm <= r.eps_dual) == (abstol == 10.0)
+  end
+
+  # No iteration means the infinite residual placeholders certify nothing.
+  options = ProximalOptions(; maxiter = 2, gaptol = 1e-14, time_limit = -1.0)
+  r = solve!(zeros(2), f, g, method, options)
+  @test r.iterations == 0
+  @test isnan(r.gap)
+  @test !r.converged
+end
+
 @testset "gaptol in the gradient solvers and ADMM" begin
   X, y, _ = lassodata()
   n, p = size(X)

@@ -15,6 +15,7 @@ tests = [
   "multiresponse",
   "low_rank",
   "coordinate_descent",
+  "path_snapshots",
   "sparse_x",
   "group_penalties",
   "sparse_group_paths",

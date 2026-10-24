@@ -583,8 +583,31 @@ solve!(x::Vector{T}, m::CDModel, g::AbstractFunction, method::CDSolver; kwargs..
 function _solve_dense!(x::Vector, f, g, method::CDSolver; kwargs...)
   xs = g isa ProximalBase.AbstractGroupNorm ? AtomIterate(x, g.groups) : SparseIterate(x)
   r = solve!(xs, f, g, method; kwargs...)
-  copyto!(x, Vector(xs))
+  _copy_dense!(x, xs)
   CDResults(x, r.minimum, r.passes, r.converged, r.maxchange, r.tolerance, r.kkt_checks, r.gap)
+end
+
+# Keep the zero-fill and scatter of Vector(xs) and Matrix(xs), but write into
+# the caller's array. Generic copyto! would read every sparse entry, including
+# every implicit zero and both triangles of a symmetric iterate.
+function _copy_dense!(dest::Array{T}, src::Union{SparseIterate{T}, AtomIterate{T}}) where {T}
+  size(dest) == size(src) || throw(DimensionMismatch())
+  fill!(dest, zero(T))
+  @inbounds for k in _activeentries(src)
+    dest[k] = src[k]
+  end
+  dest
+end
+
+function _copy_dense!(dest::Matrix{T}, src::SymmetricSparseIterate{T}) where {T}
+  size(dest) == size(src) || throw(DimensionMismatch())
+  fill!(dest, zero(T))
+  cx = coordinates(src)
+  @inbounds for k in activecoordinates(src)
+    r, c = tril_cartesian(src.p, k)
+    dest[r, c] = dest[c, r] = cx[k]
+  end
+  dest
 end
 
 function solve!(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, m::CDModel{T},

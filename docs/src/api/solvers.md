@@ -30,6 +30,7 @@ ProximalSolvers.LineSearches.BackTracking
 
 ```@docs
 ADMMSolver
+CondatVu
 ```
 
 ## Duality gaps and optimality
@@ -45,6 +46,7 @@ kkt_residual
 ProximalSolvers.OptimizationResults
 ProximalSolvers.ActiveSetResults
 ProximalSolvers.ADMMResults
+ProximalSolvers.PrimalDualResults
 CDResults
 OptimizationState
 OptimizationTrace

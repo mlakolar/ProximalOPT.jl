@@ -10,6 +10,7 @@ tests = [
   "image_models",
   "call_limits",
   "admm",
+  "primal_dual",
   "product_space",
   "active_set",
   "group_lasso",

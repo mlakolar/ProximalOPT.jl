@@ -24,3 +24,6 @@
 /benchmark/nonconvex/Manifest*.toml
 /benchmark/nonconvex/mendel/Manifest*.toml
 /benchmark/nonconvex/results/
+
+/benchmark/primal_dual/Manifest*.toml
+/benchmark/primal_dual/results/

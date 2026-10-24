@@ -4,7 +4,7 @@
 Abstract supertype of the solvers passed to [`solve!`](@ref):
 [`ProximalGradientDescent`](@ref), [`AccProxGradDescent`](@ref),
 [`MonotoneAccProxGradDescent`](@ref), [`ActiveAccProxGradDescent`](@ref) and
-[`ADMMSolver`](@ref).
+[`ADMMSolver`](@ref) and [`CondatVu`](@ref).
 """
 abstract type ProximalSolver end
 
@@ -50,6 +50,11 @@ returns `true`.
   [`ADMMSolver`](@ref); the results report the final relative gap as `gap`.
 - `gapevery = 10`: how often to compute the gap when `gaptol > 0`. Each
   evaluation costs about two products with the design.
+
+[`CondatVu`](@ref) uses these limits, tracing and gap options for a linear
+composite problem, with its own KKT residual tolerances instead of `ftol`,
+`xtol` and `gradtol`. Unsupported composite conjugates raise an error when
+`gaptol > 0`; a valid relative gap callback can be supplied instead.
 
 The solvers work in the element type of the starting point, `Float32` as well
 as `Float64`. Tolerances below its precision, such as `ftol = 1e-8` in

@@ -80,6 +80,7 @@ path = solve_path(f, NormL1(1.0), λs)
 | Smooth loss and a nonconvex penalty with a proximal operator | `MonotoneAccProxGradDescent`, `ProximalGradientDescent` |
 | Smooth loss, a sparse solution, and supported restrictions to active coordinates | `ActiveAccProxGradDescent` |
 | Two terms with proximal operators | `ADMMSolver` |
+| Convex `f(x) + g(x) + h(D*x)` with smooth `f` | `CondatVu` |
 
 The [solver guide](https://mlakolar.github.io/ProximalSolvers.jl/dev/choosing_solver/)
 states the requirements of each method. In particular, a separable penalty
@@ -104,3 +105,13 @@ performance comparisons.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+### Convex penalties composed with a linear map
+
+`CondatVu` solves `f(x) + g(x) + h(D*x)` with a gradient of `f`, proximal
+operators of `g` and `h`, and products by a dense or sparse `D` and its adjoint.
+It returns the primal and dual variables and step sizes for warm starts,
+checks both KKT residuals (or a Fenchel gap), and supports Float32 and
+`SparseIterate` primal vectors. See the
+[primal–dual guide](https://mlakolar.github.io/ProximalSolvers.jl/dev/primal_dual/)
+and [generalized-lasso example](examples/14_primal_dual.jl).

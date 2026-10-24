@@ -9,6 +9,7 @@ or takes one built beforehand so that many solves share it.
 | Loss | Cache | Step | Penalties |
 |:-----|:------|:-----|:----------|
 | `LeastSquaresLoss(y, X)`, `GLMLoss(Squared(), y, X; weights, offset)` | residuals ``y - o - X\beta`` | ``O(n)`` | separable, group penalties |
+| `LeastSquaresLoss(Y, X)` with a matrix `Y` | residuals ``Y - XB`` | ``O(nq)`` per row of ``B``, exact | `GroupNormL2` on the rows of ``B`` |
 | `QuadraticFunction(A, b)` | ``Ax`` | ``O(p)`` | separable, group penalties |
 | `KronQuadratic(A, B, C)` | ``A\Theta B`` | ``O(pq)`` | separable |
 | `GLMLoss` with `Logistic` or `Huber` | ``\eta = X\beta + o`` | ``O(n)`` | separable |
@@ -36,6 +37,21 @@ curvatures are computed on the first visit to each coordinate and cached. The
 gradient that screening and paths need is ``-s X^\top W r``, one product with
 ``X^\top``. With `intercept = true` the columns and the response are centered
 on the fly; see [Coordinate descent](@ref "An unpenalized intercept").
+
+## The multi-response lasso
+
+For an ``n \times q`` response matrix ``Y``,
+``f(B) = \frac{s}{2}\lVert Y - 1\beta_0^\top - XB\rVert_F^2`` with a
+``p \times q`` matrix ``B``, iterated as an `AtomIterate` over `vec(B)` whose
+groups are the rows of ``B``, `[k:p:p*q for k in 1:p]`. With `GroupNormL2` on
+these groups it is the multi-response lasso, which selects the same predictors
+for all the responses. The model caches the residuals
+``R = Y - 1\beta_0^\top - XB``. The curvature of the loss over row ``k`` is
+exactly ``s\lVert X_k - \bar x_k\rVert^2`` times the identity, so each block
+step minimizes the loss plus the penalty over the row exactly, at a cost of
+``O(nq)``. With an intercept, ``\beta_0 = \bar y - B^\top\bar x`` for each
+response, and [`intercept`](@ref ProximalSolvers.intercept) returns the vector
+of them.
 
 ## Quadratics
 

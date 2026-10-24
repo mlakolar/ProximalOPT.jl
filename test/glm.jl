@@ -64,4 +64,125 @@ gradf(b) = X' * (logistic.(X * b) .- y) / n
   @test kkt_l1(X' * ψ.(X * Vector(x4) - yh) / n, Vector(x4), 0.05) < 1e-6
 end
 
+@testset "proximal Newton: an intercept, and paths" begin
+  rng = Xoshiro(7)
+  n, p = 200, 50
+  X = randn(rng, n, p); β = zeros(p); β[1:4] .= [1.0, -1.0, 0.8, -0.5]
+  y = Float64.(rand(rng, n) .< logistic.(0.5 .+ X * β))
+  f = (1 / n) * LogisticLoss(y, X)
+  newton = ProxNewton(; tol = 1e-14, inner = CDSolver(; tol = 1e-10))
+  m = ProximalSolvers.cdmodel(f, SparseIterate(p); intercept = true)
+
+  # λmax with an intercept: the gradient at the fit with only the intercept,
+  # logit of the mean response
+  λmax = lambda_max(m, NormL1(1.0), SparseIterate(p))
+  ȳ = mean(y)
+  @test λmax ≈ maximum(abs, X' * (logistic(log(ȳ / (1 - ȳ))) .- y) / n) rtol = 1e-10
+  x0 = SparseIterate(p)
+  solve!(x0, m, NormL1(λmax * (1 + 1e-8)), newton)
+  @test nnz(x0) == 0
+  @test ProximalSolvers.intercept(m, x0) ≈ log(ȳ / (1 - ȳ)) rtol = 1e-8
+
+  # the solution: the optimality conditions of β and of the intercept
+  λ = 0.1 * λmax
+  x = SparseIterate(p)
+  r = solve!(x, m, NormL1(λ), newton)
+  b = ProximalSolvers.intercept(m, x)
+  μ = logistic.(b .+ X * Vector(x))
+  @test r.converged
+  @test abs(sum(μ .- y)) / n < 1e-9
+  @test kkt_l1(X' * (μ .- y) / n, Vector(x), λ) < 1e-7
+  @test r.minimum ≈ f.α * sum(log1p.(exp.(b .+ X * Vector(x))) .- y .* (b .+ X * Vector(x))) + λ * norm(Vector(x), 1)
+
+  # the same as a column of ones with a zero penalty weight
+  x1 = SparseIterate(p + 1)
+  solve!(x1, (1 / n) * LogisticLoss(y, [ones(n) X]), NormL1(λ, [0.0; ones(p)]), newton)
+  @test x1[1] ≈ b atol = 1e-6
+  @test Vector(x1)[2:end] ≈ Vector(x) atol = 1e-6
+
+  # a warm start from the solution and its intercept takes one step
+  r2 = solve!(x, m, NormL1(λ), newton)
+  @test ProximalSolvers.intercept(m, x) ≈ b atol = 1e-10
+  @test r2.passes <= r.passes
+
+  # coordinate descent does not fit the intercept, nor take an unbounded curvature
+  @test_throws ArgumentError solve!(SparseIterate(p), m, NormL1(λ), CDSolver())
+  @test_throws ArgumentError solve!(SparseIterate(p), ProximalSolvers.cdmodel((1 / n) * PoissonLoss(y, X), x),
+                                    NormL1(λ), CDSolver())
+
+  # weights and an offset: integer weights give the solution on replicated rows
+  wt = Float64.(rand(rng, 1:3, n)); o = 0.3 .* randn(rng, n)
+  mw = ProximalSolvers.cdmodel((1 / sum(wt)) * LogisticLoss(y, X; weights = wt, offset = o), x; intercept = true)
+  xw = SparseIterate(p)
+  solve!(xw, mw, NormL1(λ), newton)
+  idx = reduce(vcat, [fill(i, Int(wt[i])) for i in 1:n])
+  mr = ProximalSolvers.cdmodel((1 / length(idx)) * LogisticLoss(y[idx], X[idx, :]; offset = o[idx]), x; intercept = true)
+  xr = SparseIterate(p)
+  solve!(xr, mr, NormL1(λ), newton)
+  @test Vector(xw) ≈ Vector(xr) atol = 1e-6
+  @test ProximalSolvers.intercept(mw, xw) ≈ ProximalSolvers.intercept(mr, xr) atol = 1e-6
+
+  # Poisson with an intercept and an offset
+  yp = Float64.(rand.(rng, [0:k for k in rand(rng, 0:5, n)]))
+  op = 0.2 .* randn(rng, n)
+  mp = ProximalSolvers.cdmodel((1 / n) * PoissonLoss(yp, X; offset = op), x; intercept = true)
+  λp = 0.2 * lambda_max(mp, NormL1(1.0), SparseIterate(p))
+  xp = SparseIterate(p)
+  rp = solve!(xp, mp, NormL1(λp), newton)
+  bp = ProximalSolvers.intercept(mp, xp)
+  μp = exp.(bp .+ X * Vector(xp) .+ op)
+  @test rp.converged
+  @test abs(sum(μp .- yp)) / n < 1e-9
+  @test kkt_l1(X' * (μp .- yp) / n, Vector(xp), λp) < 1e-7
+
+  # a path: the solutions and intercepts satisfy the optimality conditions, and
+  # screening gives the solutions of the path without it
+  λs = λmax * (1 + 1e-8) .* exp.(range(0, log(0.05); length = 20))     # above λmax, so rounding can't make it nonzero
+  b0s = Float64[]
+  path = solve_path(ProximalSolvers.cdmodel(f, x; intercept = true), NormL1(1.0), λs, newton; devmax = 1.0,
+                    callback = (k, λ, x, m) -> (push!(b0s, ProximalSolvers.intercept(m, x)); false))
+  @test length(path.λ) == 20 && all(path.converged)
+  @test nnz(path.solutions[1]) == 0
+  for k in (2, 10, 20)
+    βk = Vector(path.solutions[k])
+    μk = logistic.(b0s[k] .+ X * βk)
+    @test abs(sum(μk .- y)) / n < 1e-8
+    @test kkt_l1(X' * (μk .- y) / n, βk, λs[k]) < 1e-6
+  end
+  @test all(path.kkt_checks .>= 1)
+  path0 = solve_path(ProximalSolvers.cdmodel(f, x; intercept = true), NormL1(1.0), λs, newton; devmax = 1.0,
+                     screening = false)
+  @test all(norm(path.solutions[k] - path0.solutions[k]) < 1e-6 for k in eachindex(λs))
+  @test path.values ≈ path0.values rtol = 1e-8
+  # without an intercept, the path from a GLMLoss
+  pathf = solve_path(f, NormL1(1.0), λs[5:end], newton; devmax = 1.0)
+  xk = SparseIterate(p)
+  solve!(xk, f, NormL1(λs[end]), newton)
+  @test Vector(pathf.solutions[end]) ≈ Vector(xk) atol = 1e-6
+
+  # the deviance stop: on separable data the logistic fit explains all the
+  # deviance as λ decreases, and the path stops once 99.9% is explained
+  ys = Float64.(X[:, 1] .+ 0.5 .* X[:, 2] .> 0)
+  ms = ProximalSolvers.cdmodel((1 / n) * LogisticLoss(ys, X), x; intercept = true)
+  λss = lambda_max(ms, NormL1(1.0), SparseIterate(p)) .* exp.(range(0, log(1e-6); length = 60))
+  b0s = Float64[]
+  ps = solve_path(ms, NormL1(1.0), λss, ProxNewton(; maxiter = 500);
+                  callback = (k, λ, x, m) -> (push!(b0s, ProximalSolvers.intercept(m, x)); false))
+  @test length(ps.λ) < 60
+  ηs = b0s[end] .+ X * Vector(ps.solutions[end])
+  devs = 2 * sum(log1p.(exp.(ηs)) .- ys .* ηs)
+  ȳs = mean(ys)
+  dev0 = -2n * (ȳs * log(ȳs) + (1 - ȳs) * log(1 - ȳs))
+  @test 1 - devs / dev0 >= 0.999
+  @test length(solve_path(ms, NormL1(1.0), λss[1:20], ProxNewton(); devmax = 1.0).λ) == 20
+
+  # Float32
+  m32 = ProximalSolvers.cdmodel((1 / n) * LogisticLoss(Float32.(y), Float32.(X)), SparseIterate(Float32, p);
+                                intercept = true)
+  x32 = SparseIterate(Float32, p)
+  r32 = solve!(x32, m32, NormL1(Float32(λ)), ProxNewton(; tol = 1e-6, inner = CDSolver(; tol = 1e-6)))
+  @test r32.converged && eltype(r32.minimum) == Float32
+  @test Vector(x32) ≈ Vector(x) atol = 1e-3
+end
+
 end

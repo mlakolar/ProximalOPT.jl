@@ -100,7 +100,23 @@ columns are strongly correlated.
 with the sequential strong rule, checking the optimality conditions of the
 screened coordinates afterwards; `callback(k, λ, x, m)` can compute a
 validation loss or stop the path. `solve!(β, f, g, CDSolver(); continuation = 50)`
-starts from zero and follows 50 levels down to `g`. Each pass visits the
+starts from zero and follows 50 levels down to `g`.
+
+For a logistic or Poisson loss, `ProxNewton` takes an unpenalized intercept
+through the model, and `solve_path` takes `ProxNewton` with the same screening;
+the path also stops once the fit explains a fraction `devmax = 0.999` of the
+null deviance, as glmnet's does:
+
+```julia
+yb = Float64.(y .> 0)                                    # binary responses
+m = ProximalSolvers.cdmodel((1 / n) * LogisticLoss(yb, X), SparseIterate(p); intercept = true)
+λmax = lambda_max(m, NormL1(1.0), SparseIterate(p))      # at the fit with only the intercept
+b0 = Float64[]                                           # the intercepts along the path
+path = solve_path(m, NormL1(1.0), λmax .* 10 .^ range(0, -2; length = 50), ProxNewton();
+                  callback = (k, λ, β, m) -> (push!(b0, ProximalSolvers.intercept(m, β)); false))
+```
+
+Each pass visits the
 coordinates once, passes over all of them alternate with passes over the
 nonzero ones, and the method stops after a full pass followed by a pass in which
 no coordinate moves by more than `tol` times a scale of the data, so that the
@@ -115,7 +131,7 @@ The losses it knows:
 | `KronQuadratic(A, B, C)`, `⟨Θ, AΘB⟩/2 + ⟨C, Θ⟩` | O(pq), `AΘB` cached | the D-trace loss of a symmetric `Θ`, inverse Hessians of Kronecker form |
 | `SqrtLeastSquaresLoss(y, X)`, `‖y - Xβ‖` | exact, O(n) | square-root lasso (with `NormL1`) |
 | `SqrtQuadraticFunction(A, b, c)`, `√(x'Ax + 2b'x + c)` | exact, O(p), `Ax` cached | square-root lasso from `X'X/n`, `X'y/n` and `y'y/n`; the scaled lasso of one variable on the others from a covariance matrix (Sun and Zhang, 2013) |
-| `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster |
+| `GLMLoss` with `Logistic` or `Huber` | O(n), curvature bound | logistic and Huber lasso; `ProxNewton` is faster, and also fits Poisson and an intercept |
 
 Any of them scaled, as `(1/n) * f`, works too. The difference of two precision
 matrices by the D-trace loss (Zhao, Cai and Li, 2014), on a symmetric iterate:
@@ -279,7 +295,7 @@ res.converged, res.iterations
 | `ActiveAccProxGradDescent(; β, α, max_add, growth, max_outer)` | `f` smooth, `g` separable (`NormL1`, ...) or `GroupNormL2`, sparse solution | Active set: adds the coordinates (whole groups, for the group lasso) that violate the optimality conditions, the largest violations first, about `max(max_add, (growth - 1) s)` entries when `s` are nonzero, and runs `AccProxGradDescent` on the active coordinates only |
 | `ADMMSolver(; ρ, α, abstol, reltol, adaptive)` | `f`, `g` both proximable | Over-relaxed scaled ADMM (Boyd et al., 2011), optionally with residual balancing of `ρ`; warm starts from the scaled dual variable and `ρ` of a previous result |
 | `CDSolver(; maxpasses, tol, order, relative, anderson, momentum)` | `f` least squares, quadratic, `KronQuadratic` or a GLM; `g` separable or `GroupNormL2` | Coordinate descent with full and active passes, in random order with momentum or in cyclic order with Anderson acceleration, and a scale-free stopping rule (see below) |
-| `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber), `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking |
+| `ProxNewton(; inner, maxiter, tol, β)` | `f` a `GLMLoss` (logistic, Poisson, Huber) or its model with an intercept, `g` separable | Proximal Newton (glmnet's IRLS): coordinate descent on the weighted least-squares model of `f`, then backtracking; `solve_path` takes it too |
 
 All solvers are called the same way:
 

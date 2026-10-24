@@ -7,7 +7,7 @@ const PS = ProximalSolvers
 function matrices(::Type{T}, p = 12) where {T}
   d = collect(range(T(1.5), T(2.5); length = p))
   A = spdiagm(-1 => fill(T(-0.2), p - 1), 0 => d, 1 => fill(T(-0.2), p - 1))
-  (A, Diagonal(copy(d)), Symmetric(tril(A)))
+  (A, Diagonal(copy(d)), Symmetric(tril(A), :L), Symmetric(triu(A), :U))
 end
 
 @testset "structured Hessian storage and cached derivatives" begin

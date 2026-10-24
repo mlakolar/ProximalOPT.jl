@@ -30,7 +30,9 @@ fixed `ρ`.
 `norm` is the norm in which the residuals and `‖x‖`, `‖z‖` and `‖u‖` are
 measured, a function of an array; `nothing` is the Euclidean norm. A stacked
 array of K blocks, for example, can be measured by the sum of the norms of its
-slices, `x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`.
+slices, `x -> sum(k -> LinearAlgebra.norm(view(x, :, :, k)), axes(x, 3))`. If
+`norm` also has a method `norm(x, y)` for the norm of `x - y`, the residuals
+are measured with it, without forming the differences.
 
 Of the [`ProximalOptions`](@ref), only `maxiter`, `time_limit`,
 `prox_calls_limit`, `show_trace` and `printEvery` are used. Use with
@@ -116,12 +118,12 @@ end
 # ‖x - z‖, ‖z - z_previous‖, max(‖x‖, ‖z‖) and ‖u‖, in the Euclidean norm or in
 # the norm `nrm`; tmp is a buffer, free after the u-update
 _admm_norms(::Nothing, x, z, z_previous, u, tmp) = (norm_diff(x, z), norm_diff(z, z_previous), max(norm(x), norm(z)), norm(u))
-function _admm_norms(nrm, x, z, z_previous, u, tmp)
-  @. tmp = x - z
-  r = nrm(tmp)
-  @. tmp = z - z_previous
-  r, nrm(tmp), max(nrm(x), nrm(z)), nrm(u)
-end
+_admm_norms(nrm, x, z, z_previous, u, tmp) =
+  (_normdiff(nrm, x, z, tmp), _normdiff(nrm, z, z_previous, tmp), max(nrm(x), nrm(z)), nrm(u))
+
+# ‖a - b‖ in the norm nrm: from its method of two arrays if it has one,
+# otherwise from the difference formed in tmp
+_normdiff(nrm, a, b, tmp) = applicable(nrm, a, b) ? nrm(a, b) : nrm(tmp .= a .- b)
 
 # residual balancing: the factor by which to multiply ρ, with each residual
 # relative to its tolerance; ρ stays fixed after _max_ρ_changes changes

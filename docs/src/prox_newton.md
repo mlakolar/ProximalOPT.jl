@@ -150,15 +150,15 @@ model updates and stopping rules.
 For the generic path, convergence is checked against the gradient of the
 original loss at the current iterate. Its unit-step proximal fixed-point
 residual is compared with `tol * max(1, norm(x, Inf))`. The residual is zero
-at a stationary point; it certifies a global minimizer when the objective is
-convex. `CDResults.maxchange` and `tolerance` report that residual and its
+when the proximal stationarity condition holds; for a convex objective this
+characterizes a global minimizer. `CDResults.maxchange` and `tolerance` report that residual and its
 threshold. `gap` is `NaN`, since a generic smooth loss need not provide a
 Fenchel dual.
 
-If the inner change rule stops without producing a direction while the
-outer residual is still too large, its tolerance is tightened within the
-existing `maxiter` budget. This does not turn a stalled step into a
-convergence certificate: the original objective's residual must still pass.
+The inner change rule is followed by a proximal-residual check on the
+quadratic model. When needed, its tolerance is tightened, sharing the
+original `inner.maxpasses` budget across these refinements. The original
+objective's residual remains the convergence check for the outer solve.
 
 Dense vectors and `SparseIterate`s are supported. Matrix models can use a
 `SymmetricSparseIterate` or a dense symmetric matrix with `NormL1` or

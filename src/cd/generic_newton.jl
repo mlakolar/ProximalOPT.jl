@@ -96,6 +96,7 @@ function _solve_generic_newton!(x::_GenericNewtonIterate{T}, f::AbstractFunction
 
   q = ProximalBase.quadratic_model(f, x)
   grad = _gradient_buffer(x)
+  modelgrad = similar(grad)
   x0, trial = copy(x), copy(x)
   st = _CDState(T, trial, method.inner)
   # A user can ask for a tighter outer tolerance than the default inner one.
@@ -126,8 +127,22 @@ function _solve_generic_newton!(x::_GenericNewtonIterate{T}, f::AbstractFunction
 
     copyto!(x0, x)
     copyto!(trial, x)
-    _cd!(trial, m, g, st, inner)
-    passes += st.passes
+    remaining = method.inner.maxpasses
+    while true
+      _cd!(trial, m, g, st, _with(inner; maxpasses = remaining))
+      passes += st.passes
+      remaining -= st.passes
+      # The inner relative-change rule has units that depend on the model's
+      # scale. Check its actual proximal residual before using a nearly
+      # stationary direction; all refinements share the requested pass limit.
+      initialize!(m, trial)
+      gradient!(modelgrad, m, trial)
+      modelres = _newton_residual(trial, g, modelgrad)
+      modeltol = T(method.tol / 10) * max(one(T), norm(trial, Inf))
+      (modelres <= modeltol || !st.converged || st.passes == 0 ||
+       remaining <= 0 || inner.tol <= eps(T)) && break
+      inner = _with(inner; tol = max(inner.tol / 10, eps(T)))
+    end
     dropzeros!(trial)
     # The first-order decrease of the composite objective, evaluated with the
     # actual gradient. An insufficient inner solve can produce no direction,
@@ -135,14 +150,6 @@ function _solve_generic_newton!(x::_GenericNewtonIterate{T}, f::AbstractFunction
     δ = T(g(trial) - g(x0))
     for i in eachindex(x0, trial, grad)
       δ += grad[i] * (trial[i] - x0[i])
-    end
-    # A relative inner change rule can stop before the outer stationarity
-    # threshold, particularly for an unscaled loss. Tighten a stalled solve
-    # within the existing outer-iteration budget; zero-pass resource limits
-    # and an actual ascent direction are never retried this way.
-    if iszero(δ) && st.converged && st.passes > 0 && inner.tol > eps(T)
-      inner = _with(inner; tol = max(inner.tol / 10, eps(T)))
-      continue
     end
     isfinite(δ) && δ < 0 || break
 
